@@ -1,17 +1,9 @@
 import { spawnSync } from "node:child_process";
-import {
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  symlinkSync,
-  writeFileSync,
-} from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
-import { Option } from "effect";
+import * as Option from "effect/Option";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { loadPipelineConfig, parsePipelineConfigParts } from "../src/config";
@@ -19,15 +11,9 @@ import type { PipelineConfig } from "../src/config";
 import { installCommands } from "../src/install-commands";
 import { runPipelineFromConfig } from "../src/pipeline-runtime";
 import { compileWorkflowPlan } from "../src/planning/compile";
-import {
-  compileScheduleArtifact,
-  generateScheduleArtifact,
-} from "../src/planning/generate";
+import { compileScheduleArtifact, generateScheduleArtifact } from "../src/planning/generate";
 import { createRunnerLaunchPlan } from "../src/runner";
-import {
-  createGoalContinuationLaunchPlan,
-  runBoundedGoalLoop,
-} from "../src/runtime/goal-loop/goal-loop";
+import { createGoalContinuationLaunchPlan, runBoundedGoalLoop } from "../src/runtime/goal-loop/goal-loop";
 import {
   applyGoalStateEvent,
   createGoalState,
@@ -51,11 +37,7 @@ const tempProject = (): string => {
   return dir;
 };
 
-const writeProjectFile = (
-  root: string,
-  path: string,
-  content: string
-): void => {
+const writeProjectFile = (root: string, path: string, content: string): void => {
   const target = join(root, path);
   mkdirSync(dirname(target), { recursive: true });
   writeFileSync(target, content);
@@ -68,7 +50,7 @@ const loadFixturePipelineConfig = (project: string): PipelineConfig =>
       profiles: readFileSync(join(project, ".pipeline/profiles.yaml"), "utf-8"),
       runners: readFileSync(join(project, ".pipeline/runners.yaml"), "utf-8"),
     },
-    project
+    project,
   );
 
 const cliSourcePath = (): string => join(process.cwd(), "src/index.ts");
@@ -78,10 +60,9 @@ const writeBacklogTask = (
   id: string,
   title: string,
   body: string,
-  options: { dependencies?: string[]; parentTaskId?: string } = {}
+  options: { dependencies?: string[]; parentTaskId?: string } = {},
 ): void => {
-  const parentTaskId =
-    options.parentTaskId ?? (id.includes(".") ? "PC-37" : "");
+  const parentTaskId = options.parentTaskId ?? (id.includes(".") ? "PC-37" : "");
   const dependencies =
     options.dependencies && options.dependencies.length > 0
       ? `dependencies:\n${options.dependencies.map((dep) => `  - ${dep}`).join("\n")}\n`
@@ -89,57 +70,24 @@ const writeBacklogTask = (
   writeProjectFile(
     root,
     `backlog/tasks/${id.toLowerCase()} - task.md`,
-    `---\nid: ${id}\ntitle: ${title}\nparent_task_id: ${parentTaskId}\n${dependencies}---\n\n${body}`
+    `---\nid: ${id}\ntitle: ${title}\nparent_task_id: ${parentTaskId}\n${dependencies}---\n\n${body}`,
   );
 };
 
 const writePc37BacklogFixture = (root: string): void => {
-  writeBacklogTask(
-    root,
-    "PC-37",
-    "Pipeline console rollout",
-    "## Description\n\nParent epic.",
-    { parentTaskId: "" }
-  );
-  writeBacklogTask(
-    root,
-    "PC-37.1",
-    "Define runner contract",
-    "## Description\n\nDefine the runner contract."
-  );
-  writeBacklogTask(
-    root,
-    "PC-37.2",
-    "Build API endpoint",
-    "## Description\n\nBuild the API endpoint.",
-    { dependencies: ["PC-37.1"] }
-  );
-  writeBacklogTask(
-    root,
-    "PC-37.3",
-    "Build console view",
-    "## Description\n\nBuild the console view.",
-    { dependencies: ["PC-37.1"] }
-  );
-  writeBacklogTask(
-    root,
-    "PC-37.4",
-    "Wire Kubernetes job",
-    "## Description\n\nWire Kubernetes job launch."
-  );
-  writeBacklogTask(
-    root,
-    "PC-37.5",
-    "Document rollout",
-    "## Description\n\nDocument rollout steps."
-  );
-  writeBacklogTask(
-    root,
-    "PC-37.6",
-    "Verify rollout",
-    "## Description\n\nVerify the rollout.",
-    { dependencies: ["PC-37.2", "PC-37.3", "PC-37.4", "PC-37.5"] }
-  );
+  writeBacklogTask(root, "PC-37", "Pipeline console rollout", "## Description\n\nParent epic.", { parentTaskId: "" });
+  writeBacklogTask(root, "PC-37.1", "Define runner contract", "## Description\n\nDefine the runner contract.");
+  writeBacklogTask(root, "PC-37.2", "Build API endpoint", "## Description\n\nBuild the API endpoint.", {
+    dependencies: ["PC-37.1"],
+  });
+  writeBacklogTask(root, "PC-37.3", "Build console view", "## Description\n\nBuild the console view.", {
+    dependencies: ["PC-37.1"],
+  });
+  writeBacklogTask(root, "PC-37.4", "Wire Kubernetes job", "## Description\n\nWire Kubernetes job launch.");
+  writeBacklogTask(root, "PC-37.5", "Document rollout", "## Description\n\nDocument rollout steps.");
+  writeBacklogTask(root, "PC-37.6", "Verify rollout", "## Description\n\nVerify the rollout.", {
+    dependencies: ["PC-37.2", "PC-37.3", "PC-37.4", "PC-37.5"],
+  });
 };
 
 const writeDogfoodProject = (root: string): void => {
@@ -151,12 +99,12 @@ const writeDogfoodProject = (root: string): void => {
         test: "node -e \"console.log('dogfood tests pass')\"",
         typecheck: "node -e \"console.log('dogfood typecheck passes')\"",
       },
-    })
+    }),
   );
   writeProjectFile(
     root,
     ".pipeline/schemas/dogfood.schema.json",
-    readFileSync(".pipeline/schemas/dogfood.schema.json", "utf-8")
+    readFileSync(".pipeline/schemas/dogfood.schema.json", "utf-8"),
   );
   writeProjectFile(
     root,
@@ -179,7 +127,7 @@ runners:
       output_formats: [text, json, json_schema]
       filesystem: [workspace-write]
       network: [disabled]
-`
+`,
   );
   writeProjectFile(
     root,
@@ -216,7 +164,7 @@ profiles:
     output:
       format: json_schema
       schema_path: .pipeline/schemas/dogfood.schema.json
-`
+`,
   );
   writeProjectFile(
     root,
@@ -293,24 +241,18 @@ workflows:
         kind: group
         nodes: [parallel-left, parallel-right]
         needs: [parallel-left, parallel-right]
-`
+`,
   );
   writeProjectFile(root, ".pipeline/rules/orchestrator.md", "# Dogfood rule\n");
-  writeProjectFile(
-    root,
-    ".agents/skills/orchestrator/SKILL.md",
-    "# Dogfood orchestrator skill\n"
-  );
+  writeProjectFile(root, ".agents/skills/orchestrator/SKILL.md", "# Dogfood orchestrator skill\n");
 };
 
 const workflowProfileIds = (config: PipelineConfig) =>
   [
     ...new Set(
       Object.values(config.workflows).flatMap((workflow) =>
-        workflow.nodes.flatMap((node) =>
-          node.kind === "agent" && node.profile ? [node.profile] : []
-        )
-      )
+        workflow.nodes.flatMap((node) => (node.kind === "agent" && node.profile ? [node.profile] : [])),
+      ),
     ),
   ].toSorted();
 
@@ -318,8 +260,7 @@ const entrypointCommandSurfaces = (config: PipelineConfig) =>
   Object.entries(config.entrypoints).map(([entrypointId, entrypoint]) => ({
     invocation: `/moka-${entrypointId} <task description>`,
     path: `.opencode/commands/moka-${entrypointId}.md`,
-    targetId:
-      "workflow" in entrypoint ? entrypoint.workflow : entrypoint.schedule,
+    targetId: "workflow" in entrypoint ? entrypoint.workflow : entrypoint.schedule,
   }));
 
 const opencodeAgentNamePart = (part: string): string => {
@@ -333,17 +274,10 @@ const opencodeAgentName = (profileId: string): string => {
   if (!profileId.startsWith("moka-")) {
     return profileId;
   }
-  return `MoKa ${profileId
-    .slice("moka-".length)
-    .split("-")
-    .map(opencodeAgentNamePart)
-    .join(" ")}`;
+  return `MoKa ${profileId.slice("moka-".length).split("-").map(opencodeAgentNamePart).join(" ")}`;
 };
 
-const nativeAgentPathFor = (
-  runner: string,
-  profileId: string
-): Option.Option<string> => {
+const nativeAgentPathFor = (runner: string, profileId: string): Option.Option<string> => {
   if (runner === "opencode") {
     return Option.some(`.opencode/agents/${opencodeAgentName(profileId)}.md`);
   }
@@ -351,13 +285,9 @@ const nativeAgentPathFor = (
 };
 
 const flattenDogfoodNodes = (
-  nodes: PipelineConfig["workflows"][string]["nodes"]
+  nodes: PipelineConfig["workflows"][string]["nodes"],
 ): PipelineConfig["workflows"][string]["nodes"] =>
-  nodes.flatMap((node) =>
-    node.kind === "parallel"
-      ? [node, ...flattenDogfoodNodes(node.nodes)]
-      : [node]
-  );
+  nodes.flatMap((node) => (node.kind === "parallel" ? [node, ...flattenDogfoodNodes(node.nodes)] : [node]));
 
 const configuredDogfoodOrchestrator = (project: string) => {
   const config = loadFixturePipelineConfig(project);
@@ -381,11 +311,7 @@ describe("installed dogfood configuration", () => {
       allowMissingLintFileReferences: true,
     });
 
-    expect(
-      compileWorkflowPlan(config, "inspect").topologicalOrder.map(
-        (node) => node.id
-      )
-    ).toEqual(["inspect"]);
+    expect(compileWorkflowPlan(config, "inspect").topologicalOrder.map((node) => node.id)).toEqual(["inspect"]);
     expect(config.workflows.default).toBeUndefined();
     expect(config.workflows["epic-drain"]).toBeUndefined();
   });
@@ -412,10 +338,8 @@ describe("installed dogfood configuration", () => {
     mkdirSync(join(consumer, "node_modules", "@oisincoveney"), {
       recursive: true,
     });
-    symlinkSync(
-      process.cwd(),
-      join(consumer, "node_modules", "@oisincoveney", "pipeline")
-    );
+    symlinkSync(process.cwd(), join(consumer, "node_modules", "@oisincoveney", "pipeline"));
+    symlinkSync(join(process.cwd(), "node_modules", "effect"), join(consumer, "node_modules", "effect"));
     writeProjectFile(
       consumer,
       "schema-import-smoke.mjs",
@@ -424,17 +348,18 @@ import {
   loopStateSchema,
   ticketGraphDtoSchema,
 } from "@oisincoveney/pipeline/tickets";
+import * as Schema from "effect/Schema";
 
-if (loopStateSchema.parse("queued") !== "queued") {
-  throw new Error("loopStateSchema parse failed");
+if (Schema.decodeUnknownSync(loopStateSchema)("queued") !== "queued") {
+  throw new Error("loopStateSchema decode failed");
 }
-ticketGraphDtoSchema.parse({
+Schema.decodeUnknownSync(ticketGraphDtoSchema)({
   batches: [["PIPE-1"]],
   dangling: [],
   edges: [],
   nodes: [{ id: "PIPE-1", loopState: "queued", status: "To Do", title: "One" }],
 });
-`
+`,
     );
 
     const result = spawnSync("node", ["schema-import-smoke.mjs"], {
@@ -450,12 +375,7 @@ ticketGraphDtoSchema.parse({
     // testable with resolveHarnessTarget, and the real ~/.config/opencode etc.
     // are never touched.
     const savedEnv: Record<string, Option.Option<string>> = {};
-    for (const key of [
-      "CLAUDE_CONFIG_DIR",
-      "CODEX_HOME",
-      "OPENCODE_CONFIG_DIR",
-      "GEMINI_CONFIG_DIR",
-    ]) {
+    for (const key of ["CLAUDE_CONFIG_DIR", "CODEX_HOME", "OPENCODE_CONFIG_DIR", "GEMINI_CONFIG_DIR"]) {
       savedEnv[key] = Option.fromNullishOr(process.env[key]);
     }
     process.env.CLAUDE_CONFIG_DIR = join(root, ".claude");
@@ -463,8 +383,7 @@ ticketGraphDtoSchema.parse({
     process.env.OPENCODE_CONFIG_DIR = join(root, ".opencode");
     process.env.GEMINI_CONFIG_DIR = join(root, ".gemini");
     try {
-      const { resolveHarnessTarget } =
-        await import("../src/install-commands/shared");
+      const { resolveHarnessTarget } = await import("../src/install-commands/shared");
       await installCommands({
         cwd: root,
         force: true,
@@ -485,11 +404,7 @@ ticketGraphDtoSchema.parse({
         expect(content).toContain(surface.targetId);
       }
 
-      expect(
-        existsSync(
-          resolveHarnessTarget(".opencode/agents/MoKa Orchestrator.md")
-        )
-      ).toBe(true);
+      expect(existsSync(resolveHarnessTarget(".opencode/agents/MoKa Orchestrator.md"))).toBe(true);
 
       for (const profileId of workflowProfileIds(config)) {
         const { runner } = config.profiles[profileId];
@@ -526,11 +441,7 @@ ticketGraphDtoSchema.parse({
     const project = tempProject();
     writePc37BacklogFixture(project);
     writeProjectFile(project, ".pipeline/rules/test-first.md", "Test first.");
-    writeProjectFile(
-      project,
-      ".pipeline/rules/verification.md",
-      "Verify real usage."
-    );
+    writeProjectFile(project, ".pipeline/rules/verification.md", "Verify real usage.");
     const config = loadPipelineConfig(process.cwd(), {
       allowMissingLintFileReferences: true,
     });
@@ -600,60 +511,28 @@ workflows:
       worktreePath: project,
     });
     const generatedArtifact = generated.artifact;
-    const generatedNodes = flattenDogfoodNodes(
-      generatedArtifact.workflows.root.nodes
-    );
+    const generatedNodes = flattenDogfoodNodes(generatedArtifact.workflows.root.nodes);
     const generatedNodeIds = generatedNodes.map((node) => node.id);
     const generatedTaskContextIds = generatedNodes.flatMap((node) => {
       const taskContextId = node.task_context?.id;
-      return taskContextId === undefined || taskContextId.length === 0
-        ? []
-        : [taskContextId];
+      return taskContextId === undefined || taskContextId.length === 0 ? [] : [taskContextId];
     });
 
-    expect(generatedNodeIds).not.toEqual([
-      "research",
-      "plan",
-      "test",
-      "frontend",
-      "backend",
-      "k8s",
-      "merge",
-      "review",
-    ]);
+    expect(generatedNodeIds).not.toEqual(["research", "plan", "test", "frontend", "backend", "k8s", "merge", "review"]);
     expect(new Set(generatedTaskContextIds)).toEqual(
-      new Set([
-        "PC-37.1",
-        "PC-37.2",
-        "PC-37.3",
-        "PC-37.4",
-        "PC-37.5",
-        "PC-37.6",
-      ])
+      new Set(["PC-37.1", "PC-37.2", "PC-37.3", "PC-37.4", "PC-37.5", "PC-37.6"]),
     );
-    expect(generated.path).toBe(
-      ".pipeline/runs/run-pc37-dogfood/schedule.yaml"
-    );
+    expect(generated.path).toBe(".pipeline/runs/run-pc37-dogfood/schedule.yaml");
     expect(existsSync(join(project, generated.path))).toBe(true);
-    expect(
-      generatedNodes.some(
-        (node) => node.task_context?.title === "Build API endpoint"
-      )
-    ).toBe(true);
+    expect(generatedNodes.some((node) => node.task_context?.title === "Build API endpoint")).toBe(true);
     expect(generatedTaskContextIds.length).toBeGreaterThan(0);
 
-    const compiled = compileScheduleArtifact(
-      config,
-      generated.artifact,
-      project
-    );
+    const compiled = compileScheduleArtifact(config, generated.artifact, project);
 
     expect(compiled.workflowId).toBe("schedule-run-pc37-dogfood-root");
     // Generated schedules carry their ticket-accurate work-unit nodes with no
     // candidate fan-out (best_of_n was removed).
-    expect(
-      new Set(compiled.plan.topologicalOrder.map((node) => node.id))
-    ).toEqual(
+    expect(new Set(compiled.plan.topologicalOrder.map((node) => node.id))).toEqual(
       new Set([
         "research",
         "pc-37-1-green",
@@ -663,30 +542,19 @@ workflows:
         "pc-37-5-green",
         "pc-37-6-green",
         "verify",
-      ])
+      ]),
     );
-    expect(generatedNodeIds.some((id) => id.includes("candidates"))).toBe(
-      false
-    );
+    expect(generatedNodeIds.some((id) => id.includes("candidates"))).toBe(false);
     // Each green work-unit keeps the original agent node id + task_context...
-    expect(
-      generatedNodes.find((node) => node.id === "pc-37-2-green")
-    ).toMatchObject({
+    expect(generatedNodes.find((node) => node.id === "pc-37-2-green")).toMatchObject({
       kind: "agent",
       needs: ["pc-37-1-green"],
       task_context: { id: "PC-37.2" },
     });
     // ...and cross-work-unit dependencies remain directly on the work-unit node.
-    expect(
-      generatedNodes.find((node) => node.id === "pc-37-6-green")
-    ).toMatchObject({
+    expect(generatedNodes.find((node) => node.id === "pc-37-6-green")).toMatchObject({
       kind: "agent",
-      needs: [
-        "pc-37-2-green",
-        "pc-37-3-green",
-        "pc-37-4-green",
-        "pc-37-5-green",
-      ],
+      needs: ["pc-37-2-green", "pc-37-3-green", "pc-37-4-green", "pc-37-5-green"],
     });
   });
 
@@ -700,11 +568,7 @@ workflows:
     };
     const previousExecaImplementation = execaMock.getMockImplementation?.();
     execaMock.mockImplementation?.(
-      async (
-        command: string,
-        args: string[] = [],
-        options?: { cwd?: string; env?: Record<string, string> }
-      ) => {
+      async (command: string, args: string[] = [], options?: { cwd?: string; env?: Record<string, string> }) => {
         const result = spawnSync(command, args, {
           cwd: options?.cwd,
           encoding: "utf-8",
@@ -719,14 +583,12 @@ workflows:
           throw response;
         }
         return response;
-      }
+      },
     );
     const previousTestCommand = process.env.PIPELINE_TEST_COMMAND;
     const previousTypecheckCommand = process.env.PIPELINE_TYPECHECK_COMMAND;
-    process.env.PIPELINE_TEST_COMMAND =
-      "node -e \"console.log('dogfood tests pass')\"";
-    process.env.PIPELINE_TYPECHECK_COMMAND =
-      "node -e \"console.log('dogfood typecheck passes')\"";
+    process.env.PIPELINE_TEST_COMMAND = "node -e \"console.log('dogfood tests pass')\"";
+    process.env.PIPELINE_TYPECHECK_COMMAND = "node -e \"console.log('dogfood typecheck passes')\"";
 
     let result!: Awaited<ReturnType<typeof runPipelineFromConfig>>;
     try {
@@ -747,10 +609,7 @@ workflows:
       } else {
         process.env.PIPELINE_TYPECHECK_COMMAND = previousTypecheckCommand;
       }
-      if (
-        previousExecaImplementation !== undefined &&
-        execaMock.mockImplementation !== undefined
-      ) {
+      if (previousExecaImplementation !== undefined && execaMock.mockImplementation !== undefined) {
         execaMock.mockImplementation(previousExecaImplementation);
       }
     }
@@ -764,27 +623,15 @@ workflows:
       ["flaky-once", false],
       ["flaky-once", true],
     ]);
-    expect(
-      result.nodes.find((node) => node.nodeId === "retry-gate")
-    ).toMatchObject({
+    expect(result.nodes.find((node) => node.nodeId === "retry-gate")).toMatchObject({
       attempts: 2,
       status: "passed",
     });
-    expect(result.hookFailures).toContainEqual(
-      expect.objectContaining({ gate: "optional-failure" })
-    );
-    expect(existsSync(join(project, ".pipeline/dogfood/artifact.json"))).toBe(
-      true
-    );
-    expect(
-      readFileSync(join(project, ".pipeline/dogfood/hooks.log"), "utf-8")
-    ).toContain("workflow.start");
+    expect(result.hookFailures).toContainEqual(expect.objectContaining({ gate: "optional-failure" }));
+    expect(existsSync(join(project, ".pipeline/dogfood/artifact.json"))).toBe(true);
+    expect(readFileSync(join(project, ".pipeline/dogfood/hooks.log"), "utf-8")).toContain("workflow.start");
     expect(configuredDogfoodOrchestrator(project)).toEqual({
-      hooks: expect.arrayContaining([
-        "workflow-start",
-        "node-start",
-        "optional-failure",
-      ]),
+      hooks: expect.arrayContaining(["workflow-start", "node-start", "optional-failure"]),
       mcp_servers: ["pipeline-gateway"],
       model: "dogfood-orchestrator-model",
       rules: ["orchestrator-rule"],
@@ -809,7 +656,7 @@ runners:
       mcp_servers: true
       tools: [read]
       output_formats: [text]
-`
+`,
     );
     writeProjectFile(
       project,
@@ -829,7 +676,7 @@ profiles:
     runner: opencode
     instructions: { inline: Use selected MCP only. }
     mcp_servers: [pipeline-gateway]
-`
+`,
     );
     writeProjectFile(
       project,
@@ -845,7 +692,7 @@ workflows:
       - id: inspect
         kind: agent
         profile: opencode-agent
-`
+`,
     );
 
     const config = loadFixturePipelineConfig(project);
@@ -916,7 +763,7 @@ workflows:
         ],
         type: "workflow.planned",
         workflowId: "planner-opencode",
-      }
+      },
     );
     const failed = applyGoalStateEvent(initial, {
       attempt: 1,
@@ -962,18 +809,14 @@ workflows:
     expect(continuationLaunch.runnerId).toBe("opencode");
     expect(continuationLaunch.profileId).toBe("moka-code-writer");
     expect(continuationLaunch.args).toContain("run");
-    expect(continuationLaunch.args).toContain(
-      "Continue the OpenCode goal-loop dogfood."
-    );
+    expect(continuationLaunch.args).toContain("Continue the OpenCode goal-loop dogfood.");
 
     const result = await runBoundedGoalLoop({
       initialState: loadGoalStateFromRunDirectory(runDirectory),
       maxContinuations: 2,
       runContinuation: ({ attempt, state }) => {
         if (attempt === 1) {
-          return recordGoalStateChangedFiles(state, "green", [
-            "src/runtime/goal-loop/goal-loop.ts",
-          ]);
+          return recordGoalStateChangedFiles(state, "green", ["src/runtime/goal-loop/goal-loop.ts"]);
         }
         const accepted = applyGoalStateEvent(state, {
           attempt: 2,
@@ -1025,9 +868,7 @@ workflows:
     });
     saveGoalState(result.state, runDirectory);
 
-    expect(result.terminalState, JSON.stringify(result, null, 2)).toBe(
-      "passed"
-    );
+    expect(result.terminalState, JSON.stringify(result, null, 2)).toBe("passed");
     expect(result.attempts).toBe(2);
     expect(result.prompts[0]).toContain("acceptance coverage failed");
     expect(result.prompts[1]).toContain("src/runtime/goal-loop/goal-loop.ts");

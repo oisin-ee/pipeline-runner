@@ -1,12 +1,8 @@
-import { Option } from "effect";
+import * as Option from "effect/Option";
 import { describe, expect, it } from "vitest";
 
 import type { PlannedWorkflowNode } from "../planning/compile";
-import type {
-  ChangedFilesSnapshot,
-  NodeExecutionState,
-  RuntimeStructuredOutput,
-} from "./contracts";
+import type { ChangedFilesSnapshot, NodeExecutionState, RuntimeStructuredOutput } from "./contracts";
 import { NodeStateStore } from "./node-state-store";
 
 const pendingState = (id: string): NodeExecutionState => ({
@@ -15,6 +11,14 @@ const pendingState = (id: string): NodeExecutionState => ({
   gates: [],
   id,
   status: "pending",
+});
+
+const plannedNode = (id: string, index: number): PlannedWorkflowNode => ({
+  dependents: [],
+  id,
+  index,
+  kind: "agent",
+  needs: [],
 });
 
 describe("NodeStateStore", () => {
@@ -48,9 +52,7 @@ describe("NodeStateStore", () => {
       id: "a",
       status: "pending",
     });
-    expect(store.nodeSnapshots.get("a")?.files.has("src/example.ts")).toBe(
-      true
-    );
+    expect(store.nodeSnapshots.get("a")?.files.has("src/example.ts")).toBe(true);
     expect(store.lastOutputByNode.get("setup")).toBe("setup output");
     expect([...store.inheritedOutputNodeIds]).toEqual(["setup"]);
     expect(store.structuredOutputs).toEqual([structuredOutput]);
@@ -80,10 +82,7 @@ describe("NodeStateStore", () => {
       },
     });
 
-    const fork = parent.forkForParallelChildren([
-      { id: "child-a" } as PlannedWorkflowNode,
-      { id: "child-b" } as PlannedWorkflowNode,
-    ]);
+    const fork = parent.forkForParallelChildren([plannedNode("child-a", 0), plannedNode("child-b", 1)]);
 
     expect([...fork.inheritedOutputNodeIds]).toEqual(["setup"]);
     expect(fork.lastOutputByNode).not.toBe(parent.lastOutputByNode);
@@ -109,15 +108,13 @@ describe("NodeStateStore", () => {
     const store = new NodeStateStore();
     store.recordHandoff("a", {
       artifacts: [],
-      decisions: ["use zod"],
+      decisions: ["use Effect Schema"],
       openQuestions: [],
       summary: "did a thing",
       testNames: [],
     });
 
-    expect(Option.getOrUndefined(store.handoff("a"))?.summary).toBe(
-      "did a thing"
-    );
+    expect(Option.getOrUndefined(store.handoff("a"))?.summary).toBe("did a thing");
     expect(Option.getOrUndefined(store.handoff("missing"))).toBeUndefined();
   });
 
@@ -131,9 +128,7 @@ describe("NodeStateStore", () => {
       testNames: [],
     });
 
-    const fork = parent.forkForParallelChildren([
-      { id: "child-a" } as PlannedWorkflowNode,
-    ]);
+    const fork = parent.forkForParallelChildren([plannedNode("child-a", 0)]);
 
     // Unlike structuredOutputs (shared by reference), handoffs are copied.
     expect(fork.handoffByNode).not.toBe(parent.handoffByNode);

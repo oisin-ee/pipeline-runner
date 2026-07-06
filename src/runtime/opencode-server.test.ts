@@ -68,7 +68,7 @@ describe("opencode server lifecycle", () => {
         spawn: () => {
           throw new Error("port in use");
         },
-      })
+      }),
     ).rejects.toThrow("Failed to start opencode server: port in use");
   });
 });

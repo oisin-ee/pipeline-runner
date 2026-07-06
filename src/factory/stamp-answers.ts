@@ -1,5 +1,7 @@
+import * as Schema from "effect/Schema";
 import { parse as parseYaml } from "yaml";
-import { z } from "zod";
+
+import { parseWithSchema, struct } from "../schema-boundary";
 
 /**
  * `.copier-answers.yml` is copier's stamp receipt: `_src_path` records the
@@ -10,12 +12,13 @@ import { z } from "zod";
  * "momokaya-template stamp" — template-update must filter on `_src_path`
  * before fanning a `copier update` PR out to a repo.
  */
-const copierAnswersSchema = z
-  .object({
-    _commit: z.string().optional(),
-    _src_path: z.string().optional(),
-  })
-  .passthrough();
+const copierAnswers = Schema.StructWithRest(
+  struct({
+    _commit: Schema.optional(Schema.String),
+    _src_path: Schema.optional(Schema.String),
+  }),
+  [Schema.Record(Schema.String, Schema.Unknown)],
+);
 
 export interface CopierStampReceipt {
   readonly commit?: string;
@@ -23,14 +26,14 @@ export interface CopierStampReceipt {
 }
 
 export const parseCopierAnswers = (source: string): CopierStampReceipt => {
-  const parsed = copierAnswersSchema.parse(parseYaml(source));
+  const parsed = parseWithSchema(copierAnswers, parseYaml(source), {
+    onExcessProperty: "preserve",
+  });
   return {
     ...(parsed._commit === undefined ? {} : { commit: parsed._commit }),
     ...(parsed._src_path === undefined ? {} : { srcPath: parsed._src_path }),
   };
 };
 
-export const isStampOf = (
-  receipt: CopierStampReceipt,
-  templateMatch: string
-): boolean => receipt.srcPath?.includes(templateMatch) ?? false;
+export const isStampOf = (receipt: CopierStampReceipt, templateMatch: string): boolean =>
+  receipt.srcPath?.includes(templateMatch) ?? false;

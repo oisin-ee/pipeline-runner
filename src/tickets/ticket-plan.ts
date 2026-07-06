@@ -1,142 +1,186 @@
-import { Data, Effect, Option } from "effect";
-import { z } from "zod";
+import * as Arr from "effect/Array";
+import * as Effect from "effect/Effect";
+import * as HashMap from "effect/HashMap";
+import * as Option from "effect/Option";
+import * as Schema from "effect/Schema";
 
-import { errorMessage, formatZodIssues } from "./validation-error-format";
+import {
+  mutableArray,
+  nonEmptyMutableArray,
+  parseResultWithSchema,
+  trimmedRequiredString,
+  withDefault,
+  struct,
+} from "../schema-boundary";
+import { formatSchemaIssues, errorMessage } from "./validation-error-format";
 
 const LOCAL_KEY_RE = /^[a-z][a-z0-9-]*$/u;
 
-const nonEmptyStringSchema = z.string().trim().min(1);
-const localKeySchema = nonEmptyStringSchema.regex(LOCAL_KEY_RE, {
-  message:
-    "local keys must start with a lowercase letter and contain only lowercase letters, numbers, and hyphens",
+const nonEmptyStringSchema = trimmedRequiredString;
+const localKeySchema = nonEmptyStringSchema.check(
+  Schema.makeFilter(
+    (value) =>
+      LOCAL_KEY_RE.test(value) ||
+      "local keys must start with a lowercase letter and contain only lowercase letters, numbers, and hyphens",
+    {
+      description: "Lowercase local ticket key with letters, numbers, and hyphens.",
+      identifier: "TicketPlanLocalKey",
+      title: "Ticket plan local key",
+    },
+  ),
+);
+
+const acceptanceCriterionSchema = struct({
+  evidence: nonEmptyStringSchema,
+  text: nonEmptyStringSchema,
 });
 
-const acceptanceCriterionSchema = z
-  .object({
-    evidence: nonEmptyStringSchema,
-    text: nonEmptyStringSchema,
-  })
-  .strict();
+const plannedTaskSchema = struct({
+  acceptance_criteria: nonEmptyMutableArray(acceptanceCriterionSchema),
+  depends_on: withDefault(mutableArray(localKeySchema), []),
+  description: nonEmptyStringSchema,
+  key: localKeySchema,
+  likely_files: withDefault(mutableArray(nonEmptyStringSchema), []),
+  plan: nonEmptyStringSchema,
+  priority: Schema.optional(Schema.Literals(["high", "medium", "low"])),
+  references: withDefault(mutableArray(nonEmptyStringSchema), []),
+  title: nonEmptyStringSchema,
+});
 
-const plannedTaskSchema = z
-  .object({
-    acceptance_criteria: z.array(acceptanceCriterionSchema).min(1),
-    depends_on: z.array(localKeySchema).default([]),
-    description: nonEmptyStringSchema,
-    key: localKeySchema,
-    likely_files: z.array(nonEmptyStringSchema).default([]),
-    plan: nonEmptyStringSchema,
-    priority: z.enum(["high", "medium", "low"]).optional(),
-    references: z.array(nonEmptyStringSchema).default([]),
-    title: nonEmptyStringSchema,
-  })
-  .strict();
+const epicTaskSchema = struct({
+  acceptance_criteria: nonEmptyMutableArray(acceptanceCriterionSchema),
+  description: nonEmptyStringSchema,
+  key: withDefault(localKeySchema, "epic"),
+  likely_files: withDefault(mutableArray(nonEmptyStringSchema), []),
+  plan: nonEmptyStringSchema,
+  priority: Schema.optional(Schema.Literals(["high", "medium", "low"])),
+  references: withDefault(mutableArray(nonEmptyStringSchema), []),
+  title: nonEmptyStringSchema,
+});
 
-const epicTaskSchema = plannedTaskSchema
-  .omit({ depends_on: true })
-  .extend({ key: localKeySchema.default("epic") })
-  .strict();
-
-export type TicketPlan = z.output<typeof ticketPlanSchema>;
+export type TicketPlan = typeof ticketPlanSchema.Type;
 export type TicketPlanTask = TicketPlan["tickets"][number];
 export type TicketPlanEpic = NonNullable<TicketPlan["epic"]>;
 
-class TicketPlanError extends Data.TaggedError("TicketPlanError")<{
-  readonly message: string;
-}> {}
+interface TicketPlanIssue {
+  issue: string;
+  path: readonly PropertyKey[];
+}
 
-const validateUniqueTicketKeys = (
-  tickets: readonly TicketPlanTask[],
-  ctx: z.RefinementCtx
-): ReadonlyMap<string, number> => {
-  const seenKeys = new Map<string, number>();
-  for (const [index, ticket] of tickets.entries()) {
-    const firstIndex = seenKeys.get(ticket.key);
-    if (firstIndex !== undefined) {
-      ctx.addIssue({
-        code: "custom",
-        message: `duplicate local ticket key '${ticket.key}' first used at tickets.${firstIndex}.key`,
-        path: ["tickets", index, "key"],
-      });
-    }
-    seenKeys.set(ticket.key, index);
-  }
-  return seenKeys;
+interface TicketKeyValidation {
+  issues: readonly TicketPlanIssue[];
+  seenKeys: HashMap.HashMap<string, number>;
+}
+
+const emptyTicketKeyValidation: TicketKeyValidation = {
+  issues: [],
+  seenKeys: HashMap.empty<string, number>(),
 };
+
+class TicketPlanError extends Schema.TaggedErrorClass<TicketPlanError>()("TicketPlanError", {
+  message: Schema.String,
+}) {}
+
+const validateUniqueTicketKeys = (tickets: readonly TicketPlanTask[]): TicketKeyValidation =>
+  Arr.reduce(tickets, emptyTicketKeyValidation, (state, ticket, index) => {
+    const duplicateIssue = Option.map(
+      HashMap.get(state.seenKeys, ticket.key),
+      (firstIndex): TicketPlanIssue => ({
+        issue: `duplicate local ticket key '${ticket.key}' first used at tickets.${firstIndex}.key`,
+        path: ["tickets", index, "key"],
+      }),
+    );
+    return {
+      issues: [...state.issues, ...Arr.fromOption(duplicateIssue)],
+      seenKeys: HashMap.set(state.seenKeys, ticket.key, index),
+    };
+  });
 
 const validateEpicKey = (
   epic: Option.Option<TicketPlanEpic>,
-  seenKeys: ReadonlyMap<string, number>,
-  ctx: z.RefinementCtx
-): void => {
-  if (Option.isNone(epic) || !seenKeys.has(epic.value.key)) {
-    return;
-  }
-  ctx.addIssue({
-    code: "custom",
-    message: `epic key '${epic.value.key}' conflicts with a ticket key`,
-    path: ["epic", "key"],
+  seenKeys: HashMap.HashMap<string, number>,
+): readonly TicketPlanIssue[] =>
+  Option.match(epic, {
+    onNone: () => [],
+    onSome: (value) =>
+      HashMap.has(seenKeys, value.key)
+        ? [
+            {
+              issue: `epic key '${value.key}' conflicts with a ticket key`,
+              path: ["epic", "key"],
+            },
+          ]
+        : [],
   });
-};
 
 const validateTicketDependencies = (
   ticket: TicketPlanTask,
   ticketIndex: number,
-  seenKeys: ReadonlyMap<string, number>,
-  ctx: z.RefinementCtx
-): void => {
-  for (const [dependencyIndex, dependencyKey] of ticket.depends_on.entries()) {
-    if (seenKeys.has(dependencyKey)) {
-      continue;
-    }
-    ctx.addIssue({
-      code: "custom",
-      message: `unknown dependency key '${dependencyKey}'`,
-      path: ["tickets", ticketIndex, "depends_on", dependencyIndex],
-    });
-  }
-};
+  seenKeys: HashMap.HashMap<string, number>,
+): readonly TicketPlanIssue[] =>
+  Arr.flatMap(ticket.depends_on, (dependencyKey, dependencyIndex) =>
+    HashMap.has(seenKeys, dependencyKey)
+      ? []
+      : [
+          {
+            issue: `unknown dependency key '${dependencyKey}'`,
+            path: ["tickets", ticketIndex, "depends_on", dependencyIndex],
+          },
+        ],
+  );
 
 const validateLocalDependencies = (
   tickets: readonly TicketPlanTask[],
-  seenKeys: ReadonlyMap<string, number>,
-  ctx: z.RefinementCtx
-): void => {
-  for (const [ticketIndex, ticket] of tickets.entries()) {
-    validateTicketDependencies(ticket, ticketIndex, seenKeys, ctx);
-  }
-};
+  seenKeys: HashMap.HashMap<string, number>,
+): readonly TicketPlanIssue[] =>
+  Arr.flatMap(tickets, (ticket, ticketIndex) => validateTicketDependencies(ticket, ticketIndex, seenKeys));
 
-export const ticketPlanSchema = z
-  .object({
-    epic: epicTaskSchema.optional(),
-    tickets: z.array(plannedTaskSchema).min(1),
-  })
-  .strict()
-  .superRefine((plan, ctx) => {
-    const seenKeys = validateUniqueTicketKeys(plan.tickets, ctx);
-    validateEpicKey(Option.fromUndefinedOr(plan.epic), seenKeys, ctx);
-    validateLocalDependencies(plan.tickets, seenKeys, ctx);
-  });
+const ticketPlanBaseSchema = struct({
+  epic: Schema.optional(epicTaskSchema),
+  tickets: nonEmptyMutableArray(plannedTaskSchema),
+});
 
-export const parseTicketPlanEffect = (
-  source: string
-): Effect.Effect<TicketPlan, TicketPlanError> =>
+export const ticketPlanSchema = ticketPlanBaseSchema.check(
+  Schema.makeFilter(
+    (plan) => {
+      const { issues: keyIssues, seenKeys } = validateUniqueTicketKeys(plan.tickets);
+      const issues = [
+        ...keyIssues,
+        ...validateEpicKey(Option.fromUndefinedOr(plan.epic), seenKeys),
+        ...validateLocalDependencies(plan.tickets, seenKeys),
+      ];
+      return Arr.match(issues, {
+        onEmpty: () => true,
+        onNonEmpty: (values) => values,
+      });
+    },
+    {
+      description: "Ticket plan keys must be unique and dependencies must resolve.",
+      identifier: "TicketPlanGraphIntegrity",
+      title: "Ticket plan graph integrity",
+    },
+  ),
+);
+
+export const parseTicketPlanEffect = (source: string): Effect.Effect<TicketPlan, TicketPlanError> =>
   Effect.gen(function* effectBody() {
-    const json = yield* Effect.try({
-      catch: (error) =>
+    const json = parseResultWithSchema(Schema.UnknownFromJsonString, source);
+    if (!json.ok) {
+      return yield* Effect.fail(
         new TicketPlanError({
-          message: `Could not parse ticket plan JSON: ${errorMessage(error)}`,
+          message: `Could not parse ticket plan JSON: ${errorMessage(json.error)}`,
         }),
-      try: () => JSON.parse(source) as unknown,
+      );
+    }
+    const decoded = parseResultWithSchema(ticketPlanSchema, json.value, {
+      onExcessProperty: "error",
     });
-    const decoded = ticketPlanSchema.safeParse(json);
-    if (decoded.success) {
-      return decoded.data;
+    if (decoded.ok) {
+      return decoded.value;
     }
     return yield* Effect.fail(
       new TicketPlanError({
-        message: `Invalid ticket plan: ${formatZodIssues(decoded.error.issues)}`,
-      })
+        message: `Invalid ticket plan: ${formatSchemaIssues(decoded.issues)}`,
+      }),
     );
   });

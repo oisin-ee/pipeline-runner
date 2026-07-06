@@ -103,11 +103,7 @@ const recordingExecutor = (ran: string[]) => (plan: RunnerLaunchPlan) => {
 // Seed a node's terminal result into the cluster Postgres for `runId`, then close
 // the store so the write is flushed — the exact state a process that journaled
 // the node and then died leaves behind.
-const seedPersistedNodes = async (
-  dbUrl: string,
-  runId: string,
-  nodeIds: string[]
-): Promise<void> => {
+const seedPersistedNodes = async (dbUrl: string, runId: string, nodeIds: string[]): Promise<void> => {
   const store = await postgresDurableRunStore(dbUrl, runId);
   const journal = store.toRunJournal(runId);
   for (const nodeId of nodeIds) {
@@ -127,7 +123,7 @@ describe("resumeRun (no infra)", () => {
         runId: "missing-run",
         task: "resume without a store",
         worktreePath: tempProject(),
-      })
+      }),
     ).rejects.toThrow(NO_STORE_ERROR);
     expect(ran).toEqual([]);
   });
@@ -135,10 +131,10 @@ describe("resumeRun (no infra)", () => {
 
 describePg("moka resume against the live cluster Postgres", () => {
   const dbUrl = PG_URL;
-  const { runId } = setupLivePgDurableSuite(dbUrl, "pgresume");
+  const livePgDurableSuite = setupLivePgDurableSuite(dbUrl, "pgresume");
 
   it("resumes a killed run from Postgres without re-running the finished node (AC1)", async () => {
-    const id = runId("kill-resume");
+    const id = livePgDurableSuite.runId("kill-resume");
     // A prior process completed and journaled "a" before dying.
     await seedPersistedNodes(dbUrl, id, ["a"]);
 
@@ -166,7 +162,7 @@ describePg("moka resume against the live cluster Postgres", () => {
   });
 
   it("fails with a clear error when the runId has no persisted state (AC2)", async () => {
-    const id = runId("unknown");
+    const id = livePgDurableSuite.runId("unknown");
     const ran: string[] = [];
 
     await expect(
@@ -177,14 +173,14 @@ describePg("moka resume against the live cluster Postgres", () => {
         runId: id,
         task: "resume a never-persisted run",
         worktreePath: tempProject(),
-      })
+      }),
     ).rejects.toThrow(NO_PERSISTED_STATE_ERROR);
     expect(ran).toEqual([]);
   });
 
   it("rehydrates only its own (runId,nodeId) records — no cross-run bleed (AC3)", async () => {
-    const idA = runId("iso-A");
-    const idB = runId("iso-B");
+    const idA = livePgDurableSuite.runId("iso-A");
+    const idB = livePgDurableSuite.runId("iso-B");
     // Run B is fully complete (a AND b journaled); run A only completed "a".
     // The graphs share node ids, so if B's "b" record bled into A's resume, A
     // would skip "b" and run nothing — the assertion below would then fail.

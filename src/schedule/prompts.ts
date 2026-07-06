@@ -2,11 +2,7 @@ import { Option } from "effect";
 import { stringify } from "yaml";
 
 import type { PipelineConfig, SchedulingRole } from "../config";
-import type {
-  ScheduleArtifact,
-  ScheduleArtifactError,
-  SchedulePlanningContext,
-} from "../planning/generate";
+import type { ScheduleArtifact, ScheduleArtifactError, SchedulePlanningContext } from "../planning/generate";
 
 const SCHEDULE_BUILTINS = [
   "drain-merge",
@@ -55,15 +51,11 @@ const tokenBudgetPrompt = (config: PipelineConfig): string => {
     `- Keep each node's assembled context under ${budget.max_context_pct}% of its model's context window; prefer the smallest-tier model whose window comfortably holds the node within that cap.`,
     `- Assume ${budget.default_context_window} tokens of context window for a model with no declared window.`,
     ...(windows.length > 0
-      ? [
-          `- Known model context windows: ${windows.map(([id, size]) => `${id}=${size}`).join(", ")}.`,
-        ]
+      ? [`- Known model context windows: ${windows.map(([id, size]) => `${id}=${size}`).join(", ")}.`]
       : []),
     `- Do not exceed the per-category fan-out width (max concurrent same-category nodes). Default width: ${budget.fan_out_width.default}.`,
     ...(fanOut.length > 0
-      ? [
-          `- Category fan-out caps: ${fanOut.map(([category, width]) => `${category}=${width}`).join(", ")}.`,
-        ]
+      ? [`- Category fan-out caps: ${fanOut.map(([category, width]) => `${category}=${width}`).join(", ")}.`]
       : []),
   ].join("\n");
 };
@@ -73,7 +65,7 @@ const nonEmptyStringOption = (value: string): Option.Option<string> =>
 
 const profileModel = (
   profile: PipelineConfig["profiles"][string],
-  runner: Option.Option<PipelineConfig["runners"][string]>
+  runner: Option.Option<PipelineConfig["runners"][string]>,
 ): Option.Option<string> => {
   if (profile.model !== undefined) {
     return Option.some(profile.model);
@@ -84,50 +76,35 @@ const profileModel = (
   });
 };
 
-const profileTools = (
-  profile: PipelineConfig["profiles"][string]
-): Option.Option<string> => {
+const profileTools = (profile: PipelineConfig["profiles"][string]): Option.Option<string> => {
   if (profile.tools === undefined) {
     return Option.none();
   }
   return nonEmptyStringOption(profile.tools.join(", "));
 };
 
-const profileFilesystemMode = (
-  profile: PipelineConfig["profiles"][string]
-): Option.Option<string> => Option.fromUndefinedOr(profile.filesystem?.mode);
+const profileFilesystemMode = (profile: PipelineConfig["profiles"][string]): Option.Option<string> =>
+  Option.fromUndefinedOr(profile.filesystem?.mode);
 
-const profileNetworkMode = (
-  profile: PipelineConfig["profiles"][string]
-): Option.Option<string> => Option.fromUndefinedOr(profile.network?.mode);
+const profileNetworkMode = (profile: PipelineConfig["profiles"][string]): Option.Option<string> =>
+  Option.fromUndefinedOr(profile.network?.mode);
 
-const profileOutputFormat = (
-  profile: PipelineConfig["profiles"][string]
-): string => profile.output?.format ?? "text";
+const profileOutputFormat = (profile: PipelineConfig["profiles"][string]): string => profile.output?.format ?? "text";
 
-const requiredProfilePromptField = (label: string, value: string): string =>
-  `${label}: ${value}`;
+const requiredProfilePromptField = (label: string, value: string): string => `${label}: ${value}`;
 
-const optionalProfilePromptField = (
-  label: string,
-  value: Option.Option<string>
-): Option.Option<string> =>
+const optionalProfilePromptField = (label: string, value: Option.Option<string>): Option.Option<string> =>
   Option.map(value, (resolved) => requiredProfilePromptField(label, resolved));
 
-const definedProfilePromptFields = (
-  fields: Option.Option<string>[]
-): string[] =>
+const definedProfilePromptFields = (fields: Option.Option<string>[]): string[] =>
   fields.flatMap((field) =>
     Option.match(field, {
       onNone: () => [],
       onSome: (value) => [value],
-    })
+    }),
   );
 
-const resolveSchedulerCatalog = (
-  config: PipelineConfig,
-  entrypointId: string
-) => {
+const resolveSchedulerCatalog = (config: PipelineConfig, entrypointId: string) => {
   const command = Object.hasOwn(config.scheduler.commands, entrypointId)
     ? config.scheduler.commands[entrypointId]
     : undefined;
@@ -141,10 +118,7 @@ const resolveSchedulerCatalog = (
   return Option.none();
 };
 
-const schedulerCatalogPrompt = (
-  config: PipelineConfig,
-  entrypointId: string
-): string => {
+const schedulerCatalogPrompt = (config: PipelineConfig, entrypointId: string): string => {
   const catalog = resolveSchedulerCatalog(config, entrypointId);
   return Option.match(catalog, {
     onNone: () => "No scheduler node catalog configured for this entrypoint.",
@@ -156,41 +130,30 @@ const schedulerCatalogPrompt = (
   });
 };
 
-const effectiveSchedulingRoles = (
-  config: PipelineConfig,
-  profileId: string
-): SchedulingRole[] =>
+const effectiveSchedulingRoles = (config: PipelineConfig, profileId: string): SchedulingRole[] =>
   [...new Set(config.profiles[profileId].scheduling_roles ?? [])].toSorted();
 
 const profilePromptFields = (
   config: PipelineConfig,
   id: string,
   profile: PipelineConfig["profiles"][string],
-  runner: Option.Option<PipelineConfig["runners"][string]>
+  runner: Option.Option<PipelineConfig["runners"][string]>,
 ): string[] =>
   definedProfilePromptFields([
     Option.some(requiredProfilePromptField("runner", profile.runner)),
     optionalProfilePromptField("model", profileModel(profile, runner)),
     optionalProfilePromptField(
       "scheduling_roles",
-      nonEmptyStringOption(effectiveSchedulingRoles(config, id).join(", "))
+      nonEmptyStringOption(effectiveSchedulingRoles(config, id).join(", ")),
     ),
-    optionalProfilePromptField(
-      "description",
-      Option.fromUndefinedOr(profile.description)
-    ),
+    optionalProfilePromptField("description", Option.fromUndefinedOr(profile.description)),
     optionalProfilePromptField("tools", profileTools(profile)),
     optionalProfilePromptField("filesystem", profileFilesystemMode(profile)),
     optionalProfilePromptField("network", profileNetworkMode(profile)),
-    Option.some(
-      requiredProfilePromptField("output", profileOutputFormat(profile))
-    ),
+    Option.some(requiredProfilePromptField("output", profileOutputFormat(profile))),
   ]);
 
-const allowedProfilePromptLine = (
-  config: PipelineConfig,
-  id: string
-): string => {
+const allowedProfilePromptLine = (config: PipelineConfig, id: string): string => {
   const profile = config.profiles[id];
   const runner = Option.fromUndefinedOr(config.runners[profile.runner]);
   const fields = profilePromptFields(config, id, profile, runner);
@@ -202,7 +165,7 @@ export const plannerPrompt = (
   task: string,
   baseline: ScheduleArtifact,
   config: PipelineConfig,
-  planningContext: SchedulePlanningContext
+  planningContext: SchedulePlanningContext,
 ): string =>
   [
     `Create a pipeline schedule for entrypoint '${entrypointId}'.`,
@@ -262,9 +225,7 @@ export const plannerPrompt = (
       : "No backlog parent context was resolved.",
     "",
     "Pre-schedule research context:",
-    planningContext.research
-      ? stringify(planningContext.research)
-      : "No pre-schedule research context was recorded.",
+    planningContext.research ? stringify(planningContext.research) : "No pre-schedule research context was recorded.",
     "",
     "Baseline schedule:",
     stringify(baseline),

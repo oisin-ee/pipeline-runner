@@ -4,10 +4,7 @@ import { join } from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type {
-  PipelineRuntimeEvent,
-  PipelineRuntimeOptions,
-} from "../src/pipeline-runtime";
+import type { PipelineRuntimeEvent, PipelineRuntimeOptions } from "../src/pipeline-runtime";
 import { fileRunControlStore } from "../src/run-control/run-control-store";
 import { createRun, readRun } from "./run-control-file-store-helpers";
 import { readJson, readJsonl, runPath } from "./run-control-test-helpers";
@@ -35,28 +32,17 @@ interface RunControlSupervisorModule {
 interface RunControlContractsModule {
   DEFAULT_RUN_CONTROL_HEARTBEAT_INTERVAL_MS?: unknown;
   DEFAULT_RUN_CONTROL_NODE_STALE_AFTER_MS?: unknown;
-  safeParseMokaRunEvent?: (input: unknown) => { success: boolean };
-  safeParseMokaRunManifest?: (input: unknown) => { success: boolean };
+  safeParseMokaRunEvent?: (input: unknown) => { ok: boolean };
+  safeParseMokaRunManifest?: (input: unknown) => { ok: boolean };
 }
 
-const RUN_CONTROL_SUPERVISOR_MODULE_PATH = "../src/run-control/supervisor";
-const RUN_CONTROL_CONTRACTS_MODULE_PATH = "../src/run-control/contracts";
+const loadSupervisor = async (): Promise<RunControlSupervisorModule> => await import("../src/run-control/supervisor");
 
-const loadSupervisor = async (): Promise<RunControlSupervisorModule> =>
-  (await import(
-    RUN_CONTROL_SUPERVISOR_MODULE_PATH
-  )) as RunControlSupervisorModule;
-
-const loadContracts = async (): Promise<RunControlContractsModule> =>
-  (await import(
-    RUN_CONTROL_CONTRACTS_MODULE_PATH
-  )) as RunControlContractsModule;
+const loadContracts = async (): Promise<RunControlContractsModule> => await import("../src/run-control/contracts");
 
 const positiveNamedDefault = (value: unknown): number => {
   if (typeof value !== "number") {
-    throw new TypeError(
-      "Expected run-control default to be exported as a number."
-    );
+    throw new TypeError("Expected run-control default to be exported as a number.");
   }
   if (!(Number.isInteger(value) && value > 0)) {
     throw new Error("Expected run-control default to be a positive integer.");
@@ -64,16 +50,13 @@ const positiveNamedDefault = (value: unknown): number => {
   return value;
 };
 
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === "object" && value !== null;
+const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null;
 
 const readRunControlEvents = (workspaceRoot: string, runId: string) =>
   readJsonl(runPath(workspaceRoot, runId, "events.jsonl")).filter(isRecord);
 
 const heartbeatEvents = (workspaceRoot: string, runId: string) =>
-  readRunControlEvents(workspaceRoot, runId).filter(
-    (event) => event.type === "run.heartbeat"
-  );
+  readRunControlEvents(workspaceRoot, runId).filter((event) => event.type === "run.heartbeat");
 
 describe("run-control heartbeats and stale detection", () => {
   let workspaceRoot: string;
@@ -234,9 +217,7 @@ describe("run-control heartbeats and stale detection", () => {
     });
 
     const terminalEvents = readRunControlEvents(workspaceRoot, runId).filter(
-      (event) =>
-        event.type === "run.status" &&
-        ["aborted", "failed", "timed_out"].includes(String(event.status))
+      (event) => event.type === "run.status" && ["aborted", "failed", "timed_out"].includes(String(event.status)),
     );
     expect(terminalEvents).toEqual([]);
 
@@ -250,19 +231,15 @@ describe("run-control heartbeats and stale detection", () => {
 
   it("stores named default and overrideable heartbeat/stale thresholds in the manifest", async () => {
     const contracts = await loadContracts();
-    const defaultHeartbeatIntervalMs = positiveNamedDefault(
-      contracts.DEFAULT_RUN_CONTROL_HEARTBEAT_INTERVAL_MS
-    );
-    const defaultNodeStaleAfterMs = positiveNamedDefault(
-      contracts.DEFAULT_RUN_CONTROL_NODE_STALE_AFTER_MS
-    );
+    const defaultHeartbeatIntervalMs = positiveNamedDefault(contracts.DEFAULT_RUN_CONTROL_HEARTBEAT_INTERVAL_MS);
+    const defaultNodeStaleAfterMs = positiveNamedDefault(contracts.DEFAULT_RUN_CONTROL_NODE_STALE_AFTER_MS);
     expect(defaultNodeStaleAfterMs).toBeGreaterThan(defaultHeartbeatIntervalMs);
     expect(
       contracts.safeParseMokaRunEvent?.({
         at: "2026-06-17T12:00:05.000Z",
         heartbeatIntervalMs: defaultHeartbeatIntervalMs,
         type: "run.heartbeat",
-      }).success
+      }).ok,
     ).toBe(true);
 
     const baseManifest = {
@@ -278,9 +255,7 @@ describe("run-control heartbeats and stale detection", () => {
       status: "queued",
       target: "local",
     };
-    expect(contracts.safeParseMokaRunManifest?.(baseManifest).success).toBe(
-      true
-    );
+    expect(contracts.safeParseMokaRunManifest?.(baseManifest).ok).toBe(true);
 
     await createRun({
       effort: "normal",
@@ -290,11 +265,7 @@ describe("run-control heartbeats and stale detection", () => {
       target: "local",
       workspaceRoot,
     });
-    expect(
-      readJson(
-        runPath(workspaceRoot, "run-default-thresholds", "manifest.json")
-      )
-    ).toMatchObject({
+    expect(readJson(runPath(workspaceRoot, "run-default-thresholds", "manifest.json"))).toMatchObject({
       staleDetection: {
         heartbeatIntervalMs: defaultHeartbeatIntervalMs,
         nodeStaleAfterMs: defaultNodeStaleAfterMs,
@@ -313,11 +284,7 @@ describe("run-control heartbeats and stale detection", () => {
       target: "local",
       workspaceRoot,
     } as Parameters<typeof createRun>[0]);
-    expect(
-      readJson(
-        runPath(workspaceRoot, "run-overridden-thresholds", "manifest.json")
-      )
-    ).toMatchObject({
+    expect(readJson(runPath(workspaceRoot, "run-overridden-thresholds", "manifest.json"))).toMatchObject({
       staleDetection: {
         heartbeatIntervalMs: 1234,
         nodeStaleAfterMs: 5678,

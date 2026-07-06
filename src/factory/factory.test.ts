@@ -4,11 +4,7 @@ import { basename, join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import {
-  buildCopierCopyArgs,
-  committerConfigArgs,
-  runCreateExperiment,
-} from "./create-experiment";
+import { buildCopierCopyArgs, committerConfigArgs, runCreateExperiment } from "./create-experiment";
 import type { FactoryExec, FactoryGit } from "./exec";
 import { buildFactoryLaneJob, FACTORY_LANE_LABEL } from "./factory-lane";
 import { githubGitCredentialEnv } from "./git-credentials";
@@ -26,11 +22,9 @@ const INFRA_PUSH_CALL = /^git push origin HEAD:main/u;
 const REPO_DIR_PREFIX = /^update-/u;
 const STORE_FILE_RE = /^store --file=(.+)$/u;
 
-const MOMOKAYA_ANSWERS = [
-  "_commit: v1.0.2",
-  "_src_path: gh:oisin-ee/momokaya-template",
-  "name: scratch-app",
-].join("\n");
+const MOMOKAYA_ANSWERS = ["_commit: v1.0.2", "_src_path: gh:oisin-ee/momokaya-template", "name: scratch-app"].join(
+  "\n",
+);
 
 const OTHER_TEMPLATE_ANSWERS = [
   "_commit: HEAD",
@@ -45,12 +39,8 @@ describe("stamp-answers", () => {
   });
 
   it("accepts only momokaya-template stamps", () => {
-    expect(
-      isStampOf(parseCopierAnswers(MOMOKAYA_ANSWERS), "momokaya-template")
-    ).toBe(true);
-    expect(
-      isStampOf(parseCopierAnswers(OTHER_TEMPLATE_ANSWERS), "momokaya-template")
-    ).toBe(false);
+    expect(isStampOf(parseCopierAnswers(MOMOKAYA_ANSWERS), "momokaya-template")).toBe(true);
+    expect(isStampOf(parseCopierAnswers(OTHER_TEMPLATE_ANSWERS), "momokaya-template")).toBe(false);
     expect(isStampOf({}, "momokaya-template")).toBe(false);
   });
 });
@@ -65,7 +55,7 @@ describe("buildCopierCopyArgs", () => {
         name: "scratch-app",
         previews: false,
         templateSource: "gh:oisin-ee/momokaya-template",
-      })
+      }),
     ).toEqual([
       "copy",
       "--trust",
@@ -120,10 +110,7 @@ describe("runTemplateUpdate", () => {
           writeFileSync(join(dir, ".copier-answers.yml"), MOMOKAYA_ANSWERS);
         }
         if (repo === "other") {
-          writeFileSync(
-            join(dir, ".copier-answers.yml"),
-            OTHER_TEMPLATE_ANSWERS
-          );
+          writeFileSync(join(dir, ".copier-answers.yml"), OTHER_TEMPLATE_ANSWERS);
         }
         return "";
       }
@@ -177,9 +164,7 @@ describe("runTemplateUpdate", () => {
       repos: ["stamped"],
       workRoot,
     });
-    expect(results).toEqual([
-      { repo: "stamped", status: "up-to-date", version: "v1.0.2" },
-    ]);
+    expect(results).toEqual([{ repo: "stamped", status: "up-to-date", version: "v1.0.2" }]);
   });
 });
 
@@ -198,18 +183,11 @@ describe("buildFactoryLaneJob", () => {
     expect(job.metadata.labels[FACTORY_LANE_LABEL]).toBe("create-experiment");
     const podSpec = job.spec.template.spec;
     const container = podSpec.containers[0];
-    expect(container.args).toEqual([
-      "create-experiment",
-      "--name",
-      "scratch-app",
-    ]);
+    expect(container.args).toEqual(["create-experiment", "--name", "scratch-app"]);
     expect("command" in container).toBe(false);
     expect(podSpec.restartPolicy).toBe("Never");
     expect(job.spec.backoffLimit).toBe(0);
-    expect(podSpec.volumes.map((volume) => volume.name)).toEqual([
-      "runner-git-credentials",
-      "github-auth",
-    ]);
+    expect(podSpec.volumes.map((volume) => volume.name)).toEqual(["runner-git-credentials", "github-auth"]);
     expect(container.volumeMounts).toEqual([
       {
         mountPath: "/etc/pipeline/git-credentials",
@@ -233,19 +211,14 @@ describe("buildFactoryLaneJob", () => {
         githubAuthSecretName: "b",
         image: "img",
         namespace: "ns",
-      })
+      }),
     ).toThrow();
   });
 });
 
 describe("committerConfigArgs", () => {
   it("pins the oisin-bot committer identity", () => {
-    expect(committerConfigArgs()).toEqual([
-      "-c",
-      "user.name=oisin-bot",
-      "-c",
-      "user.email=git@oisin.ee",
-    ]);
+    expect(committerConfigArgs()).toEqual(["-c", "user.name=oisin-bot", "-c", "user.email=git@oisin.ee"]);
   });
 });
 
@@ -272,9 +245,7 @@ describe("githubGitCredentialEnv", () => {
     }
     const storePath = storeMatch[1];
     // The token lands only in the 0600 store file, never in a URL/argv.
-    expect(readFileSync(storePath, "utf-8")).toBe(
-      "https://oisin-bot:ghp_secrettoken@github.com\n"
-    );
+    expect(readFileSync(storePath, "utf-8")).toBe("https://oisin-bot:ghp_secrettoken@github.com\n");
   });
 });
 
@@ -292,7 +263,7 @@ describe("runCreateExperiment", () => {
         exec: failingExec,
         git: failingGit,
         name: "Bad_Name",
-      })
+      }),
     ).rejects.toThrow(KEBAB_ERROR);
   });
 
@@ -305,17 +276,9 @@ describe("runCreateExperiment", () => {
         throw new Error("not found");
       }
       if (command === "copier") {
-        const registryDir = join(
-          workRoot,
-          "scratch-app",
-          "infra-registry",
-          "config"
-        );
+        const registryDir = join(workRoot, "scratch-app", "infra-registry", "config");
         mkdirSync(registryDir, { recursive: true });
-        writeFileSync(
-          join(registryDir, "scratch-app.yaml"),
-          "repo: scratch-app\n"
-        );
+        writeFileSync(join(registryDir, "scratch-app.yaml"), "repo: scratch-app\n");
       }
       return { stdout: "" };
     };
@@ -336,9 +299,7 @@ describe("runCreateExperiment", () => {
     });
 
     expect(result.repoUrl).toBe("https://github.com/oisin-ee/scratch-app");
-    expect(result.registryPath).toBe(
-      "k8s/apps/platform-fleet/config/scratch-app.yaml"
-    );
+    expect(result.registryPath).toBe("k8s/apps/platform-fleet/config/scratch-app.yaml");
     expect(result.infraCommitSha).toBe("abc123");
     const sequence = calls.filter((call) => SIDE_EFFECT_CALLS.test(call));
     expect(sequence[0]).toMatch(COPIER_COPY_CALL);
@@ -359,7 +320,7 @@ describe("runCreateExperiment", () => {
         git: failingGit,
         log: () => {},
         name: "taken",
-      })
+      }),
     ).rejects.toThrow(ALREADY_EXISTS_ERROR);
   });
 });

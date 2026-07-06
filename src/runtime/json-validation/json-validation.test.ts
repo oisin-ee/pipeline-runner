@@ -4,11 +4,7 @@ import { join } from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import {
-  parseJsonObject,
-  parseRuntimeOutput,
-  validateJsonSchemaSource,
-} from "./json-validation";
+import { parseJsonObject, parseRuntimeOutput, validateJsonSchemaSource } from "./json-validation";
 
 const tempDirs: string[] = [];
 
@@ -55,25 +51,21 @@ describe("json validation runtime helpers", () => {
         properties: { verdict: { const: "PASS" } },
         required: ["verdict"],
         type: "object",
-      })
+      }),
     );
 
     expect(
       validateJsonSchemaSource(
         ["```json", JSON.stringify({ verdict: "PASS" }), "```"].join("\n"),
         "schemas/result.schema.json",
-        project
-      )
+        project,
+      ),
     ).toMatchObject({
       evidence: ["JSON schema passed: schemas/result.schema.json"],
       passed: true,
     });
     expect(
-      validateJsonSchemaSource(
-        JSON.stringify({ verdict: "FAIL" }),
-        "schemas/result.schema.json",
-        project
-      )
+      validateJsonSchemaSource(JSON.stringify({ verdict: "FAIL" }), "schemas/result.schema.json", project),
     ).toMatchObject({
       passed: false,
       reason: "JSON schema validation failed",
@@ -94,15 +86,15 @@ describe("json validation runtime helpers", () => {
         },
         required: ["ac", "findings"],
         type: "object",
-      })
+      }),
     );
 
     expect(
       validateJsonSchemaSource(
         JSON.stringify({ ac: ["covered"], findings: ["ready"] }),
         "schemas/research.schema.json",
-        project
-      )
+        project,
+      ),
     ).toMatchObject({
       evidence: ["JSON schema passed: schemas/research.schema.json"],
       passed: true,

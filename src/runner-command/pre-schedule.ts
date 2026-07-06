@@ -1,15 +1,13 @@
 import { readFile } from "node:fs/promises";
 
-import { Effect, Option } from "effect";
 import type { Scope } from "effect";
-import { z } from "zod";
+import * as Effect from "effect/Effect";
+import * as Option from "effect/Option";
+import * as Schema from "effect/Schema";
 
 import type { PipelineConfig } from "../config";
 import { resolveFileReference } from "../path-refs";
-import {
-  compileScheduleArtifact,
-  generateScheduleArtifactInMemory,
-} from "../planning/generate";
+import { compileScheduleArtifact, generateScheduleArtifactInMemory } from "../planning/generate";
 import type { SchedulePhaseContext } from "../planning/generate";
 import { createRunnerLaunchPlan } from "../runner";
 import type { AgentResult } from "../runner";
@@ -18,38 +16,22 @@ import { normalizeRunnerOutput } from "../runner-output";
 import { runLaunchPlan } from "../runner/subprocess";
 import type { RuntimeNodeResult } from "../runtime/contracts";
 import { isOutputStream } from "../runtime/services/runner-command-io-service";
-import type {
-  OutputStream,
-  RunnerCommandIoService,
-} from "../runtime/services/runner-command-io-service";
+import type { OutputStream, RunnerCommandIoService } from "../runtime/services/runner-command-io-service";
 import { recordNodeResult } from "../runtime/step/step-node";
-import {
-  parseTicketPlanEffect,
-  ticketPlanSchema,
-} from "../tickets/ticket-plan";
+import { mutableArray, parseResultWithSchema, parseStrictWithSchema, requiredString, struct } from "../schema-boundary";
+import { parseTicketPlanEffect, ticketPlanSchema } from "../tickets/ticket-plan";
 import {
   DYNAMIC_COMMAND_EXIT,
   dynamicRunnerCommandErrorExit,
   dynamicRunnerContextEffect,
   runScopedDynamicRunnerCommand,
 } from "./dynamic-command";
-import type {
-  DynamicRunnerPersistence,
-  ResolveDynamicRunnerPersistence,
-} from "./dynamic-command";
+import type { DynamicRunnerPersistence, ResolveDynamicRunnerPersistence } from "./dynamic-command";
 import { runnerTaskTextEffect } from "./run";
 
-const PRE_SCHEDULE_NODE_IDS = [
-  "pre-research",
-  "pre-planning",
-  "pre-generate-schedule",
-] as const;
+const PRE_SCHEDULE_NODE_IDS = ["pre-research", "pre-planning", "pre-generate-schedule"] as const;
 
-const PRE_SCHEDULE_PHASES = [
-  "generate-schedule",
-  "pre-planning",
-  "pre-research",
-] as const;
+const PRE_SCHEDULE_PHASES = ["generate-schedule", "pre-planning", "pre-research"] as const;
 
 export type PreSchedulePhase = (typeof PRE_SCHEDULE_PHASES)[number];
 export type PreScheduleNodeId = (typeof PRE_SCHEDULE_NODE_IDS)[number];
@@ -70,40 +52,39 @@ const PHASE_PROFILES = {
 const MAX_DYNAMIC_SCHEDULE_WAVES = 90;
 const JSON_CODE_FENCE_RE = /^```(?:json)?\s*([\s\S]*?)\s*```$/iu;
 
-const researchOutputSchema = z
-  .object({
-    ac: z.array(z.string()),
-    files: z.array(z.string()).optional(),
-    findings: z.array(z.string()),
-    risks: z.array(z.string()).optional(),
-    target: z.string().optional(),
-  })
-  .strict();
+const researchOutputSchema = struct({
+  ac: mutableArray(Schema.String),
+  files: Schema.optional(mutableArray(Schema.String)),
+  findings: mutableArray(Schema.String),
+  risks: Schema.optional(mutableArray(Schema.String)),
+  target: Schema.optional(Schema.String),
+});
 
 type PreScheduleExecutor = (
   plan: ReturnType<typeof createRunnerLaunchPlan>,
-  options: Parameters<typeof runLaunchPlan>[1]
+  options: Parameters<typeof runLaunchPlan>[1],
 ) => AgentResult | Promise<AgentResult>;
 
-const preScheduleOptionsSchema = z
-  .object({
-    cwd: z.string().min(1).optional(),
-    executor: z
-      .custom<PreScheduleExecutor>((value) => typeof value === "function")
-      .optional(),
-    payloadFile: z.string().min(1),
-    phase: z.enum(PRE_SCHEDULE_PHASES),
-    resolvePersistence: z
-      .custom<ResolveDynamicRunnerPersistence>(
-        (value) => typeof value === "function"
-      )
-      .optional(),
-    stderr: z.custom<OutputStream>((value) => isOutputStream(value)).optional(),
-    stdout: z.custom<OutputStream>((value) => isOutputStream(value)).optional(),
-  })
-  .strict();
+const preScheduleExecutor = Schema.declare<PreScheduleExecutor>(
+  (value): value is PreScheduleExecutor => typeof value === "function",
+);
+const resolveDynamicRunnerPersistence = Schema.declare<ResolveDynamicRunnerPersistence>(
+  (value): value is ResolveDynamicRunnerPersistence => typeof value === "function",
+);
+const outputStream = Schema.declare<OutputStream>(isOutputStream);
 
-export type PreScheduleOptions = z.input<typeof preScheduleOptionsSchema>;
+const preScheduleOptionsSchema = struct({
+  cwd: Schema.optional(requiredString),
+  executor: Schema.optional(preScheduleExecutor),
+  payloadFile: requiredString,
+  phase: Schema.Literals(PRE_SCHEDULE_PHASES),
+  resolvePersistence: Schema.optional(resolveDynamicRunnerPersistence),
+  stderr: Schema.optional(outputStream),
+  stdout: Schema.optional(outputStream),
+});
+
+export type PreScheduleOptions = typeof preScheduleOptionsSchema.Encoded;
+type ParsedPreScheduleOptions = typeof preScheduleOptionsSchema.Type;
 
 interface PreScheduleContext {
   config: PipelineConfig;
@@ -113,12 +94,9 @@ interface PreScheduleContext {
   worktreePath: string;
 }
 
-export const preScheduleNodeIds = (): readonly PreScheduleNodeId[] =>
-  PRE_SCHEDULE_NODE_IDS;
+export const preScheduleNodeIds = (): readonly PreScheduleNodeId[] => PRE_SCHEDULE_NODE_IDS;
 
-const ensurePreScheduleRunRecordEffect = (
-  context: PreScheduleContext
-): Effect.Effect<void, unknown> =>
+const ensurePreScheduleRunRecordEffect = (context: PreScheduleContext): Effect.Effect<void, unknown> =>
   context.persistence.runControlStore
     .createRun({
       effort: "normal",
@@ -130,50 +108,34 @@ const ensurePreScheduleRunRecordEffect = (
     .pipe(Effect.asVoid);
 
 const preScheduleContextEffect = (
-  options: z.output<typeof preScheduleOptionsSchema>
-): Effect.Effect<
-  PreScheduleContext,
-  unknown,
-  RunnerCommandIoService | Scope.Scope
-> =>
+  options: ParsedPreScheduleOptions,
+): Effect.Effect<PreScheduleContext, unknown, RunnerCommandIoService | Scope.Scope> =>
   Effect.gen(function* effectBody() {
-    const { config, payload, persistence, worktreePath } =
-      yield* dynamicRunnerContextEffect(options);
+    const { config, payload, persistence, worktreePath } = yield* dynamicRunnerContextEffect(options);
     const task = yield* runnerTaskTextEffect(payload.task, worktreePath);
     return { config, payload, persistence, task, worktreePath };
   });
 
-const schedulePhaseContextEffect = (
-  context: PreScheduleContext
-): Effect.Effect<SchedulePhaseContext, unknown> =>
+const schedulePhaseContextEffect = (context: PreScheduleContext): Effect.Effect<SchedulePhaseContext, unknown> =>
   Effect.gen(function* effectBody() {
-    const research = context.persistence.durableStore.get(
-      context.payload.run.id,
-      "pre-research"
-    );
-    const ticketPlan = context.persistence.durableStore.get(
-      context.payload.run.id,
-      "pre-planning"
-    );
+    const research = context.persistence.durableStore.get(context.payload.run.id, "pre-research");
+    const ticketPlan = context.persistence.durableStore.get(context.payload.run.id, "pre-planning");
     return {
       research: Option.isSome(research)
         ? yield* Effect.try({
             catch: (error) => error,
-            try: () =>
-              researchOutputSchema.parse(
-                JSON.parse(research.value.result.output)
-              ),
+            try: () => parseStrictWithSchema(researchOutputSchema, JSON.parse(research.value.result.output)),
           })
         : undefined,
       ticketPlan: Option.isSome(ticketPlan)
-        ? ticketPlanSchema.parse(JSON.parse(ticketPlan.value.result.output))
+        ? parseStrictWithSchema(ticketPlanSchema, JSON.parse(ticketPlan.value.result.output))
         : undefined,
     };
   });
 
 const recordPhaseResultEffect = (
   context: PreScheduleContext,
-  result: RuntimeNodeResult
+  result: RuntimeNodeResult,
 ): Effect.Effect<void, unknown> =>
   Effect.gen(function* effectBody() {
     recordNodeResult({
@@ -191,9 +153,7 @@ const recordPhaseResultEffect = (
 
 const profileInstructionsEffect = (
   worktreePath: string,
-  instructions: Option.Option<
-    PipelineConfig["profiles"][string]["instructions"]
-  >
+  instructions: Option.Option<PipelineConfig["profiles"][string]["instructions"]>,
 ): Effect.Effect<string, unknown> =>
   Option.match(instructions, {
     onNone: () => Effect.succeed(""),
@@ -215,10 +175,7 @@ const profileInstructionsEffect = (
     },
   });
 
-const remotePhaseContract = (
-  label: string,
-  profileInstructions: string
-): string[] => [
+const remotePhaseContract = (label: string, profileInstructions: string): string[] => [
   `Automated remote pre-schedule ${label} phase.`,
   "The phase contract below overrides any conflicting profile instruction.",
   "",
@@ -237,7 +194,7 @@ const remotePhaseContract = (
 const agentPhasePrompt = (
   phase: Exclude<PreSchedulePhase, "generate-schedule">,
   context: PreScheduleContext,
-  profileInstructions: string
+  profileInstructions: string,
 ): string => {
   if (phase === "pre-research") {
     return [
@@ -249,10 +206,7 @@ const agentPhasePrompt = (
       context.task,
     ].join("\n");
   }
-  const research = context.persistence.durableStore.get(
-    context.payload.run.id,
-    "pre-research"
-  );
+  const research = context.persistence.durableStore.get(context.payload.run.id, "pre-research");
   return [
     ...remotePhaseContract("ticket scoping", profileInstructions),
     "Scope this task into an implementation-ready ticket plan before scheduling.",
@@ -262,22 +216,20 @@ const agentPhasePrompt = (
     context.task,
     "",
     "Research:",
-    Option.isSome(research)
-      ? research.value.result.output
-      : "No pre-research output recorded.",
+    Option.isSome(research) ? research.value.result.output : "No pre-research output recorded.",
   ].join("\n");
 };
 
 const agentPhasePromptEffect = (
   phase: Exclude<PreSchedulePhase, "generate-schedule">,
-  context: PreScheduleContext
+  context: PreScheduleContext,
 ): Effect.Effect<string, unknown> =>
   Effect.gen(function* effectBody() {
     const profileId = PHASE_PROFILES[phase];
     const profile = context.config.profiles[profileId];
     const profileInstructions = yield* profileInstructionsEffect(
       context.worktreePath,
-      Option.fromNullishOr(profile.instructions)
+      Option.fromNullishOr(profile.instructions),
     );
     return agentPhasePrompt(phase, context, profileInstructions);
   });
@@ -300,8 +252,7 @@ const jsonObjectCandidates = (output: string): string[] => {
   return [...candidates];
 };
 
-const errorMessage = (error: unknown): string =>
-  error instanceof Error ? error.message : String(error);
+const errorMessage = (error: unknown): string => (error instanceof Error ? error.message : String(error));
 
 const parseJsonObjectOutput = (output: string): unknown => {
   const errors: string[] = [];
@@ -315,52 +266,49 @@ const parseJsonObjectOutput = (output: string): unknown => {
   throw new Error(errors.at(-1) ?? "no JSON object candidate found");
 };
 
-const outputExcerpt = (output: string): string =>
-  output.trim().replaceAll(/\s+/gu, " ").slice(0, 500);
+const outputExcerpt = (output: string): string => output.trim().replaceAll(/\s+/gu, " ").slice(0, 500);
 
 const phaseSchemaError = (
   phase: Exclude<PreSchedulePhase, "generate-schedule">,
   schemaName: string,
-  error: z.ZodError,
-  output: string
+  error: Error,
+  output: string,
 ): Error =>
   new Error(
-    `${phase} returned JSON that does not match ${schemaName}: ${error.message}. Output excerpt: ${outputExcerpt(output)}`
+    `${phase} returned JSON that does not match ${schemaName}: ${error.message}. Output excerpt: ${outputExcerpt(output)}`,
   );
 
 const validatedAgentPhaseOutputEffect = (
   phase: Exclude<PreSchedulePhase, "generate-schedule">,
-  output: string
+  output: string,
 ): Effect.Effect<string, unknown> =>
   Effect.gen(function* effectBody() {
     const json = yield* Effect.try({
       catch: (error) =>
-        new Error(
-          `${phase} returned invalid JSON: ${errorMessage(error)}. Output excerpt: ${outputExcerpt(output)}`
-        ),
+        new Error(`${phase} returned invalid JSON: ${errorMessage(error)}. Output excerpt: ${outputExcerpt(output)}`),
       try: () => parseJsonObjectOutput(output),
     });
     if (phase === "pre-research") {
-      const parsed = researchOutputSchema.safeParse(json);
-      if (!parsed.success) {
-        return yield* Effect.fail(
-          phaseSchemaError(phase, "research.schema.json", parsed.error, output)
-        );
+      const parsed = parseResultWithSchema(researchOutputSchema, json, {
+        onExcessProperty: "error",
+      });
+      if (!parsed.ok) {
+        return yield* Effect.fail(phaseSchemaError(phase, "research.schema.json", parsed.error, output));
       }
-      return JSON.stringify(parsed.data);
+      return JSON.stringify(parsed.value);
     }
-    const parsed = ticketPlanSchema.safeParse(json);
-    if (!parsed.success) {
-      return yield* Effect.fail(
-        phaseSchemaError(phase, "ticket-plan.schema.json", parsed.error, output)
-      );
+    const parsed = parseResultWithSchema(ticketPlanSchema, json, {
+      onExcessProperty: "error",
+    });
+    if (!parsed.ok) {
+      return yield* Effect.fail(phaseSchemaError(phase, "ticket-plan.schema.json", parsed.error, output));
     }
-    return JSON.stringify(parsed.data);
+    return JSON.stringify(parsed.value);
   });
 
 const runAgentPhaseEffect = (
-  options: z.output<typeof preScheduleOptionsSchema>,
-  context: PreScheduleContext
+  options: ParsedPreScheduleOptions,
+  context: PreScheduleContext,
 ): Effect.Effect<RuntimeNodeResult, unknown> => {
   const { phase } = options;
   if (phase === "generate-schedule") {
@@ -380,16 +328,14 @@ const runAgentPhaseEffect = (
     });
     const normalized = normalizeRunnerOutput(plan, agentResult.stdout);
     const output =
-      agentResult.exitCode === 0
-        ? yield* validatedAgentPhaseOutputEffect(phase, normalized.output)
-        : normalized.output;
+      agentResult.exitCode === 0 ? yield* validatedAgentPhaseOutputEffect(phase, normalized.output) : normalized.output;
     if (phase === "pre-planning" && agentResult.exitCode === 0) {
       yield* parseTicketPlanEffect(output);
     }
     if (phase === "pre-research" && agentResult.exitCode === 0) {
       yield* Effect.try({
         catch: (error) => error,
-        try: () => researchOutputSchema.parse(JSON.parse(output)),
+        try: () => parseStrictWithSchema(researchOutputSchema, JSON.parse(output)),
       });
     }
     return {
@@ -410,9 +356,7 @@ const scheduleEntrypointId = (payload: RunnerCommandPayload): string => {
   return payload.submission.mode === "quick" ? "quick" : "execute";
 };
 
-const generateSchedulePhaseEffect = (
-  context: PreScheduleContext
-): Effect.Effect<RuntimeNodeResult, unknown> =>
+const generateSchedulePhaseEffect = (context: PreScheduleContext): Effect.Effect<RuntimeNodeResult, unknown> =>
   Effect.gen(function* effectBody() {
     const phaseContext = yield* schedulePhaseContextEffect(context);
     const entrypointId = scheduleEntrypointId(context.payload);
@@ -431,18 +375,13 @@ const generateSchedulePhaseEffect = (
     });
     const compiled = yield* Effect.try({
       catch: (error) => error,
-      try: () =>
-        compileScheduleArtifact(
-          context.config,
-          generated.artifact,
-          context.worktreePath
-        ),
+      try: () => compileScheduleArtifact(context.config, generated.artifact, context.worktreePath),
     });
     if (compiled.plan.parallelBatches.length > MAX_DYNAMIC_SCHEDULE_WAVES) {
       return yield* Effect.fail(
         new Error(
-          `Generated schedule has ${compiled.plan.parallelBatches.length} topological waves; dynamic Argo recursion supports at most ${MAX_DYNAMIC_SCHEDULE_WAVES}.`
-        )
+          `Generated schedule has ${compiled.plan.parallelBatches.length} topological waves; dynamic Argo recursion supports at most ${MAX_DYNAMIC_SCHEDULE_WAVES}.`,
+        ),
       );
     }
     yield* context.persistence.runControlStore.publishSchedule({
@@ -463,7 +402,7 @@ const generateSchedulePhaseEffect = (
   });
 
 const runPreSchedulePhaseEffect = (
-  options: z.output<typeof preScheduleOptionsSchema>
+  options: ParsedPreScheduleOptions,
 ): Effect.Effect<number, never, RunnerCommandIoService | Scope.Scope> =>
   Effect.gen(function* effectBody() {
     const context = yield* preScheduleContextEffect(options);
@@ -473,25 +412,12 @@ const runPreSchedulePhaseEffect = (
         ? yield* generateSchedulePhaseEffect(context)
         : yield* runAgentPhaseEffect(options, context);
     yield* recordPhaseResultEffect(context, result);
-    return result.status === "passed"
-      ? DYNAMIC_COMMAND_EXIT.pass
-      : DYNAMIC_COMMAND_EXIT.fail;
+    return result.status === "passed" ? DYNAMIC_COMMAND_EXIT.pass : DYNAMIC_COMMAND_EXIT.fail;
   }).pipe(
     Effect.catch((error) =>
-      Effect.sync(() =>
-        dynamicRunnerCommandErrorExit(
-          error,
-          Option.fromNullishOr(options.stderr)
-        )
-      )
-    )
+      Effect.sync(() => dynamicRunnerCommandErrorExit(error, Option.fromNullishOr(options.stderr))),
+    ),
   );
 
-export const runPreSchedulePhase = async (
-  rawOptions: Partial<PreScheduleOptions> = {}
-): Promise<number> =>
-  await runScopedDynamicRunnerCommand(
-    preScheduleOptionsSchema,
-    rawOptions,
-    runPreSchedulePhaseEffect
-  );
+export const runPreSchedulePhase = async (rawOptions: Partial<PreScheduleOptions> = {}): Promise<number> =>
+  await runScopedDynamicRunnerCommand(preScheduleOptionsSchema, rawOptions, runPreSchedulePhaseEffect);

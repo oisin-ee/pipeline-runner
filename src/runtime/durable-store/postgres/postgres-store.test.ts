@@ -5,10 +5,7 @@ import postgres from "postgres";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import type { AcceptanceCriterion, RuntimeNodeResult } from "../../contracts";
-import {
-  migratePostgresDurableStore,
-  postgresDurableRunStore,
-} from "./postgres-store";
+import { migratePostgresDurableStore, postgresDurableRunStore } from "./postgres-store";
 import type { PostgresDurableRunStore } from "./postgres-store";
 import { MOKA_POSTGRES_SCHEMA } from "./schema";
 
@@ -46,8 +43,7 @@ describePg("postgresDurableRunStore (live cluster PG)", () => {
   const openStores: PostgresDurableRunStore[] = [];
   let admin: postgres.Sql;
 
-  const runId = (label: string): string =>
-    `${suitePrefix}:${label}:${randomUUID()}`;
+  const runId = (label: string): string => `${suitePrefix}:${label}:${randomUUID()}`;
 
   const newStore = async (): Promise<PostgresDurableRunStore> => {
     const store = await postgresDurableRunStore(dbUrl);
@@ -115,9 +111,7 @@ describePg("postgresDurableRunStore (live cluster PG)", () => {
     await writer.flush();
 
     const reader = await newStore();
-    expect(Option.getOrThrow(reader.get(id, "node")).result.output).toBe(
-      "second run"
-    );
+    expect(Option.getOrThrow(reader.get(id, "node")).result.output).toBe("second run");
   });
 
   it("resumeCompleted returns only passed results, read back from PG (AC1)", async () => {
@@ -172,10 +166,7 @@ describePg("postgresDurableRunStore (live cluster PG)", () => {
         and table_name in ('moka_durable_run', 'moka_durable_node_record')
       order by table_name
     `;
-    expect(tables.map((t) => t.table_name)).toEqual([
-      "moka_durable_node_record",
-      "moka_durable_run",
-    ]);
+    expect(tables.map((t) => t.table_name)).toEqual(["moka_durable_node_record", "moka_durable_run"]);
   });
 
   it("parallel runs do not collide on (runId, nodeId) (AC5)", async () => {
@@ -205,12 +196,8 @@ describePg("postgresDurableRunStore (live cluster PG)", () => {
       run: "B",
     });
     // Each run reads only its own records.
-    expect(reader.resumeCompleted(idA).map((r) => r.nodeId)).toEqual([
-      "shared",
-    ]);
-    expect(reader.resumeCompleted(idB).map((r) => r.nodeId)).toEqual([
-      "shared",
-    ]);
+    expect(reader.resumeCompleted(idA).map((r) => r.nodeId)).toEqual(["shared"]);
+    expect(reader.resumeCompleted(idB).map((r) => r.nodeId)).toEqual(["shared"]);
     expect(Option.isNone(reader.get(idA, "absent"))).toBe(true);
   });
 });

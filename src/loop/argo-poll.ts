@@ -23,20 +23,11 @@ export type TerminalPhase = "Succeeded" | "Failed" | "Error";
 /** All phases Argo Workflow may report. */
 export type WorkflowPhase = RunningPhase | TerminalPhase;
 
-const TERMINAL_PHASES: ReadonlySet<string> = new Set([
-  "Succeeded",
-  "Failed",
-  "Error",
-]);
+const TERMINAL_PHASES: ReadonlySet<string> = new Set(["Succeeded", "Failed", "Error"]);
 
-const KNOWN_RUNNING_PHASES: ReadonlySet<string> = new Set([
-  "Running",
-  "Pending",
-  "",
-]);
+const KNOWN_RUNNING_PHASES: ReadonlySet<string> = new Set(["Running", "Pending", ""]);
 
-const isTerminal = (phase: WorkflowPhase): phase is TerminalPhase =>
-  TERMINAL_PHASES.has(phase);
+const isTerminal = (phase: WorkflowPhase): phase is TerminalPhase => TERMINAL_PHASES.has(phase);
 
 const classifyPhase = function classifyPhase(raw: string): WorkflowPhase {
   if (TERMINAL_PHASES.has(raw)) {
@@ -62,8 +53,7 @@ const classifyPhase = function classifyPhase(raw: string): WorkflowPhase {
 };
 
 /** Exported for reuse in KubernetesArgoService. */
-export const classifyArgoPhase = (raw: string): WorkflowPhase =>
-  classifyPhase(raw);
+export const classifyArgoPhase = (raw: string): WorkflowPhase => classifyPhase(raw);
 
 // ──────────────────────────────────────────────────────────────────────────────
 // DI seam for the k8s client
@@ -89,14 +79,9 @@ interface KubernetesClientOptions {
   kubeconfigPath?: string;
 }
 
-const buildWorkflowReadApi = (
-  options: KubernetesClientOptions
-): WorkflowReadApi => {
+const buildWorkflowReadApi = (options: KubernetesClientOptions): WorkflowReadApi => {
   const kc = new KubeConfig();
-  if (
-    options.kubeconfigPath !== undefined &&
-    options.kubeconfigPath.length > 0
-  ) {
+  if (options.kubeconfigPath !== undefined && options.kubeconfigPath.length > 0) {
     kc.loadFromFile(options.kubeconfigPath);
   } else {
     kc.loadFromDefault();
@@ -131,9 +116,7 @@ const extractRawPhase = (resource: unknown): string => {
  * Unknown phase values are mapped to Running so the poll loop continues
  * until Argo reports a known terminal phase.
  */
-const getWorkflowPhase = (
-  options: GetWorkflowPhaseOptions
-): Effect.Effect<WorkflowPhase, unknown> =>
+const getWorkflowPhase = (options: GetWorkflowPhaseOptions): Effect.Effect<WorkflowPhase, unknown> =>
   Effect.tryPromise({
     catch: (error) => error,
     try: async () =>
@@ -151,8 +134,7 @@ const getWorkflowPhase = (
  * Returns "" (Argo pending) when the field is absent or not a string.
  * Exported for reuse in KubernetesArgoService.
  */
-export const extractArgoRawPhase = (resource: unknown): string =>
-  extractRawPhase(resource);
+export const extractArgoRawPhase = (resource: unknown): string => extractRawPhase(resource);
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Poller
@@ -198,12 +180,8 @@ interface PollLoopState {
   workflowReadApi: WorkflowReadApi;
 }
 
-const pollLoop = function pollLoop(
-  state: PollLoopState
-): Effect.Effect<TerminalPhase, unknown> {
-  const handlePollError = (
-    error: unknown
-  ): Effect.Effect<TerminalPhase, unknown> => {
+const pollLoop = function pollLoop(state: PollLoopState): Effect.Effect<TerminalPhase, unknown> {
+  const handlePollError = (error: unknown): Effect.Effect<TerminalPhase, unknown> => {
     const nextErrorCount = state.errorCount + 1;
     state.onTransientError?.(error, nextErrorCount);
 
@@ -211,12 +189,8 @@ const pollLoop = function pollLoop(
       return Effect.fail(error);
     }
 
-    const delay = Duration.millis(
-      RETRY_BASE_DELAY_MS * 2 ** (nextErrorCount - 1)
-    );
-    return Effect.sleep(delay).pipe(
-      Effect.andThen(pollLoop({ ...state, errorCount: nextErrorCount }))
-    );
+    const delay = Duration.millis(RETRY_BASE_DELAY_MS * 2 ** (nextErrorCount - 1));
+    return Effect.sleep(delay).pipe(Effect.andThen(pollLoop({ ...state, errorCount: nextErrorCount })));
   };
 
   return getWorkflowPhase({
@@ -230,19 +204,17 @@ const pollLoop = function pollLoop(
       }
       // Non-terminal: sleep then poll again with a fresh error count.
       return Effect.sleep(Duration.millis(state.pollIntervalMs)).pipe(
-        Effect.andThen(pollLoop({ ...state, errorCount: 0 }))
+        Effect.andThen(pollLoop({ ...state, errorCount: 0 })),
       );
     }),
-    Effect.catch(handlePollError)
+    Effect.catch(handlePollError),
   );
 };
 
 export const pollWorkflowPhaseUntilTerminal = (
-  options: PollWorkflowPhaseOptions
+  options: PollWorkflowPhaseOptions,
 ): Effect.Effect<TerminalPhase, unknown> => {
-  const api =
-    options.workflowReadApi ??
-    buildWorkflowReadApi({ kubeconfigPath: options.kubeconfigPath });
+  const api = options.workflowReadApi ?? buildWorkflowReadApi({ kubeconfigPath: options.kubeconfigPath });
   const pollIntervalMs = options.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS;
   const maxRetries = options.maxRetries ?? DEFAULT_MAX_RETRIES;
 

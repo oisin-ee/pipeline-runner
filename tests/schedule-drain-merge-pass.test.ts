@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
+import { stringify } from "yaml";
 
 import type { PipelineConfig } from "../src/config";
 import { parsePipelineConfigParts } from "../src/config";
-import type { ScheduleArtifact } from "../src/planning/generate";
+import { parseScheduleArtifact } from "../src/planning/generate";
 import { integrateParallelWriteFanout } from "../src/schedule/passes/drain-merge";
 
 const config = (): PipelineConfig =>
@@ -44,17 +45,20 @@ runners:
 `,
   });
 
-const artifactWith = (nodes: unknown[]): ScheduleArtifact =>
-  ({
-    generated_at: "2026-06-17T00:00:00.000Z",
-    kind: "pipeline-schedule",
-    root_workflow: "root",
-    schedule_id: "test-schedule",
-    source_entrypoint: "execute",
-    task: "test",
-    version: 1,
-    workflows: { root: { nodes } },
-  }) as ScheduleArtifact;
+const artifactWith = (nodes: unknown[]) =>
+  parseScheduleArtifact(
+    stringify({
+      generated_at: "2026-06-17T00:00:00.000Z",
+      kind: "pipeline-schedule",
+      root_workflow: "root",
+      schedule_id: "test-schedule",
+      source_entrypoint: "execute",
+      task: "test",
+      version: 1,
+      workflows: { root: { nodes } },
+    }),
+    "test-schedule.yaml",
+  );
 
 const greenChild = (id: string) => ({
   id,
@@ -90,17 +94,12 @@ describe("integrateParallelWriteFanout", () => {
       {
         id: "green",
         kind: "parallel",
-        nodes: [
-          greenChild("green-a"),
-          { id: "rev", kind: "agent", profile: "reviewer" },
-        ],
+        nodes: [greenChild("green-a"), { id: "rev", kind: "agent", profile: "reviewer" }],
       },
     ]);
 
     const result = integrateParallelWriteFanout(config(), artifact);
-    expect(result.workflows.root.nodes.some((n) => n.kind === "builtin")).toBe(
-      false
-    );
+    expect(result.workflows.root.nodes.some((n) => n.kind === "builtin")).toBe(false);
   });
 
   it("does not add a second drain-merge when one is already downstream", () => {
@@ -120,7 +119,7 @@ describe("integrateParallelWriteFanout", () => {
 
     const result = integrateParallelWriteFanout(config(), artifact);
     const merges = result.workflows.root.nodes.filter(
-      (node) => node.kind === "builtin" && node.builtin === "drain-merge"
+      (node) => node.kind === "builtin" && node.builtin === "drain-merge",
     );
     expect(merges).toHaveLength(1);
   });

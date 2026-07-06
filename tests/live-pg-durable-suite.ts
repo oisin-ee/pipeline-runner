@@ -18,10 +18,7 @@ export interface LivePgDurableSuite {
  *
  * Call inside a `describe` block (it registers `beforeAll`/`afterAll`).
  */
-export const setupLivePgDurableSuite = (
-  dbUrl: string,
-  prefix: string
-): LivePgDurableSuite => {
+export const setupLivePgDurableSuite = (dbUrl: string, prefix: string): LivePgDurableSuite => {
   const suitePrefix = `${prefix}-${randomUUID()}`;
   let admin: postgres.Sql;
 

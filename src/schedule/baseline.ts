@@ -196,7 +196,7 @@ const executeBaselineWorkflow = (): ScheduleArtifact["workflows"] => ({
 
 const baselineWorkflows = (
   baseline: ScheduleBaseline,
-  _config: PipelineConfig
+  _config: PipelineConfig,
 ): { rootWorkflow: string; workflows: ScheduleArtifact["workflows"] } => {
   if (baseline === "quick") {
     return { rootWorkflow: "root", workflows: quickBaselineWorkflow() };

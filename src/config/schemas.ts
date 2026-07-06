@@ -1,6 +1,18 @@
-import { Data } from "effect";
-import { z } from "zod";
+import * as Schema from "effect/Schema";
 
+import {
+  mutableArray,
+  nonEmptyMutableArray,
+  nonNegativeInteger,
+  positiveInteger,
+  positiveNumber,
+  requiredString,
+  stringRecord,
+  unknownRecord,
+  withDefault,
+  struct,
+} from "../schema-boundary";
+import type { EffectSchemaIssue } from "../schema-boundary";
 import {
   BUILTIN_GATES,
   DEFAULT_RUNNER_COMMAND_GIT_COMMITTER,
@@ -23,9 +35,8 @@ import type {
   NODE_KINDS,
 } from "./schema/catalog";
 import { mcpGatewaySchema, mcpServerSchema } from "./schema/mcp";
-import { validateConfigReferences } from "./schema/reference-validation";
 
-const reasoningEffortSchema = z.enum(REASONING_EFFORTS);
+const reasoningEffort = Schema.Literals(REASONING_EFFORTS);
 
 export type PipelineConfigErrorCode =
   | "PIPELINE_CONFIG_LEGACY_UNSUPPORTED"
@@ -37,416 +48,345 @@ export interface PipelineConfigIssue {
   path?: string;
 }
 
-export class PipelineConfigError extends Data.TaggedError(
-  "PipelineConfigError"
-)<{
-  readonly code: PipelineConfigErrorCode;
-  readonly message: string;
-  readonly issues: PipelineConfigIssue[];
-}> {
-  constructor(
-    code: PipelineConfigErrorCode,
-    message: string,
-    issues: PipelineConfigIssue[] = []
-  ) {
+const pipelineConfigErrorCode = Schema.Literals([
+  "PIPELINE_CONFIG_LEGACY_UNSUPPORTED",
+  "PIPELINE_CONFIG_PARSE_ERROR",
+  "PIPELINE_CONFIG_VALIDATION_ERROR",
+]);
+
+const pipelineConfigIssue = struct({
+  message: Schema.String,
+  path: Schema.optional(Schema.String),
+});
+
+export class PipelineConfigError extends Schema.TaggedErrorClass<PipelineConfigError>()("PipelineConfigError", {
+  code: pipelineConfigErrorCode,
+  issues: mutableArray(pipelineConfigIssue),
+  message: Schema.String,
+}) {
+  constructor(code: PipelineConfigErrorCode, message: string, issues: PipelineConfigIssue[] = []) {
     super({ code, issues, message });
   }
 }
 
-const strictRecord = <T extends z.ZodTypeAny>(valueSchema: T) =>
-  z.record(z.string(), valueSchema);
+const strictRecord = <S extends Schema.Constraint>(valueSchema: S) => Schema.Record(Schema.String, valueSchema);
 
-const runnerCapabilitiesSchema = z
-  .object({
-    filesystem: z.array(z.enum(FILESYSTEM_MODES)).optional(),
-    mcp_servers: z.boolean().optional(),
-    native_subagents: z.boolean().optional(),
-    network: z.array(z.enum(NETWORK_MODES)).optional(),
-    output_formats: z.array(z.enum(OUTPUT_FORMATS)).optional(),
-    rules: z.boolean().optional(),
-    skills: z.boolean().optional(),
-    tools: z.array(z.enum(TOOL_NAMES)).optional(),
-  })
-  .strict();
+const optionalStringArray = Schema.optional(mutableArray(Schema.String));
 
-const runnerSchema = z
-  .object({
-    args: z.array(z.string()).optional(),
-    capabilities: runnerCapabilitiesSchema,
-    command: z.string().optional(),
-    host_models: z.record(z.string(), z.string().min(1)).optional(),
-    model: z.string().optional(),
-    reasoning_effort: reasoningEffortSchema.optional(),
-    type: z.enum(RUNNER_TYPES),
-  })
-  .strict();
-
-const pathRefSchema = z
-  .object({
-    path: z.string().min(1),
-    source_root: z.enum(["package", "project"]).default("project"),
-  })
-  .strict();
-
-const instructionsSchema = z
-  .object({
-    inline: z.string().min(1).optional(),
-    path: z.string().min(1).optional(),
-  })
-  .strict();
-
-const filesystemSchema = z
-  .object({
-    allow: z.array(z.string()).optional(),
-    deny: z.array(z.string()).optional(),
-    mode: z.enum(FILESYSTEM_MODES),
-    // PIPE-90.12: glob patterns the executing node agent must not author or
-    // weaken (its ticket's acceptance criteria + the adjudicating tests). Read
-    // at runtime by the runner integrity guard and the opencode permission
-    // generator; unlike allow/deny (read-scoping), these are integrity-enforced.
-    protected: z.array(z.string()).optional(),
-  })
-  .strict();
-
-const networkSchema = z
-  .object({
-    mode: z.enum(NETWORK_MODES),
-  })
-  .strict();
-
-const outputRepairSchema = z
-  .object({
-    enabled: z.boolean().optional(),
-    max_attempts: z.number().int().positive().optional(),
-    runner: z.string().optional(),
-  })
-  .strict();
-
-const outputSchema = z
-  .object({
-    format: z.enum(OUTPUT_FORMATS),
-    repair: outputRepairSchema.optional(),
-    schema_path: z.string().min(1).optional(),
-  })
-  .strict();
-
-const artifactSchema = z
-  .object({
-    path: z.string().min(1),
-    required: z.boolean().optional(),
-  })
-  .strict();
-
-const modelFallbacksSchema = z.array(z.string().min(1)).min(1);
-
-const changedFilesPolicySchema = z
-  .object({
-    allow: z.array(z.string()).optional(),
-    deny: z.array(z.string()).optional(),
-    include_untracked: z.boolean().optional(),
-    require_any: z.array(z.string()).optional(),
-  })
-  .strict();
-
-const gateBaseSchema = z.object({
-  id: z.string().optional(),
-  required: z.boolean().optional(),
+const runnerCapabilitiesSchema = struct({
+  filesystem: Schema.optional(mutableArray(Schema.Literals(FILESYSTEM_MODES))),
+  mcp_servers: Schema.optional(Schema.Boolean),
+  native_subagents: Schema.optional(Schema.Boolean),
+  network: Schema.optional(mutableArray(Schema.Literals(NETWORK_MODES))),
+  output_formats: Schema.optional(mutableArray(Schema.Literals(OUTPUT_FORMATS))),
+  rules: Schema.optional(Schema.Boolean),
+  skills: Schema.optional(Schema.Boolean),
+  tools: Schema.optional(mutableArray(Schema.Literals(TOOL_NAMES))),
 });
 
-const jsonSourceGateSchema = gateBaseSchema.extend({
-  path: z.string().min(1).optional(),
-  target: z.enum(["artifact", "stdout"]).optional(),
+const runnerSchema = struct({
+  args: optionalStringArray,
+  capabilities: runnerCapabilitiesSchema,
+  command: Schema.optional(Schema.String),
+  host_models: Schema.optional(stringRecord),
+  model: Schema.optional(Schema.String),
+  reasoning_effort: Schema.optional(reasoningEffort),
+  type: Schema.Literals(RUNNER_TYPES),
 });
 
-const gateSchema = z.discriminatedUnion("kind", [
-  jsonSourceGateSchema
-    .extend({
-      acceptance_key: z.string().optional(),
-      kind: z.literal("acceptance"),
-    })
-    .strict(),
-  gateBaseSchema
-    .extend({
-      kind: z.literal("artifact"),
-      path: z.string().min(1),
-    })
-    .strict(),
-  gateBaseSchema
-    .extend({
-      builtin: z.enum(BUILTIN_GATES),
-      kind: z.literal("builtin"),
-    })
-    .strict(),
-  gateBaseSchema
-    .extend({
-      changed_files: changedFilesPolicySchema,
-      kind: z.literal("changed_files"),
-    })
-    .strict(),
-  gateBaseSchema
-    .extend({
-      command: z.array(z.string()),
-      expect_exit_code: z.number().int().optional(),
-      kind: z.literal("command"),
-      timeout_ms: z.number().int().positive().optional(),
-    })
-    .strict(),
-  jsonSourceGateSchema
-    .extend({
-      kind: z.literal("json_schema"),
-      schema_path: z.string().min(1),
-    })
-    .strict(),
-  jsonSourceGateSchema
-    .extend({
-      equals: z.string().optional(),
-      field: z.string().optional(),
-      kind: z.literal("verdict"),
-    })
-    .strict(),
+const pathRefSchema = struct({
+  path: requiredString,
+  source_root: withDefault(Schema.Literals(["package", "project"]), "project"),
+});
+
+const instructionsSchema = struct({
+  inline: Schema.optional(requiredString),
+  path: Schema.optional(requiredString),
+});
+
+const filesystemSchema = struct({
+  allow: optionalStringArray,
+  deny: optionalStringArray,
+  mode: Schema.Literals(FILESYSTEM_MODES),
+  protected: optionalStringArray,
+});
+
+const networkSchema = struct({
+  mode: Schema.Literals(NETWORK_MODES),
+});
+
+const outputRepairSchema = struct({
+  enabled: Schema.optional(Schema.Boolean),
+  max_attempts: Schema.optional(positiveInteger),
+  runner: Schema.optional(Schema.String),
+});
+
+const outputSchema = struct({
+  format: Schema.Literals(OUTPUT_FORMATS),
+  repair: Schema.optional(outputRepairSchema),
+  schema_path: Schema.optional(requiredString),
+});
+
+const artifactSchema = struct({
+  path: requiredString,
+  required: Schema.optional(Schema.Boolean),
+});
+
+const modelFallbacksSchema = nonEmptyMutableArray(requiredString);
+
+const changedFilesPolicySchema = struct({
+  allow: optionalStringArray,
+  deny: optionalStringArray,
+  include_untracked: Schema.optional(Schema.Boolean),
+  require_any: optionalStringArray,
+});
+
+const gateBaseFields = {
+  id: Schema.optional(Schema.String),
+  required: Schema.optional(Schema.Boolean),
+};
+
+const jsonSourceGateFields = {
+  ...gateBaseFields,
+  path: Schema.optional(requiredString),
+  target: Schema.optional(Schema.Literals(["artifact", "stdout"])),
+};
+
+const gate = Schema.Union([
+  struct({
+    ...jsonSourceGateFields,
+    acceptance_key: Schema.optional(Schema.String),
+    kind: Schema.Literal("acceptance"),
+  }),
+  struct({
+    ...gateBaseFields,
+    kind: Schema.Literal("artifact"),
+    path: requiredString,
+  }),
+  struct({
+    ...gateBaseFields,
+    builtin: Schema.Literals(BUILTIN_GATES),
+    kind: Schema.Literal("builtin"),
+  }),
+  struct({
+    ...gateBaseFields,
+    changed_files: changedFilesPolicySchema,
+    kind: Schema.Literal("changed_files"),
+  }),
+  struct({
+    ...gateBaseFields,
+    command: mutableArray(Schema.String),
+    expect_exit_code: Schema.optional(Schema.Number.check(Schema.isInt())),
+    kind: Schema.Literal("command"),
+    timeout_ms: Schema.optional(positiveInteger),
+  }),
+  struct({
+    ...jsonSourceGateFields,
+    kind: Schema.Literal("json_schema"),
+    schema_path: requiredString,
+  }),
+  struct({
+    ...jsonSourceGateFields,
+    equals: Schema.optional(Schema.String),
+    field: Schema.optional(Schema.String),
+    kind: Schema.Literal("verdict"),
+  }),
 ]);
 
-const retriesSchema = z
-  .object({
-    backoff_ms: z.number().int().nonnegative().optional(),
-    max_attempts: z.number().int().positive(),
-    multiplier: z.number().positive().optional(),
-    retry_on: z.array(z.enum(RETRY_REASONS)).optional(),
-  })
-  .strict();
-
-const workflowExecutionSchema = z
-  .object({
-    fail_fast: z.boolean().optional(),
-    max_parallel_nodes: z.number().int().positive().optional(),
-    timeout_ms: z.number().int().positive().optional(),
-  })
-  .strict();
-
-const profileSchema = z
-  .object({
-    description: z.string().optional(),
-    filesystem: filesystemSchema.optional(),
-    host_models: z.record(z.string(), z.string().min(1)).optional(),
-    instructions: instructionsSchema,
-    mcp_servers: z.array(z.string()).optional(),
-    model: z.string().optional(),
-    network: networkSchema.optional(),
-    output: outputSchema.optional(),
-    reasoning_effort: reasoningEffortSchema.optional(),
-    rules: z.array(z.string()).optional(),
-    runner: z.string(),
-    scheduling_roles: z.array(z.enum(SCHEDULING_ROLES)).optional(),
-    skills: z.array(z.string()).optional(),
-    timeout_ms: z.number().int().positive().optional(),
-    tools: z.array(z.enum(TOOL_NAMES)).optional(),
-  })
-  .strict();
-
-const orchestratorSchema = z
-  .object({
-    profile: z.string(),
-  })
-  .strict();
-
-const hookEnvSchema = z
-  .object({
-    passthrough: z.array(z.string()).optional(),
-    set: z.record(z.string(), z.string()).optional(),
-  })
-  .strict();
-
-const hookPermissionsSchema = z
-  .object({
-    filesystem: z.enum(FILESYSTEM_MODES).optional(),
-    network: z.enum(NETWORK_MODES).optional(),
-  })
-  .strict();
-
-const hookReturnsSchema = z
-  .object({
-    schema: z.string().min(1).optional(),
-  })
-  .strict();
-
-const moduleHookFunctionSchema = z
-  .object({
-    kind: z.literal("module"),
-    module: z.string().min(1),
-    permissions: hookPermissionsSchema.optional(),
-    returns: hookReturnsSchema.optional(),
-    timeout_ms: z.number().int().positive().optional(),
-  })
-  .strict();
-
-const commandHookProtocolSchema = z
-  .object({
-    input: z.literal("file"),
-    result: z.literal("file"),
-  })
-  .strict();
-
-const commandHookFunctionSchema = z
-  .object({
-    command: z.array(z.string()).min(1),
-    env: hookEnvSchema.optional(),
-    kind: z.literal("command"),
-    output_limit_bytes: z.number().int().positive().optional(),
-    protocol: commandHookProtocolSchema.default({
-      input: "file",
-      result: "file",
-    }),
-    returns: hookReturnsSchema.optional(),
-    timeout_ms: z.number().int().positive().optional(),
-    trusted: z.boolean().optional(),
-  })
-  .strict();
-
-const hookFunctionSchema = z.discriminatedUnion("kind", [
-  moduleHookFunctionSchema,
-  commandHookFunctionSchema,
-]);
-
-const hookBindingWhereSchema = z
-  .object({
-    gate: z.string().optional(),
-    node: z.string().optional(),
-    workflow: z.string().optional(),
-  })
-  .strict();
-
-const hookBindingResultSchema = z
-  .object({
-    pass_to: z.enum(["downstream"]).optional(),
-    publish: z.boolean().optional(),
-    save_as: z.string().min(1).optional(),
-  })
-  .strict();
-
-const hookBindingSchema = z
-  .object({
-    failure: z.enum(["fail", "ignore"]).default("ignore"),
-    function: z.string().min(1),
-    id: z.string().min(1),
-    result: hookBindingResultSchema.optional(),
-    where: hookBindingWhereSchema.optional(),
-    with: z.record(z.string(), z.unknown()).optional(),
-  })
-  .strict();
-
-const hookPolicySchema = z
-  .object({
-    commands: z.enum(["allow", "trusted-only", "deny"]).optional(),
-    modules: z.enum(["allow", "deny"]).optional(),
-  })
-  .strict();
-
-const hooksConfigSchema = z
-  .object({
-    functions: strictRecord(hookFunctionSchema).default({}),
-    on: strictRecord(z.array(hookBindingSchema)).default({}),
-    policy: hookPolicySchema.optional(),
-  })
-  .strict();
-
-const taskContextResolverSchema = z
-  .object({
-    type: z.string().min(1),
-  })
-  .passthrough();
-
-const nodeTaskContextSchema = z
-  .object({
-    acceptance_criteria: z
-      .array(
-        z
-          .object({
-            id: z.string().min(1),
-            text: z.string().min(1),
-          })
-          .strict()
-      )
-      .optional(),
-    description: z.string().optional(),
-    id: z.string().min(1).optional(),
-    title: z.string().optional(),
-  })
-  .strict();
-
-const entrypointBaseSchema = z.object({
-  description: z.string().optional(),
-  task_context: taskContextResolverSchema.optional(),
+const retriesSchema = struct({
+  backoff_ms: Schema.optional(nonNegativeInteger),
+  max_attempts: positiveInteger,
+  multiplier: Schema.optional(positiveNumber),
+  retry_on: Schema.optional(mutableArray(Schema.Literals(RETRY_REASONS))),
 });
 
-const entrypointSchema = z.union([
-  entrypointBaseSchema
-    .extend({
-      workflow: z.string(),
-    })
-    .strict(),
-  entrypointBaseSchema
-    .extend({
-      schedule: z.string(),
-    })
-    .strict(),
-]);
-
-const schedulePolicySchema = z
-  .object({
-    baseline: z.enum(SCHEDULE_BASELINES),
-    description: z.string().optional(),
-    max_parallel_nodes: z.number().int().positive().optional(),
-    node_catalog: z.string().min(1).optional(),
-    planner_profile: z.string().optional(),
-    strategy: z.enum(SCHEDULE_STRATEGIES).default("planner"),
-  })
-  .strict();
-
-const schedulerCommandSchema = z
-  .object({
-    catalog: z.string().min(1),
-    schedule: z.string().min(1),
-  })
-  .strict();
-
-const schedulerNodeTemplateSchema = z
-  .object({
-    category: z.string().min(1),
-    description: z.string().optional(),
-    gates: z.array(gateSchema).optional(),
-    models: modelFallbacksSchema,
-    profile: z.string().min(1),
-    reasoning_effort: reasoningEffortSchema.optional(),
-  })
-  .strict();
-
-const schedulerNodeCatalogSchema = z
-  .object({
-    nodes: strictRecord(schedulerNodeTemplateSchema).default({}),
-    required_categories: z.array(z.string().min(1)).default([]),
-  })
-  .strict();
-
-const schedulerConfigSchema = z
-  .object({
-    commands: strictRecord(schedulerCommandSchema).default({}),
-    node_catalogs: strictRecord(schedulerNodeCatalogSchema).default({}),
-  })
-  .strict();
-
-const workflowNodeBaseSchema = z.object({
-  artifacts: z.array(artifactSchema).optional(),
-  gates: z.array(gateSchema).optional(),
-  id: z.string(),
-  models: modelFallbacksSchema.optional(),
-  needs: z.array(z.string()).optional(),
-  reasoning_effort: reasoningEffortSchema.optional(),
-  retries: retriesSchema.optional(),
-  task_context: nodeTaskContextSchema.optional(),
-  timeout_ms: z.number().int().positive().optional(),
+const workflowExecutionSchema = struct({
+  fail_fast: Schema.optional(Schema.Boolean),
+  max_parallel_nodes: Schema.optional(positiveInteger),
+  timeout_ms: Schema.optional(positiveInteger),
 });
 
-type WorkflowNodeBase = z.infer<typeof workflowNodeBaseSchema>;
+const profileSchema = struct({
+  description: Schema.optional(Schema.String),
+  filesystem: Schema.optional(filesystemSchema),
+  host_models: Schema.optional(stringRecord),
+  instructions: instructionsSchema,
+  mcp_servers: optionalStringArray,
+  model: Schema.optional(Schema.String),
+  network: Schema.optional(networkSchema),
+  output: Schema.optional(outputSchema),
+  reasoning_effort: Schema.optional(reasoningEffort),
+  rules: optionalStringArray,
+  runner: Schema.String,
+  scheduling_roles: Schema.optional(mutableArray(Schema.Literals(SCHEDULING_ROLES))),
+  skills: optionalStringArray,
+  timeout_ms: Schema.optional(positiveInteger),
+  tools: Schema.optional(mutableArray(Schema.Literals(TOOL_NAMES))),
+});
+
+const orchestratorSchema = struct({
+  profile: Schema.String,
+});
+
+const hookEnvSchema = struct({
+  passthrough: optionalStringArray,
+  set: Schema.optional(stringRecord),
+});
+
+const hookPermissionsSchema = struct({
+  filesystem: Schema.optional(Schema.Literals(FILESYSTEM_MODES)),
+  network: Schema.optional(Schema.Literals(NETWORK_MODES)),
+});
+
+const hookReturnsSchema = struct({
+  schema: Schema.optional(requiredString),
+});
+
+const moduleHookFunctionSchema = struct({
+  kind: Schema.Literal("module"),
+  module: requiredString,
+  permissions: Schema.optional(hookPermissionsSchema),
+  returns: Schema.optional(hookReturnsSchema),
+  timeout_ms: Schema.optional(positiveInteger),
+});
+
+const commandHookProtocolSchema = struct({
+  input: Schema.Literal("file"),
+  result: Schema.Literal("file"),
+});
+
+const commandHookFunctionSchema = struct({
+  command: nonEmptyMutableArray(Schema.String),
+  env: Schema.optional(hookEnvSchema),
+  kind: Schema.Literal("command"),
+  output_limit_bytes: Schema.optional(positiveInteger),
+  protocol: withDefault(commandHookProtocolSchema, {
+    input: "file",
+    result: "file",
+  }),
+  returns: Schema.optional(hookReturnsSchema),
+  timeout_ms: Schema.optional(positiveInteger),
+  trusted: Schema.optional(Schema.Boolean),
+});
+
+const hookFunction = Schema.Union([moduleHookFunctionSchema, commandHookFunctionSchema]);
+
+const hookBindingWhereSchema = struct({
+  gate: Schema.optional(Schema.String),
+  node: Schema.optional(Schema.String),
+  workflow: Schema.optional(Schema.String),
+});
+
+const hookBindingResultSchema = struct({
+  pass_to: Schema.optional(Schema.Literal("downstream")),
+  publish: Schema.optional(Schema.Boolean),
+  save_as: Schema.optional(requiredString),
+});
+
+const hookBindingSchema = struct({
+  failure: withDefault(Schema.Literals(["fail", "ignore"]), "ignore"),
+  function: requiredString,
+  id: requiredString,
+  result: Schema.optional(hookBindingResultSchema),
+  where: Schema.optional(hookBindingWhereSchema),
+  with: Schema.optional(unknownRecord),
+});
+
+const hookPolicySchema = struct({
+  commands: Schema.optional(Schema.Literals(["allow", "trusted-only", "deny"])),
+  modules: Schema.optional(Schema.Literals(["allow", "deny"])),
+});
+
+const hooksConfigSchema = struct({
+  functions: withDefault(strictRecord(hookFunction), {}),
+  on: withDefault(strictRecord(mutableArray(hookBindingSchema)), {}),
+  policy: Schema.optional(hookPolicySchema),
+});
+
+const taskContextResolver = Schema.StructWithRest(
+  struct({
+    type: requiredString,
+  }),
+  [Schema.Record(Schema.String, Schema.Unknown)],
+);
+
+const nodeTaskContextSchema = struct({
+  acceptance_criteria: Schema.optional(
+    mutableArray(
+      struct({
+        id: requiredString,
+        text: requiredString,
+      }),
+    ),
+  ),
+  description: Schema.optional(Schema.String),
+  id: Schema.optional(requiredString),
+  title: Schema.optional(Schema.String),
+});
+
+const entrypointBaseFields = {
+  description: Schema.optional(Schema.String),
+  task_context: Schema.optional(taskContextResolver),
+};
+
+const entrypoint = Schema.Union([
+  struct({
+    ...entrypointBaseFields,
+    workflow: Schema.String,
+  }),
+  struct({
+    ...entrypointBaseFields,
+    schedule: Schema.String,
+  }),
+]);
+
+const schedulePolicySchema = struct({
+  baseline: Schema.Literals(SCHEDULE_BASELINES),
+  description: Schema.optional(Schema.String),
+  max_parallel_nodes: Schema.optional(positiveInteger),
+  node_catalog: Schema.optional(requiredString),
+  planner_profile: Schema.optional(Schema.String),
+  strategy: withDefault(Schema.Literals(SCHEDULE_STRATEGIES), "planner"),
+});
+
+const schedulerCommandSchema = struct({
+  catalog: requiredString,
+  schedule: requiredString,
+});
+
+const schedulerNodeTemplateSchema = struct({
+  category: requiredString,
+  description: Schema.optional(Schema.String),
+  gates: Schema.optional(mutableArray(gate)),
+  models: modelFallbacksSchema,
+  profile: requiredString,
+  reasoning_effort: Schema.optional(reasoningEffort),
+});
+
+const schedulerNodeCatalogSchema = struct({
+  nodes: withDefault(strictRecord(schedulerNodeTemplateSchema), {}),
+  required_categories: withDefault(mutableArray(requiredString), []),
+});
+
+const schedulerConfigSchema = struct({
+  commands: withDefault(strictRecord(schedulerCommandSchema), {}),
+  node_catalogs: withDefault(strictRecord(schedulerNodeCatalogSchema), {}),
+});
+
+const workflowNodeBaseFields = {
+  artifacts: Schema.optional(mutableArray(artifactSchema)),
+  gates: Schema.optional(mutableArray(gate)),
+  id: Schema.String,
+  models: Schema.optional(modelFallbacksSchema),
+  needs: optionalStringArray,
+  reasoning_effort: Schema.optional(reasoningEffort),
+  retries: Schema.optional(retriesSchema),
+  task_context: Schema.optional(nodeTaskContextSchema),
+  timeout_ms: Schema.optional(positiveInteger),
+};
+const workflowNodeBaseSchema = struct(workflowNodeBaseFields);
+
+type WorkflowNodeBase = typeof workflowNodeBaseSchema.Type;
 type AgentWorkflowNode = WorkflowNodeBase & {
   category?: string;
   kind: "agent";
@@ -470,253 +410,185 @@ type ParallelWorkflowNode = WorkflowNodeBase & {
 };
 type WorkflowNode =
   | AgentWorkflowNode
-  | CommandWorkflowNode
   | BuiltinWorkflowNode
+  | CommandWorkflowNode
   | GroupWorkflowNode
   | ParallelWorkflowNode;
 
-const workflowNodeSchema: z.ZodType<WorkflowNode> = z.lazy(() =>
-  z.discriminatedUnion("kind", [
-    workflowNodeBaseSchema
-      .extend({
-        category: z.string().min(1).optional(),
-        kind: z.literal("agent"),
-        profile: z.string(),
-      })
-      .strict(),
-    workflowNodeBaseSchema
-      .extend({
-        command: z.array(z.string()),
-        kind: z.literal("command"),
-      })
-      .strict(),
-    workflowNodeBaseSchema
-      .extend({
-        builtin: z.string(),
-        kind: z.literal("builtin"),
-      })
-      .strict(),
-    workflowNodeBaseSchema
-      .extend({
-        kind: z.literal("group"),
-        nodes: z.array(z.string()).min(1),
-      })
-      .strict(),
-    workflowNodeBaseSchema
-      .extend({
-        kind: z.literal("parallel"),
-        nodes: z.array(workflowNodeSchema).min(1),
-      })
-      .strict(),
-  ])
+const workflowNode: Schema.Codec<WorkflowNode> = Schema.suspend(() =>
+  Schema.Union([
+    struct({
+      ...workflowNodeBaseFields,
+      category: Schema.optional(requiredString),
+      kind: Schema.Literal("agent"),
+      profile: Schema.String,
+    }),
+    struct({
+      ...workflowNodeBaseFields,
+      command: mutableArray(Schema.String),
+      kind: Schema.Literal("command"),
+    }),
+    struct({
+      ...workflowNodeBaseFields,
+      builtin: Schema.String,
+      kind: Schema.Literal("builtin"),
+    }),
+    struct({
+      ...workflowNodeBaseFields,
+      kind: Schema.Literal("group"),
+      nodes: nonEmptyMutableArray(Schema.String),
+    }),
+    struct({
+      ...workflowNodeBaseFields,
+      kind: Schema.Literal("parallel"),
+      nodes: nonEmptyMutableArray(workflowNode),
+    }),
+  ]),
 );
 
-export const workflowSchema = z
-  .object({
-    description: z.string().optional(),
-    execution: workflowExecutionSchema.optional(),
-    nodes: z.array(workflowNodeSchema),
-  })
-  .strict();
+export const workflowSchema = struct({
+  description: Schema.optional(Schema.String),
+  execution: Schema.optional(workflowExecutionSchema),
+  nodes: mutableArray(workflowNode),
+});
 
-const runnerCommandCommandSchema = z
-  .object({
-    args: z.array(z.string()).default([]),
-    command: z.string().min(1),
-    required: z.boolean().default(true),
-  })
-  .strict();
+const runnerCommandCommandSchema = struct({
+  args: withDefault(mutableArray(Schema.String), []),
+  command: requiredString,
+  required: withDefault(Schema.Boolean, true),
+});
 
-const runnerCommandEnvironmentSchema = z
-  .object({
-    setup: z.array(runnerCommandCommandSchema).default([]),
-    smoke: z.array(runnerCommandCommandSchema).default([]),
-  })
-  .strict();
+const runnerCommandEnvironmentSchema = struct({
+  setup: withDefault(mutableArray(runnerCommandCommandSchema), []),
+  smoke: withDefault(mutableArray(runnerCommandCommandSchema), []),
+});
 
-const runnerCommandGitCommitterSchema = z
-  .object({
-    email: z
-      .string()
-      .email()
-      .default(DEFAULT_RUNNER_COMMAND_GIT_COMMITTER.email),
-    name: z.string().min(1).default(DEFAULT_RUNNER_COMMAND_GIT_COMMITTER.name),
-  })
-  .strict();
+const runnerCommandGitCommitterSchema = struct({
+  email: withDefault(requiredString, DEFAULT_RUNNER_COMMAND_GIT_COMMITTER.email),
+  name: withDefault(requiredString, DEFAULT_RUNNER_COMMAND_GIT_COMMITTER.name),
+});
 
-const runnerCommandGitSchema = z
-  .object({
-    committer: runnerCommandGitCommitterSchema.default(
-      DEFAULT_RUNNER_COMMAND_GIT_COMMITTER
-    ),
-  })
-  .strict();
+const runnerCommandGitSchema = struct({
+  committer: withDefault(runnerCommandGitCommitterSchema, DEFAULT_RUNNER_COMMAND_GIT_COMMITTER),
+});
 
-const runnerCommandConfigSchema = z
-  .object({
-    environment: runnerCommandEnvironmentSchema.default({
-      setup: [],
-      smoke: [],
+const runnerCommandConfigSchema = struct({
+  environment: withDefault(runnerCommandEnvironmentSchema, {
+    setup: [],
+    smoke: [],
+  }),
+  git: withDefault(runnerCommandGitSchema, {
+    committer: DEFAULT_RUNNER_COMMAND_GIT_COMMITTER,
+  }),
+});
+
+export const runnersFileSchema = struct({
+  runners: withDefault(strictRecord(runnerSchema), {}),
+  version: Schema.Literal(1),
+});
+
+export const profilesFileSchema = struct({
+  mcp_gateway: Schema.optional(mcpGatewaySchema),
+  mcp_servers: withDefault(strictRecord(Schema.Never), {}),
+  profiles: withDefault(strictRecord(profileSchema), {}),
+  rules: withDefault(strictRecord(pathRefSchema), {}),
+  skills: withDefault(strictRecord(pathRefSchema), {}),
+  version: Schema.Literal(1),
+});
+
+const fanOutWidthSchema = struct({
+  by_category: withDefault(strictRecord(positiveInteger), {}),
+  default: withDefault(positiveInteger, 4),
+});
+
+const tokenBudgetSchema = struct({
+  default_context_window: withDefault(positiveInteger, 200_000),
+  fan_out_width: withDefault(fanOutWidthSchema, {
+    by_category: {},
+    default: 4,
+  }),
+  max_context_pct: withDefault(positiveNumber.check(Schema.isLessThanOrEqualTo(100)), 50),
+  model_context_windows: withDefault(strictRecord(positiveInteger), {}),
+});
+
+const contextHandoffSchema = struct({
+  enabled: withDefault(Schema.Boolean, false),
+  model: Schema.optional(Schema.String),
+});
+
+const parallelWorktreesSchema = struct({
+  enabled: withDefault(Schema.Boolean, false),
+});
+
+const repoMapSchema = struct({
+  enabled: withDefault(Schema.Boolean, false),
+  token_budget: withDefault(positiveInteger, 2000),
+});
+
+const deliverySchema = struct({
+  pull_request: Schema.optional(
+    struct({
+      enabled: withDefault(Schema.Boolean, false),
+      head_branch: Schema.optional(requiredString),
+      label: withDefault(requiredString, "preview"),
+      mode: withDefault(Schema.Literals(["create-new-pr", "update-existing-pr"]), "create-new-pr"),
     }),
-    git: runnerCommandGitSchema.default({
-      committer: DEFAULT_RUNNER_COMMAND_GIT_COMMITTER,
-    }),
-  })
-  .strict();
-
-export const runnersFileSchema = z
-  .object({
-    runners: strictRecord(runnerSchema).default({}),
-    version: z.literal(1),
-  })
-  .strict();
-
-export const profilesFileSchema = z
-  .object({
-    mcp_gateway: mcpGatewaySchema.optional(),
-    mcp_servers: strictRecord(z.never()).default({}),
-    profiles: strictRecord(profileSchema).default({}),
-    rules: strictRecord(pathRefSchema).default({}),
-    skills: strictRecord(pathRefSchema).default({}),
-    version: z.literal(1),
-  })
-  .strict();
-
-const fanOutWidthSchema = z
-  .object({
-    by_category: strictRecord(z.number().int().positive()).default({}),
-    default: z.number().int().positive().default(4),
-  })
-  .strict();
-
-const tokenBudgetSchema = z
-  .object({
-    default_context_window: z.number().int().positive().default(200_000),
-    fan_out_width: fanOutWidthSchema.default({ by_category: {}, default: 4 }),
-    max_context_pct: z.number().positive().max(100).default(50),
-    model_context_windows: strictRecord(z.number().int().positive()).default(
-      {}
-    ),
-  })
-  .strict();
-
-const DEFAULT_TOKEN_BUDGET = {
-  default_context_window: 200_000,
-  fan_out_width: { by_category: {}, default: 4 },
-  max_context_pct: 50,
-  model_context_windows: {},
-} as const;
-
-// PIPE-83.1: opt-in derivation of structured NodeHandoffs between nodes. Default
-// OFF so behaviour (and the PIPE-57 goldens) is unchanged until PIPE-83.5
-// consumes handoffs in renderAgentPrompt. `model` routes the cheap finalizer.
-const contextHandoffSchema = z
-  .object({
-    enabled: z.boolean().default(false),
-    model: z.string().optional(),
-  })
-  .strict();
-
-// PIPE-83.4: opt-in git-worktree isolation for parallel child nodes. Default OFF
-// so parallel nodes keep running children in the shared worktree (and existing
-// tests/goldens are unchanged) until best-of-N (PIPE-83.7) needs isolation.
-const parallelWorktreesSchema = z
-  .object({ enabled: z.boolean().default(false) })
-  .strict();
-
-// PIPE-83.7: opt-in best-of-N candidate generation. When enabled, a deterministic
-// schedule pass expands each matching agent node (by category-in-id) into a
-// kind:parallel of N candidate children. Default OFF / n=1 so schedules are
-// unchanged until PIPE-83.9's selector picks among candidates.
-// PIPE-83.2/83.5: opt-in repo-map code-context selection. When enabled,
-// renderAgentPrompt prepends a tree-sitter + PageRank ranked code map (seeded by
-// the node's task + handoff artifacts) within token_budget. Default OFF.
-const repoMapSchema = z
-  .object({
-    enabled: z.boolean().default(false),
-    token_budget: z.number().int().positive().default(2000),
-  })
-  .strict();
-
-// Opt-in delivery configuration. When pull_request.enabled is true the
-// schedule planner appends an open-pull-request builtin node as the final
-// join in the root workflow, creating a preview PR after every successful run.
-const deliverySchema = z
-  .object({
-    pull_request: z
-      .object({
-        enabled: z.boolean().default(false),
-        head_branch: z.string().min(1).optional(),
-        label: z.string().min(1).default("preview"),
-        mode: z
-          .enum(["create-new-pr", "update-existing-pr"])
-          .default("create-new-pr"),
-      })
-      .strict()
-      .optional(),
-  })
-  .strict();
+  ),
+});
 
 const pipelineConfigCoreShape = {
-  context_handoff: contextHandoffSchema.optional(),
-  default_workflow: z.string(),
-  delivery: deliverySchema.optional(),
-  entrypoints: strictRecord(entrypointSchema).default({}),
-  hooks: hooksConfigSchema.default({ functions: {}, on: {} }),
-  orchestrator: orchestratorSchema.optional(),
-  parallel_worktrees: parallelWorktreesSchema.optional(),
-  repo_map: repoMapSchema.optional(),
-  runner_command: runnerCommandConfigSchema.default({
+  context_handoff: Schema.optional(contextHandoffSchema),
+  default_workflow: Schema.String,
+  delivery: Schema.optional(deliverySchema),
+  entrypoints: withDefault(strictRecord(entrypoint), {}),
+  hooks: withDefault(hooksConfigSchema, { functions: {}, on: {} }),
+  orchestrator: Schema.optional(orchestratorSchema),
+  parallel_worktrees: Schema.optional(parallelWorktreesSchema),
+  repo_map: Schema.optional(repoMapSchema),
+  runner_command: withDefault(runnerCommandConfigSchema, {
     environment: { setup: [], smoke: [] },
     git: { committer: DEFAULT_RUNNER_COMMAND_GIT_COMMITTER },
   }),
-  scheduler: schedulerConfigSchema.default({
+  scheduler: withDefault(schedulerConfigSchema, {
     commands: {},
     node_catalogs: {},
   }),
-  schedules: strictRecord(schedulePolicySchema).default({}),
-  task_context: taskContextResolverSchema.optional(),
-  token_budget: tokenBudgetSchema.default(DEFAULT_TOKEN_BUDGET),
-  version: z.literal(1),
-  workflows: strictRecord(workflowSchema).default({}),
+  schedules: withDefault(strictRecord(schedulePolicySchema), {}),
+  task_context: Schema.optional(taskContextResolver),
+  token_budget: withDefault(tokenBudgetSchema, {
+    default_context_window: 200_000,
+    fan_out_width: { by_category: {}, default: 4 },
+    max_context_pct: 50,
+    model_context_windows: {},
+  }),
+  version: Schema.Literal(1),
+  workflows: withDefault(strictRecord(workflowSchema), {}),
 };
 
-export const pipelineFileSchema = z
-  .object({
-    ...pipelineConfigCoreShape,
-  })
-  .strict();
+export const pipelineFileSchema = struct({
+  ...pipelineConfigCoreShape,
+});
 
-const configSchemaBase = z
-  .object({
-    ...pipelineConfigCoreShape,
-    mcp_gateway: mcpGatewaySchema.optional(),
-    mcp_servers: strictRecord(mcpServerSchema).default({}),
-    profiles: strictRecord(profileSchema).default({}),
-    rules: strictRecord(pathRefSchema).default({}),
-    runners: strictRecord(runnerSchema).default({}),
-    skills: strictRecord(pathRefSchema).default({}),
-  })
-  .strict();
+export const configSchema = struct({
+  ...pipelineConfigCoreShape,
+  mcp_gateway: Schema.optional(mcpGatewaySchema),
+  mcp_servers: withDefault(strictRecord(mcpServerSchema), {}),
+  profiles: withDefault(strictRecord(profileSchema), {}),
+  rules: withDefault(strictRecord(pathRefSchema), {}),
+  runners: withDefault(strictRecord(runnerSchema), {}),
+  skills: withDefault(strictRecord(pathRefSchema), {}),
+});
 
-export const configSchema = configSchemaBase.superRefine(
-  validateConfigReferences
-);
-
-export type PipelineConfig = z.infer<typeof configSchema>;
+export type PipelineConfig = typeof configSchema.Type;
 export type RunnerType = (typeof RUNNER_TYPES)[number];
 export type WorkflowNodeKind = (typeof NODE_KINDS)[number];
 export type HookEvent = (typeof HOOK_EVENTS)[number];
 export type GateKind = (typeof GATE_KINDS)[number];
 export type ScheduleBaseline = (typeof SCHEDULE_BASELINES)[number];
 export type SchedulingRole = (typeof SCHEDULING_ROLES)[number];
-export type McpGatewayBackendLocality =
-  (typeof MCP_GATEWAY_BACKEND_LOCALITIES)[number];
-export type McpGatewayWorkspacePathSource =
-  (typeof MCP_GATEWAY_WORKSPACE_PATH_SOURCES)[number];
-export type ConfigGateSpec = NonNullable<
-  PipelineConfig["workflows"][string]["nodes"][number]["gates"]
->[number];
+export type McpGatewayBackendLocality = (typeof MCP_GATEWAY_BACKEND_LOCALITIES)[number];
+export type McpGatewayWorkspacePathSource = (typeof MCP_GATEWAY_WORKSPACE_PATH_SOURCES)[number];
+export type ConfigGateSpec = NonNullable<PipelineConfig["workflows"][string]["nodes"][number]["gates"]>[number];
 
 export interface PipelineConfigParts {
   pipeline: string;
@@ -728,26 +600,20 @@ export interface PipelineConfigValidationOptions {
   allowMissingLintFileReferences?: boolean;
 }
 
-export const validationError = (
-  issues: PipelineConfigIssue[]
-): PipelineConfigError =>
+export const validationError = (issues: PipelineConfigIssue[]): PipelineConfigError =>
   new PipelineConfigError(
     "PIPELINE_CONFIG_VALIDATION_ERROR",
     [
       "Invalid pipeline config:",
       ...issues.map((issue) =>
-        issue.path === ""
-          ? `- ${issue.message}`
-          : `- ${issue.path}: ${issue.message}`
+        issue.path === undefined || issue.path === "" ? `- ${issue.message}` : `- ${issue.path}: ${issue.message}`,
       ),
     ].join("\n"),
-    issues
+    issues,
   );
 
-export const configIssuesFromZodError = (
-  error: z.ZodError
-): PipelineConfigIssue[] =>
-  error.issues.map((issue) => ({
+export const configIssuesFromSchemaIssues = (issues: readonly EffectSchemaIssue[]): PipelineConfigIssue[] =>
+  issues.map((issue) => ({
     message: issue.message,
-    path: issue.path.join("."),
+    path: issue.path.map(String).join("."),
   }));

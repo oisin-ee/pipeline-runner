@@ -8,15 +8,10 @@ import type { RunnerLaunchPlan } from "../src/runner";
 import { parseRunnerCommandPayload } from "../src/runner-command-contract";
 import { runPreSchedulePhase } from "../src/runner-command/pre-schedule";
 import { inMemoryDurableRunStore } from "../src/runtime/durable-store/durable-store";
-import {
-  cleanupRunnerCommandFixtures,
-  writeRunnerCommandFixture,
-} from "./runner-command-fixture";
+import { cleanupRunnerCommandFixtures, writeRunnerCommandFixture } from "./runner-command-fixture";
 
 vi.mock("../src/run-state/git-refs", () => ({
-  prepareRunnerGitWorkspace: vi.fn(
-    (_payload, options?: { cwd?: string }) => options?.cwd ?? "/workspace"
-  ),
+  prepareRunnerGitWorkspace: vi.fn((_payload, options?: { cwd?: string }) => options?.cwd ?? "/workspace"),
 }));
 
 vi.mock("../src/runner/subprocess", () => ({
@@ -38,15 +33,13 @@ describe("runner-pre-schedule", () => {
       runId,
       tempPrefix: "runner-pre-schedule-",
     });
-    const payload = parseRunnerCommandPayload(
-      readFileSync(fixture.payloadPath, "utf-8")
-    );
+    const payload = parseRunnerCommandPayload(readFileSync(fixture.payloadPath, "utf-8"));
     writeFileSync(
       fixture.payloadPath,
       JSON.stringify({
         ...payload,
         submission: { kind: "graph", mode: "quick" },
-      })
+      }),
     );
 
     const runControlStore = fileRunControlStore(fixture.dir);
@@ -55,8 +48,7 @@ describe("runner-pre-schedule", () => {
       cwd: fixture.dir,
       payloadFile: fixture.payloadPath,
       phase: "pre-research",
-      resolvePersistence: () =>
-        Effect.succeed({ durableStore, runControlStore }),
+      resolvePersistence: () => Effect.succeed({ durableStore, runControlStore }),
       stderr: { write: () => true },
     });
 
@@ -67,9 +59,7 @@ describe("runner-pre-schedule", () => {
       "pre-planning": "queued",
       "pre-research": "passed",
     });
-    expect(
-      Option.getOrThrow(durableStore.get(runId, "pre-research")).result.status
-    ).toBe("passed");
+    expect(Option.getOrThrow(durableStore.get(runId, "pre-research")).result.status).toBe("passed");
   });
 
   it("embeds a bounded remote phase contract and canonicalizes JSON output", async () => {
@@ -78,15 +68,13 @@ describe("runner-pre-schedule", () => {
       runId,
       tempPrefix: "runner-pre-schedule-",
     });
-    const payload = parseRunnerCommandPayload(
-      readFileSync(fixture.payloadPath, "utf-8")
-    );
+    const payload = parseRunnerCommandPayload(readFileSync(fixture.payloadPath, "utf-8"));
     writeFileSync(
       fixture.payloadPath,
       JSON.stringify({
         ...payload,
         submission: { kind: "graph", mode: "quick" },
-      })
+      }),
     );
 
     const runControlStore = fileRunControlStore(fixture.dir);
@@ -98,30 +86,22 @@ describe("runner-pre-schedule", () => {
         launchPlan = Option.some(plan);
         return {
           exitCode: 0,
-          stdout: [
-            "research summary",
-            "```json",
-            JSON.stringify({ ac: [], findings: [] }),
-            "```",
-          ].join("\n"),
+          stdout: ["research summary", "```json", JSON.stringify({ ac: [], findings: [] }), "```"].join("\n"),
         };
       },
       payloadFile: fixture.payloadPath,
       phase: "pre-research",
-      resolvePersistence: () =>
-        Effect.succeed({ durableStore, runControlStore }),
+      resolvePersistence: () => Effect.succeed({ durableStore, runControlStore }),
       stderr: { write: () => true },
     });
 
     expect(exitCode).toBe(0);
+    expect(Option.getOrThrow(launchPlan).args.join("\n")).toContain("Automated remote pre-schedule research phase.");
     expect(Option.getOrThrow(launchPlan).args.join("\n")).toContain(
-      "Automated remote pre-schedule research phase."
+      "Do not spawn subagents or delegate to task tools.",
     );
-    expect(Option.getOrThrow(launchPlan).args.join("\n")).toContain(
-      "Do not spawn subagents or delegate to task tools."
+    expect(Option.getOrThrow(durableStore.get(runId, "pre-research")).result.output).toBe(
+      JSON.stringify({ ac: [], findings: [] }),
     );
-    expect(
-      Option.getOrThrow(durableStore.get(runId, "pre-research")).result.output
-    ).toBe(JSON.stringify({ ac: [], findings: [] }));
   });
 });

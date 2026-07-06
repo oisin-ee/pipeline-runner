@@ -4,12 +4,7 @@ import type { Option } from "effect/Option";
 import type { HookEvent } from "../../config";
 import type { HookContext } from "../../hooks";
 import type { PlannedWorkflowNode } from "../../planning/compile";
-import type {
-  HookBinding,
-  PipelineTaskContext,
-  RuntimeContext,
-  RuntimeFailure,
-} from "../contracts";
+import type { HookBinding, PipelineTaskContext, RuntimeContext, RuntimeFailure } from "../contracts";
 
 type EmptyObject = Record<string, never>;
 
@@ -18,7 +13,7 @@ const hookEventContext = (
   event: HookEvent,
   binding: HookBinding,
   node?: PlannedWorkflowNode,
-  gateId?: string
+  gateId?: string,
 ): HookContext["event"] => {
   const output: HookContext["event"] = {
     hookId: binding.id,
@@ -34,30 +29,20 @@ const hookEventContext = (
   return output;
 };
 
-const failureContext = (
-  failure?: RuntimeFailure
-): Pick<HookContext, "failure"> | EmptyObject => (failure ? { failure } : {});
+const failureContext = (failure?: RuntimeFailure): Pick<HookContext, "failure"> | EmptyObject =>
+  failure ? { failure } : {};
 
-const nodeContext = (
-  node?: PlannedWorkflowNode
-): Pick<HookContext, "node"> | EmptyObject =>
+const nodeContext = (node?: PlannedWorkflowNode): Pick<HookContext, "node"> | EmptyObject =>
   node ? { node: { id: node.id } } : {};
 
-const taskContextField = (
-  taskContext: Option<PipelineTaskContext>
-): Pick<HookContext, "taskContext"> | EmptyObject =>
+const taskContextField = (taskContext: Option<PipelineTaskContext>): Pick<HookContext, "taskContext"> | EmptyObject =>
   match(taskContext, {
     onNone: () => ({}),
     onSome: (value) => ({ taskContext: value }),
   });
 
-const effectiveTaskContext = (
-  node: PlannedWorkflowNode,
-  context: RuntimeContext
-): Option<PipelineTaskContext> =>
-  orElse(fromUndefinedOr(node.taskContext), () =>
-    fromUndefinedOr(context.taskContext)
-  );
+const effectiveTaskContext = (node: PlannedWorkflowNode, context: RuntimeContext): Option<PipelineTaskContext> =>
+  orElse(fromUndefinedOr(node.taskContext), () => fromUndefinedOr(context.taskContext));
 
 export const hookContext = (
   context: RuntimeContext,
@@ -65,11 +50,9 @@ export const hookContext = (
   binding: HookBinding,
   failure?: RuntimeFailure,
   node?: PlannedWorkflowNode,
-  gateId?: string
+  gateId?: string,
 ): HookContext => {
-  const taskContext = node
-    ? effectiveTaskContext(node, context)
-    : fromUndefinedOr(context.taskContext);
+  const taskContext = node ? effectiveTaskContext(node, context) : fromUndefinedOr(context.taskContext);
   return {
     event: hookEventContext(context, event, binding, node, gateId),
     input: binding.with ?? {},

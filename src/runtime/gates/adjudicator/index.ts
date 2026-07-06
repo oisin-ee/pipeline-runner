@@ -3,11 +3,7 @@ import type { LlmJudge } from "../adjudication/llm-judge";
 import { llmJudgeUnmet } from "../adjudication/llm-judge";
 import { structuredClaimUnmet } from "../adjudication/structured-claim";
 import type { GateEvaluationInput, GateVerdict } from "../contract";
-import {
-  dedupeByCriterion,
-  residueCriteria,
-  runDeterministicLayer,
-} from "./adjudicator";
+import { dedupeByCriterion, residueCriteria, runDeterministicLayer } from "./adjudicator";
 
 /**
  * One deterministic gate the adjudicator runs as its first layer. `input` is a
@@ -56,28 +52,11 @@ export interface AdjudicationInput {
  * The union is deduped by criterion id (earliest layer wins) so every distinct
  * failing criterion appears exactly once. `passed` is true iff `unmet` is empty.
  */
-export const adjudicate = async (
-  input: AdjudicationInput
-): Promise<GateVerdict> => {
-  const deterministic = await runDeterministicLayer(
-    input.deterministicGates ?? []
-  );
+export const adjudicate = async (input: AdjudicationInput): Promise<GateVerdict> => {
+  const deterministic = await runDeterministicLayer(input.deterministicGates ?? []);
   const structured = structuredClaimUnmet(input.criteria, input.claim);
-  const residue = residueCriteria(
-    input.criteria,
-    deterministic.covered,
-    structured
-  );
-  const judged = llmJudgeUnmet(
-    residue,
-    input.claim,
-    deterministic.evidence,
-    input.judge
-  );
-  const unmet = dedupeByCriterion([
-    ...deterministic.unmet,
-    ...structured,
-    ...judged,
-  ]);
+  const residue = residueCriteria(input.criteria, deterministic.covered, structured);
+  const judged = llmJudgeUnmet(residue, input.claim, deterministic.evidence, input.judge);
+  const unmet = dedupeByCriterion([...deterministic.unmet, ...structured, ...judged]);
   return { passed: unmet.length === 0, unmet };
 };

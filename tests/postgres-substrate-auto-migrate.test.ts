@@ -43,8 +43,7 @@ const LEGACY_DURABLE_RECORD = {
   },
 };
 
-const testRoleName = (): string =>
-  `moka_acl_${randomUUID().replaceAll("-", "_")}`;
+const testRoleName = (): string => `moka_acl_${randomUUID().replaceAll("-", "_")}`;
 
 const postgresErrorCode = (error: unknown): Option.Option<string> => {
   if (!(error instanceof Error)) {
@@ -64,9 +63,7 @@ const assertPostgresCode = (error: unknown, code: string): void => {
   }
 };
 
-const expectPermissionDenied = async (
-  query: Promise<unknown>
-): Promise<void> => {
+const expectPermissionDenied = async (query: Promise<unknown>): Promise<void> => {
   let thrown: unknown;
   try {
     await query;
@@ -93,11 +90,7 @@ const currentUser = async (admin: postgres.Sql): Promise<string> => {
   return row.current_user;
 };
 
-const runWithRole = async (
-  admin: postgres.Sql,
-  roleName: string,
-  operation: () => Promise<void>
-): Promise<void> => {
+const runWithRole = async (admin: postgres.Sql, roleName: string, operation: () => Promise<void>): Promise<void> => {
   await admin`set role ${admin(roleName)}`;
   try {
     await operation();
@@ -106,9 +99,7 @@ const runWithRole = async (
   }
 };
 
-const readSubstrateTableSchemas = async (
-  admin: postgres.Sql
-): Promise<Map<string, string>> => {
+const readSubstrateTableSchemas = async (admin: postgres.Sql): Promise<Map<string, string>> => {
   const rows = await admin<{ table_name: string; table_schema: string }[]>`
     select table_name, table_schema
     from information_schema.tables
@@ -256,22 +247,16 @@ describePg("Postgres substrate auto-migrates on store resolution", () => {
                 runId: "auto-migrate-rc-check",
                 target: "local",
               })
-              .pipe(
-                Effect.flatMap(() =>
-                  store.readRun({ runId: "auto-migrate-rc-check" })
-                )
-              )
-          )
-        )
-      )
+              .pipe(Effect.flatMap(() => store.readRun({ runId: "auto-migrate-rc-check" }))),
+          ),
+        ),
+      ),
     );
 
     expect(run?.runId).toBe("auto-migrate-rc-check");
 
     const schemas = await readSubstrateTableSchemas(adminClient);
-    expect(schemas).toEqual(
-      new Map(SUBSTRATE_TABLES.map((table) => [table, MOKA_POSTGRES_SCHEMA]))
-    );
+    expect(schemas).toEqual(new Map(SUBSTRATE_TABLES.map((table) => [table, MOKA_POSTGRES_SCHEMA])));
     expect(schemas.get("moka_run_control_run")).toBe(MOKA_POSTGRES_SCHEMA);
     const publicTables = await adminClient<{ table_name: string }[]>`
       select table_name
@@ -288,11 +273,7 @@ describePg("Postgres substrate auto-migrates on store resolution", () => {
 
   it("resolveDurableStore also resolves against the already-migrated schema", async () => {
     const closed = await Effect.runPromise(
-      Effect.scoped(
-        resolveDurableStore(dbUrl, "auto-migrate-durable-check").pipe(
-          Effect.map(() => true)
-        )
-      )
+      Effect.scoped(resolveDurableStore(dbUrl, "auto-migrate-durable-check").pipe(Effect.map(() => true))),
     );
     expect(closed).toBe(true);
   });
@@ -318,18 +299,14 @@ describePg("Postgres substrate auto-migrates on store resolution", () => {
       await adminClient`revoke create on schema public from ${adminClient(roleName)}`;
 
       await runWithRole(adminClient, roleName, async () => {
-        await expectPermissionDenied(
-          adminClient`create table public.moka_forbidden_create (id integer)`
-        );
+        await expectPermissionDenied(adminClient`create table public.moka_forbidden_create (id integer)`);
         await expectPermissionDenied(
           adminClient`
             alter table public.pipeline_console_owned
             add column touched_by_moka integer
-          `
+          `,
         );
-        await expectPermissionDenied(
-          adminClient`drop table public.pipeline_console_owned`
-        );
+        await expectPermissionDenied(adminClient`drop table public.pipeline_console_owned`);
       });
 
       const rows = await adminClient<{ table_name: string }[]>`
@@ -353,9 +330,7 @@ describePg("Postgres substrate auto-migrates on store resolution", () => {
     await migratePostgresSubstrate(dbUrl);
 
     const schemas = await readSubstrateTableSchemas(adminClient);
-    expect(schemas).toEqual(
-      new Map(SUBSTRATE_TABLES.map((table) => [table, MOKA_POSTGRES_SCHEMA]))
-    );
+    expect(schemas).toEqual(new Map(SUBSTRATE_TABLES.map((table) => [table, MOKA_POSTGRES_SCHEMA])));
     const publicTables = await adminClient<{ table_name: string }[]>`
       select table_name
       from information_schema.tables
@@ -363,9 +338,7 @@ describePg("Postgres substrate auto-migrates on store resolution", () => {
     `;
     expect(publicTables).toEqual([]);
 
-    const durableRows = await adminClient<
-      { criteria: unknown; inputs: unknown; result: unknown; run_id: string }[]
-    >`
+    const durableRows = await adminClient<{ criteria: unknown; inputs: unknown; result: unknown; run_id: string }[]>`
       select criteria, inputs, result, run_id
       from ${adminClient(MOKA_POSTGRES_SCHEMA)}.moka_durable_node_record
       where run_id = 'legacy-upgrade-run' and node_id = 'legacy-node'

@@ -7,10 +7,7 @@ const repoRoot = join(import.meta.dirname, "..");
 
 describe("checked-in command artifacts", () => {
   it("does not commit installed plugin command output", () => {
-    const commandsDir = join(
-      repoRoot,
-      ".agents/plugins/oisin-pipeline/commands"
-    );
+    const commandsDir = join(repoRoot, ".agents/plugins/oisin-pipeline/commands");
     const commandFiles = existsSync(commandsDir)
       ? readdirSync(commandsDir).filter((entry) => entry.endsWith(".md"))
       : [];

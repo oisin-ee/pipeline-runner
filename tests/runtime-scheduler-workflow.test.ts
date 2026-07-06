@@ -9,11 +9,7 @@ import { afterEach, describe, expect, expectTypeOf, it, vi } from "vitest";
 
 import { buildRunnerArgoWorkflowManifest } from "../src/argo-workflow";
 import { parsePipelineConfigParts } from "../src/config";
-import type {
-  PipelineRuntimeResult,
-  RuntimeFailure,
-  RuntimeNodeResult,
-} from "../src/pipeline-runtime";
+import type { PipelineRuntimeResult, RuntimeFailure, RuntimeNodeResult } from "../src/pipeline-runtime";
 import { compileWorkflowPlan } from "../src/planning/compile";
 import type { WorkflowExecutionPlan } from "../src/planning/compile";
 import { runRunnerFinalize } from "../src/runner-command/finalize";
@@ -24,15 +20,9 @@ import type { PipelineScheduler } from "../src/runtime/local-scheduler";
 import { NodeStateStore } from "../src/runtime/node-state-store";
 import { fileRunJournal } from "../src/runtime/run-journal";
 import { runWorkflowScheduler } from "../src/runtime/scheduler";
-import type {
-  WorkflowScheduleNode,
-  WorkflowSchedulerInput,
-} from "../src/runtime/scheduler";
+import type { WorkflowScheduleNode, WorkflowSchedulerInput } from "../src/runtime/scheduler";
 import { runWorkflowLifecycle } from "../src/runtime/workflow-lifecycle";
-import type {
-  WorkflowHookEvent,
-  WorkflowHookResult,
-} from "../src/runtime/workflow-lifecycle";
+import type { WorkflowHookEvent, WorkflowHookResult } from "../src/runtime/workflow-lifecycle";
 import {
   captureEventBatches,
   cleanupRunnerCommandFixtures,
@@ -48,9 +38,7 @@ vi.mock("execa", () => ({
 }));
 
 vi.mock("../src/run-state/git-refs", () => ({
-  prepareRunnerGitWorkspace: vi.fn(
-    (_payload, options?: { cwd?: string }) => options?.cwd ?? "/workspace"
-  ),
+  prepareRunnerGitWorkspace: vi.fn((_payload, options?: { cwd?: string }) => options?.cwd ?? "/workspace"),
   promoteFinalRef: vi.fn(() => "final-sha"),
 }));
 
@@ -62,18 +50,14 @@ afterEach(() => {
 });
 
 const runArgoLifecycleAdapters = async (
-  argoStatus: "Failed" | "Succeeded"
+  argoStatus: "Failed" | "Succeeded",
 ): Promise<{
   exitCodes: { finalize: number; start: number };
   finalResults: { outcome: string; workflowId: string }[];
   hookEvents: string[];
 }> => {
   const { dir, payloadPath, schedulePath } = writeRunnerCommandFixture();
-  writeLifecycleConfig(dir, [
-    "workflow.start",
-    "workflow.failure",
-    "workflow.complete",
-  ]);
+  writeLifecycleConfig(dir, ["workflow.start", "workflow.failure", "workflow.complete"]);
   const batches: unknown[][] = [];
   mockExeca.mockImplementation(commandHookResult());
 
@@ -97,9 +81,7 @@ const runArgoLifecycleAdapters = async (
   return {
     exitCodes: { finalize, start },
     finalResults: finalResults(batches),
-    hookEvents: hookResultEvents(batches).map(
-      (event) => event.hookResult?.event ?? ""
-    ),
+    hookEvents: hookResultEvents(batches).map((event) => event.hookResult?.event ?? ""),
   };
 };
 
@@ -107,13 +89,10 @@ const scheduleNode = (
   id: string,
   index: number,
   needs: string[] = [],
-  dependents: string[] = []
+  dependents: string[] = [],
 ): WorkflowScheduleNode => ({ dependents, id, index, needs });
 
-const failFastSkipped = (
-  nodeIds: string[],
-  failedNodeId: string
-): { nodeId: string; reason: string }[] =>
+const failFastSkipped = (nodeIds: string[], failedNodeId: string): { nodeId: string; reason: string }[] =>
   nodeIds.map((nodeId) => ({
     nodeId,
     reason: `skipped because workflow fail_fast stopped after node '${failedNodeId}' failed`,
@@ -122,7 +101,7 @@ const failFastSkipped = (
 const nodeResult = (
   nodeId: string,
   status: RuntimeNodeResult["status"],
-  overrides: Partial<Pick<RuntimeNodeResult, "attempts" | "exitCode">> = {}
+  overrides: Partial<Pick<RuntimeNodeResult, "attempts" | "exitCode">> = {},
 ): RuntimeNodeResult => ({
   attempts: overrides.attempts ?? 1,
   evidence: [],
@@ -132,17 +111,13 @@ const nodeResult = (
   status,
 });
 
-const schedulerInput = (
-  overrides: Partial<WorkflowSchedulerInput>
-): WorkflowSchedulerInput => ({
+const schedulerInput = (overrides: Partial<WorkflowSchedulerInput>): WorkflowSchedulerInput => ({
   failFast: false,
   isCancelled: () => false,
   markNodeReady: () => {},
   nodes: [scheduleNode("a", 0)],
-  runNode: async (nodeId: string) =>
-    await Promise.resolve(nodeResult(nodeId, "passed")),
-  shouldContinueAfterNodeResult: (result: RuntimeNodeResult) =>
-    result.status === "passed",
+  runNode: async (nodeId: string) => await Promise.resolve(nodeResult(nodeId, "passed")),
+  shouldContinueAfterNodeResult: (result: RuntimeNodeResult) => result.status === "passed",
   skipNode: () => {},
   ...overrides,
 });
@@ -154,9 +129,7 @@ describe("plain workflow scheduler", () => {
     expectTypeOf<Parameters<PipelineScheduler["runWorkflow"]>>().toEqualTypeOf<
       [WorkflowExecutionPlan, RuntimeContext]
     >();
-    expectTypeOf<ReturnType<PipelineScheduler["runWorkflow"]>>().toEqualTypeOf<
-      Promise<PipelineRuntimeResult>
-    >();
+    expectTypeOf<ReturnType<PipelineScheduler["runWorkflow"]>>().toEqualTypeOf<Promise<PipelineRuntimeResult>>();
     expect(scheduler).toBeInstanceOf(LocalScheduler);
   });
 
@@ -167,11 +140,7 @@ describe("plain workflow scheduler", () => {
     const result = await runWorkflowScheduler(
       schedulerInput({
         failFast: true,
-        nodes: [
-          scheduleNode("a", 0),
-          scheduleNode("b", 1),
-          scheduleNode("c", 2),
-        ],
+        nodes: [scheduleNode("a", 0), scheduleNode("b", 1), scheduleNode("c", 2)],
         runNode: async (nodeId: string) => {
           active += 1;
           maxActive = Math.max(maxActive, active);
@@ -179,13 +148,11 @@ describe("plain workflow scheduler", () => {
           active -= 1;
           return nodeResult(nodeId, "passed");
         },
-      })
+      }),
     );
 
     expect(maxActive).toBe(1);
-    expect(
-      result.completed.map((node: RuntimeNodeResult) => node.nodeId)
-    ).toEqual(["a", "b", "c"]);
+    expect(result.completed.map((node: RuntimeNodeResult) => node.nodeId)).toEqual(["a", "b", "c"]);
   });
 
   it("skips every unstarted node with the exact fail-fast skip reason", async () => {
@@ -194,17 +161,12 @@ describe("plain workflow scheduler", () => {
     const result = await runWorkflowScheduler(
       schedulerInput({
         failFast: true,
-        nodes: [
-          scheduleNode("a", 0),
-          scheduleNode("b", 1),
-          scheduleNode("c", 2, ["a"]),
-        ],
-        runNode: async (nodeId: string) =>
-          await Promise.resolve(nodeResult(nodeId, "failed")),
+        nodes: [scheduleNode("a", 0), scheduleNode("b", 1), scheduleNode("c", 2, ["a"])],
+        runNode: async (nodeId: string) => await Promise.resolve(nodeResult(nodeId, "failed")),
         skipNode: (nodeId: string, reason: string) => {
           skipped.push({ nodeId, reason });
         },
-      })
+      }),
     );
 
     expect(result.outcome).toBe("FAIL");
@@ -223,11 +185,7 @@ describe("plain workflow scheduler", () => {
           readyNodes.push(nodeId);
         },
         maxParallelNodes: 2,
-        nodes: [
-          scheduleNode("a", 0),
-          scheduleNode("b", 1),
-          scheduleNode("c", 2),
-        ],
+        nodes: [scheduleNode("a", 0), scheduleNode("b", 1), scheduleNode("c", 2)],
         runNode: async (nodeId: string) => {
           active += 1;
           maxActive = Math.max(maxActive, active);
@@ -235,14 +193,12 @@ describe("plain workflow scheduler", () => {
           active -= 1;
           return nodeResult(nodeId, "passed");
         },
-      })
+      }),
     );
 
     expect(readyNodes).toEqual(["a", "b", "c"]);
     expect(maxActive).toBe(2);
-    expect(
-      result.completed.map((node: RuntimeNodeResult) => node.nodeId)
-    ).toEqual(["a", "b", "c"]);
+    expect(result.completed.map((node: RuntimeNodeResult) => node.nodeId)).toEqual(["a", "b", "c"]);
   });
 
   it("keeps blocked descendants pending when failFast is disabled", async () => {
@@ -262,34 +218,27 @@ describe("plain workflow scheduler", () => {
         runNode: async (nodeId: string) => {
           await Promise.resolve();
           started.push(nodeId);
-          return nodeResult(
-            nodeId,
-            nodeId === "failed-branch" ? "failed" : "passed"
-          );
+          return nodeResult(nodeId, nodeId === "failed-branch" ? "failed" : "passed");
         },
         skipNode: (nodeId: string, reason: string) => {
           skipped.push({ nodeId, reason });
         },
-      })
+      }),
     );
 
     expect(started).toEqual(["root", "failed-branch", "independent"]);
     expect(skipped).toEqual([]);
     expect(result.outcome).toBe("FAIL");
-    expect(
-      result.completed.map((node: RuntimeNodeResult) => node.nodeId)
-    ).toEqual(["root", "failed-branch", "independent"]);
+    expect(result.completed.map((node: RuntimeNodeResult) => node.nodeId)).toEqual([
+      "root",
+      "failed-branch",
+      "independent",
+    ]);
   });
 
   it("keeps Argo and Kubernetes clients out of the local scheduler seam", () => {
-    const schedulerSource = readFileSync(
-      join(import.meta.dirname, "../src/runtime/scheduler.ts"),
-      "utf-8"
-    );
-    const pipelineRuntimeSource = readFileSync(
-      join(import.meta.dirname, "../src/pipeline-runtime.ts"),
-      "utf-8"
-    );
+    const schedulerSource = readFileSync(join(import.meta.dirname, "../src/runtime/scheduler.ts"), "utf-8");
+    const pipelineRuntimeSource = readFileSync(join(import.meta.dirname, "../src/pipeline-runtime.ts"), "utf-8");
 
     expect(schedulerSource).not.toContain("@kubernetes/client-node");
     expect(pipelineRuntimeSource).not.toContain("@kubernetes/client-node");
@@ -307,7 +256,7 @@ const runtimeResult = (
   plan: ReturnType<typeof testPlan>,
   outcome: PipelineRuntimeResult["outcome"],
   nodes: RuntimeNodeResult[],
-  failure?: RuntimeFailure
+  failure?: RuntimeFailure,
 ): PipelineRuntimeResult => ({
   agentInvocations: [],
   failureDetails: failure ? [failure] : [],
@@ -339,7 +288,7 @@ workflows:
         "version: 1\nprofiles:\n  orchestrator:\n    runner: command\n    instructions: { inline: Orchestrate }\n",
       runners:
         "version: 1\nrunners:\n  command:\n    type: command\n    command: echo\n    capabilities:\n      native_subagents: false\n      output_formats: [text]\n",
-    })
+    }),
   );
 
 const lifecycleInput = (overrides: {
@@ -350,14 +299,11 @@ const lifecycleInput = (overrides: {
   }>;
   runWorkflowHook: (
     event: WorkflowHookEvent,
-    failure?: RuntimeFailure
+    failure?: RuntimeFailure,
   ) => Promise<WorkflowHookResult> | WorkflowHookResult;
 }) => ({
-  buildResult: (
-    outcome: PipelineRuntimeResult["outcome"],
-    nodes: RuntimeNodeResult[],
-    failure?: RuntimeFailure
-  ) => runtimeResult(testPlan(), outcome, nodes, failure),
+  buildResult: (outcome: PipelineRuntimeResult["outcome"], nodes: RuntimeNodeResult[], failure?: RuntimeFailure) =>
+    runtimeResult(testPlan(), outcome, nodes, failure),
   emitWorkflowPlanned: () => {},
   emitWorkflowStarted: () => {},
   ...overrides,
@@ -379,14 +325,10 @@ describe("workflow lifecycle", () => {
           hookEvents.push(event);
           return Option.none();
         },
-      })
+      }),
     );
 
-    expect(hookEvents).toEqual([
-      "workflow.start",
-      "workflow.failure",
-      "workflow.complete",
-    ]);
+    expect(hookEvents).toEqual(["workflow.start", "workflow.failure", "workflow.complete"]);
     expect(result.status).toBe("failed");
     expect(result.result.outcome).toBe("FAIL");
   });
@@ -413,20 +355,14 @@ describe("workflow lifecycle", () => {
           }
           return Option.none();
         },
-      })
+      }),
     );
 
-    expect(hookEvents).toEqual([
-      "workflow.start",
-      "workflow.success",
-      "workflow.complete",
-    ]);
+    expect(hookEvents).toEqual(["workflow.start", "workflow.success", "workflow.complete"]);
     expect(result.status).toBe("failed");
     expect(result.successHookFailure?.reason).toBe("success hook failed");
     expect(result.result.outcome).toBe("FAIL");
-    expect(result.result.failureDetails).toEqual([
-      expect.objectContaining({ reason: "success hook failed" }),
-    ]);
+    expect(result.result.failureDetails).toEqual([expect.objectContaining({ reason: "success hook failed" })]);
   });
 
   it("runs start, success, complete and finalizes a successful result", async () => {
@@ -443,14 +379,10 @@ describe("workflow lifecycle", () => {
           hookEvents.push(event);
           return Option.none();
         },
-      })
+      }),
     );
 
-    expect(hookEvents).toEqual([
-      "workflow.start",
-      "workflow.success",
-      "workflow.complete",
-    ]);
+    expect(hookEvents).toEqual(["workflow.start", "workflow.success", "workflow.complete"]);
     expect(result.status).toBe("passed");
     expect(result.result.outcome).toBe("PASS");
     expect(result.result.nodes).toEqual([nodeResult("a", "passed")]);
@@ -516,7 +448,7 @@ workflows:
 
 const parityRuntimeContext = (
   plan: WorkflowExecutionPlan,
-  config: ReturnType<typeof parsePipelineConfigParts>
+  config: ReturnType<typeof parsePipelineConfigParts>,
 ): RuntimeContext => ({
   agentInvocations: [],
   config,
@@ -541,28 +473,19 @@ const parityRuntimeContext = (
   worktreePath: "/tmp/pipeline-parity",
 });
 
-const nextReadyArgoTask = (
-  dagTasks: ArgoDagTask[],
-  completed: Set<string>
-): Option.Option<ArgoDagTask> =>
+const nextReadyArgoTask = (dagTasks: ArgoDagTask[], completed: Set<string>): Option.Option<ArgoDagTask> =>
   Option.fromUndefinedOr(
     dagTasks.find(
-      (task) =>
-        !completed.has(task.name) &&
-        (task.dependencies ?? []).every((dependency) =>
-          completed.has(dependency)
-        )
-    )
+      (task) => !completed.has(task.name) && (task.dependencies ?? []).every((dependency) => completed.has(dependency)),
+    ),
   );
 
 const argoNodeId = (taskName: string): Option.Option<string> =>
-  taskName.startsWith("node-")
-    ? Option.some(taskName.slice("node-".length))
-    : Option.none();
+  taskName.startsWith("node-") ? Option.some(taskName.slice("node-".length)) : Option.none();
 
 const projectArgoExecution = (
   dagTasks: ArgoDagTask[],
-  terminalStatuses: Record<string, "failed" | "passed">
+  terminalStatuses: Record<string, "failed" | "passed">,
 ): {
   completed: Set<string>;
   executionOrder: string[];
@@ -593,7 +516,7 @@ const projectArgoExecution = (
 const projectArgoSkippedNodes = (
   dagTasks: ArgoDagTask[],
   completed: Set<string>,
-  failedNodeId: Option.Option<string>
+  failedNodeId: Option.Option<string>,
 ): { nodeId: string; reason: string }[] =>
   Option.match(failedNodeId, {
     onNone: () => [],
@@ -613,15 +536,13 @@ const projectArgoSkippedNodes = (
   });
 
 const projectArgoLifecycleEvents = (
-  failedNodeId: Option.Option<string>
+  failedNodeId: Option.Option<string>,
 ): { event: WorkflowHookEvent; status: string }[] => {
   const finalStatus = Option.isNone(failedNodeId) ? "Succeeded" : "Failed";
   return [
     { event: "workflow.start", status: "Running" },
     {
-      event: Option.isNone(failedNodeId)
-        ? "workflow.success"
-        : "workflow.failure",
+      event: Option.isNone(failedNodeId) ? "workflow.success" : "workflow.failure",
       status: finalStatus,
     },
     { event: "workflow.complete", status: finalStatus },
@@ -630,16 +551,14 @@ const projectArgoLifecycleEvents = (
 
 const projectArgoDagCompletion = (
   manifest: ReturnType<typeof buildRunnerArgoWorkflowManifest>,
-  terminalStatuses: Record<string, "failed" | "passed">
+  terminalStatuses: Record<string, "failed" | "passed">,
 ): {
   executionOrder: string[];
   lifecycleEvents: { event: WorkflowHookEvent; status: string }[];
   outcome: PipelineRuntimeResult["outcome"];
   skipped: { nodeId: string; reason: string }[];
 } => {
-  const dagTasks =
-    manifest.spec.templates.find((template) => template.name === "pipeline")
-      ?.dag?.tasks ?? [];
+  const dagTasks = manifest.spec.templates.find((template) => template.name === "pipeline")?.dag?.tasks ?? [];
   const execution = projectArgoExecution(dagTasks, terminalStatuses);
   const failedNodeId = Option.match(execution.failedTask, {
     onNone: () => Option.none(),
@@ -650,34 +569,25 @@ const projectArgoDagCompletion = (
     executionOrder: execution.executionOrder,
     lifecycleEvents: projectArgoLifecycleEvents(failedNodeId),
     outcome: Option.isNone(failedNodeId) ? "PASS" : "FAIL",
-    skipped: projectArgoSkippedNodes(
-      dagTasks,
-      execution.completed,
-      failedNodeId
-    ),
+    skipped: projectArgoSkippedNodes(dagTasks, execution.completed, failedNodeId),
   };
 };
 
 type ArgoDagTask = NonNullable<
-  NonNullable<
-    ReturnType<
-      typeof buildRunnerArgoWorkflowManifest
-    >["spec"]["templates"][number]["dag"]
-  >["tasks"]
+  NonNullable<ReturnType<typeof buildRunnerArgoWorkflowManifest>["spec"]["templates"][number]["dag"]>["tasks"]
 >[number];
 
 const retryStrategiesByTemplate = (
-  manifest: ReturnType<typeof buildRunnerArgoWorkflowManifest>
+  manifest: ReturnType<typeof buildRunnerArgoWorkflowManifest>,
 ): Record<string, unknown> =>
   Object.fromEntries(
     manifest.spec.templates
       .filter((template) => template.retryStrategy !== undefined)
-      .map((template) => [template.name, template.retryStrategy])
+      .map((template) => [template.name, template.retryStrategy]),
   );
 
 const runnerRetryStrategy = () => ({
-  expression:
-    "lastRetry.status == 'Error' || (lastRetry.exitCode != '0' && lastRetry.exitCode != '1')",
+  expression: "lastRetry.status == 'Error' || (lastRetry.exitCode != '0' && lastRetry.exitCode != '1')",
   limit: "3",
   retryPolicy: "Always",
 });
@@ -692,15 +602,14 @@ describe("LocalScheduler and Argo workflow parity", () => {
       failure?: RuntimeFailure;
     }[] = [];
     const localScheduler = new LocalScheduler({
-      buildResult: (outcome, nodes, failure) =>
-        runtimeResult(plan, outcome, nodes, failure),
+      buildResult: (outcome, nodes, failure) => runtimeResult(plan, outcome, nodes, failure),
       emitWorkflowPlanned: () => {},
       emitWorkflowStarted: () => {},
       executeNode: async (nodeId) =>
         await Promise.resolve(
           nodeId === "flaky"
             ? nodeResult(nodeId, "failed", { attempts: 2, exitCode: 1 })
-            : nodeResult(nodeId, "passed")
+            : nodeResult(nodeId, "passed"),
         ),
       isCancelled: () => false,
       markNodeReady: (nodeId) => {
@@ -717,10 +626,7 @@ describe("LocalScheduler and Argo workflow parity", () => {
       },
     });
 
-    const localResult = await localScheduler.runWorkflow(
-      plan,
-      parityRuntimeContext(plan, config)
-    );
+    const localResult = await localScheduler.runWorkflow(plan, parityRuntimeContext(plan, config));
     const argoManifest = buildRunnerArgoWorkflowManifest({
       brokerAuth: {
         secretKey: "api-key",
@@ -745,13 +651,9 @@ describe("LocalScheduler and Argo workflow parity", () => {
       failFast: true,
       maxParallelNodes: 1,
     });
-    expect(plan.topologicalOrder.map((node) => node.id)).toEqual([
-      "setup",
-      "flaky",
-      "descendant",
-    ]);
+    expect(plan.topologicalOrder.map((node) => node.id)).toEqual(["setup", "flaky", "descendant"]);
     expect(plan.topologicalOrder.find((node) => node.id === "flaky")).toEqual(
-      expect.objectContaining({ retries: { max_attempts: 2 } })
+      expect.objectContaining({ retries: { max_attempts: 2 } }),
     );
     expect(config.hooks.on["workflow.start"]).toHaveLength(1);
     expect(config.hooks.on["workflow.failure"]).toHaveLength(1);
@@ -778,44 +680,30 @@ describe("LocalScheduler and Argo workflow parity", () => {
       failure: undefined,
     });
     expect(localHookEvents[1]?.event).toBe("workflow.failure");
-    expect(localHookEvents[1]?.failure).toEqual(
-      expect.objectContaining({ nodeId: "flaky" })
-    );
+    expect(localHookEvents[1]?.failure).toEqual(expect.objectContaining({ nodeId: "flaky" }));
     expect(localHookEvents[2]?.event).toBe("workflow.complete");
-    expect(localHookEvents[2]?.failure).toEqual(
-      expect.objectContaining({ nodeId: "flaky" })
-    );
+    expect(localHookEvents[2]?.failure).toEqual(expect.objectContaining({ nodeId: "flaky" }));
     expect(argoProjection.lifecycleEvents).toEqual([
       { event: "workflow.start", status: "Running" },
       { event: "workflow.failure", status: "Failed" },
       { event: "workflow.complete", status: "Failed" },
     ]);
     expect(argoAdapters.exitCodes).toEqual({ finalize: 1, start: 0 });
-    expect(argoAdapters.hookEvents).toEqual([
-      "workflow.start",
-      "workflow.failure",
-      "workflow.complete",
-    ]);
-    expect(argoAdapters.finalResults).toEqual([
-      { outcome: "FAIL", workflowId: "schedule-run-1-root" },
-    ]);
+    expect(argoAdapters.hookEvents).toEqual(["workflow.start", "workflow.failure", "workflow.complete"]);
+    expect(argoAdapters.finalResults).toEqual([{ outcome: "FAIL", workflowId: "schedule-run-1-root" }]);
+    expect(argoManifest.spec.templates.find((template) => template.name === "workflow-start")?.container?.args).toEqual(
+      [
+        "runner-lifecycle",
+        "--phase",
+        "workflow.start",
+        "--payload-file",
+        "/etc/pipeline/payload.json",
+        "--schedule-file",
+        "/etc/pipeline/schedule.yaml",
+      ],
+    );
     expect(
-      argoManifest.spec.templates.find(
-        (template) => template.name === "workflow-start"
-      )?.container?.args
-    ).toEqual([
-      "runner-lifecycle",
-      "--phase",
-      "workflow.start",
-      "--payload-file",
-      "/etc/pipeline/payload.json",
-      "--schedule-file",
-      "/etc/pipeline/schedule.yaml",
-    ]);
-    expect(
-      argoManifest.spec.templates.find(
-        (template) => template.name === "pipeline-finalizer"
-      )?.container?.args
+      argoManifest.spec.templates.find((template) => template.name === "pipeline-finalizer")?.container?.args,
     ).toEqual([
       "runner-finalize",
       "--payload-file",
@@ -834,21 +722,14 @@ describe("LocalScheduler and Argo workflow parity", () => {
       "task-setup": runnerRetryStrategy(),
       "workflow-start": runnerRetryStrategy(),
     });
-    expect(
-      argoManifest.spec.templates.find(
-        (template) => template.name === "pipeline-finalizer"
-      )
-    ).not.toHaveProperty("retryStrategy");
-    expect(retryStrategiesByTemplate(argoManifest)["task-flaky"]).toEqual(
-      runnerRetryStrategy()
+    expect(argoManifest.spec.templates.find((template) => template.name === "pipeline-finalizer")).not.toHaveProperty(
+      "retryStrategy",
     );
+    expect(retryStrategiesByTemplate(argoManifest)["task-flaky"]).toEqual(runnerRetryStrategy());
   });
 });
 
-const categorizedNodes = (
-  ids: string[],
-  category: string
-): WorkflowScheduleNode[] =>
+const categorizedNodes = (ids: string[], category: string): WorkflowScheduleNode[] =>
   ids.map((id, index) => ({
     category,
     dependents: [],
@@ -878,7 +759,7 @@ describe("runWorkflowScheduler durable crash-resume", () => {
             ran.push(nodeId);
             return await Promise.resolve(nodeResult(nodeId, "passed"));
           },
-        })
+        }),
       );
 
       // "a" was resumed from the journal: never re-run, never re-readied.
@@ -909,7 +790,7 @@ describe("runWorkflowScheduler durable crash-resume", () => {
             firstRan.push(nodeId);
             return await Promise.resolve(nodeResult(nodeId, "passed"));
           },
-        })
+        }),
       );
       expect(firstRan).toEqual(["a"]);
 
@@ -923,7 +804,7 @@ describe("runWorkflowScheduler durable crash-resume", () => {
             resumedRan.push(nodeId);
             return await Promise.resolve(nodeResult(nodeId, "passed"));
           },
-        })
+        }),
       );
 
       expect(resumedRan).toEqual(["b"]);
@@ -952,7 +833,7 @@ describe("runWorkflowScheduler per-category fan-out", () => {
           active -= 1;
           return nodeResult(nodeId, "passed");
         },
-      })
+      }),
     );
 
     expect(maxActive).toBe(2);
@@ -966,11 +847,7 @@ describe("runWorkflowScheduler per-category fan-out", () => {
       schedulerInput({
         fanOutWidth: { by_category: { green: 2 }, default: 4 },
         maxParallelNodes: 3,
-        nodes: [
-          scheduleNode("a", 0),
-          scheduleNode("b", 1),
-          scheduleNode("c", 2),
-        ],
+        nodes: [scheduleNode("a", 0), scheduleNode("b", 1), scheduleNode("c", 2)],
         runNode: async (nodeId: string) => {
           active += 1;
           maxActive = Math.max(maxActive, active);
@@ -978,7 +855,7 @@ describe("runWorkflowScheduler per-category fan-out", () => {
           active -= 1;
           return nodeResult(nodeId, "passed");
         },
-      })
+      }),
     );
 
     expect(maxActive).toBe(3);

@@ -1,33 +1,40 @@
-import { execFileSync } from "node:child_process";
-import {
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  symlinkSync,
-  writeFileSync,
-} from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { afterEach, beforeAll, describe, expect, it } from "@effect/vitest";
+import * as Schema from "effect/Schema";
+import { execa } from "execa";
 
-import { afterEach, describe, expect, it } from "vitest";
-import { z } from "zod";
+import { parseWithSchema, struct } from "../src/schema-boundary";
 
 const tempDirs: string[] = [];
 const MISSING_CONFIG_AFFORDANCE_RE =
   /tryLoadPipelineConfig|PIPELINE_CONFIG_MISSING|no exported member|not assignable/iu;
-const packageExportSchema = z
-  .object({
-    import: z.string(),
-    types: z.string(),
-  })
-  .strict();
-const packageJsonSchema = z
-  .object({
-    bin: z.record(z.string(), z.string()),
-    exports: z.record(z.string(), packageExportSchema),
-  })
-  .passthrough();
+const packageExportSchema = struct({
+  import: Schema.String,
+  types: Schema.String,
+});
+const packageJsonSchema = struct({
+  bin: Schema.Record(Schema.String, Schema.String),
+  exports: Schema.Record(Schema.String, packageExportSchema),
+});
+const rootPackageManagerSchema = struct({
+  packageManager: Schema.String,
+});
+const packOutput = Schema.Tuple([
+  struct({
+    filename: Schema.String,
+  }),
+]);
+const packDryRunOutput = Schema.Tuple([
+  struct({
+    files: Schema.mutable(
+      Schema.Array(
+        struct({
+          path: Schema.String,
+        }),
+      ),
+    ),
+  }),
+]);
+const unknownJsonString = Schema.fromJsonString(Schema.Unknown);
 const EXPECTED_PUBLIC_EXPORTS = {
   ".": { import: "./dist/index.js", types: "./dist/index.d.ts" },
   "./argo-submit": {
@@ -79,146 +86,141 @@ const EXPECTED_PUBLIC_EXPORTS = {
   },
 } as const;
 
-afterEach(() => {
-  for (const dir of tempDirs.splice(0)) {
-    rmSync(dir, { force: true, recursive: true });
-  }
+let joinPath: (...paths: string[]) => string;
+
+beforeAll(async () => {
+  const { join } = await import("node:path");
+  joinPath = join;
 });
 
-const tempConsumerApp = (): string => {
-  const dir = mkdtempSync(join(tmpdir(), "pipeline-public-api-consumer-"));
+afterEach(async () => {
+  await Promise.all(tempDirs.splice(0).map(removePath));
+});
+
+const readText = async (path: string): Promise<string> => {
+  const { readFile } = await import("node:fs/promises");
+  return await readFile(path, "utf-8");
+};
+
+const writeText = async (path: string, content: string): Promise<void> => {
+  const { writeFile } = await import("node:fs/promises");
+  await writeFile(path, content, "utf-8");
+};
+
+const copyFile = async (source: string, target: string): Promise<void> => {
+  const { copyFile: copy } = await import("node:fs/promises");
+  await copy(source, target);
+};
+
+const removePath = async (path: string): Promise<void> => {
+  const { rm } = await import("node:fs/promises");
+  await rm(path, { force: true, recursive: true });
+};
+
+const makeTempDir = async (prefix: string): Promise<string> => {
+  const [{ mkdtemp }, { tmpdir }, { join }] = await Promise.all([
+    import("node:fs/promises"),
+    import("node:os"),
+    import("node:path"),
+  ]);
+  return await mkdtemp(join(tmpdir(), prefix));
+};
+
+const encodeJson = (value: unknown): string => Schema.encodeUnknownSync(unknownJsonString)(value);
+
+const jsonStringLiteral = (value: string): string =>
+  Schema.encodeUnknownSync(Schema.fromJsonString(Schema.String))(value);
+
+const writeJson = async (path: string, value: unknown): Promise<void> => {
+  await writeText(path, `${encodeJson(value)}\n`);
+};
+
+const parseJsonWithSchema = <S extends Schema.ConstraintDecoder<unknown>>(schema: S, source: string): S["Type"] =>
+  parseWithSchema(Schema.fromJsonString(schema), source);
+
+const tempConsumerApp = async (): Promise<string> => {
+  const dir = await makeTempDir("pipeline-public-api-consumer-");
   tempDirs.push(dir);
-
-  const scopeDir = join(dir, "node_modules", "@oisincoveney");
-  mkdirSync(scopeDir, { recursive: true });
-  symlinkSync(process.cwd(), join(scopeDir, "pipeline"), "dir");
-
-  writeFileSync(
-    join(dir, "package.json"),
-    JSON.stringify({ private: true, type: "module" }, null, 2)
+  const [{ filename }] = parseJsonWithSchema(
+    packOutput,
+    await runChecked("nub", ["pack", "--ignore-scripts", "--json", "--pack-destination", dir], { cwd: process.cwd() }),
   );
-  writeFileSync(
-    join(dir, "tsconfig.json"),
-    JSON.stringify(
-      {
-        compilerOptions: {
-          module: "NodeNext",
-          moduleResolution: "NodeNext",
-          noEmit: true,
-          // effect@4 beta declarations currently fail lib checking via
-          // node_modules/effect/dist/internal/schema/schema.d.ts (`SchemaErrorTypeId`).
-          // This fixture validates our exported subpaths, not upstream package internals.
-          skipLibCheck: true,
-          strict: true,
-          target: "ES2022",
-        },
-        include: ["usage.ts"],
-      },
-      null,
-      2
-    )
+  const { packageManager } = parseJsonWithSchema(
+    rootPackageManagerSchema,
+    await readText(joinPath(process.cwd(), "package.json")),
   );
+  await copyFile(joinPath(process.cwd(), ".npmrc"), joinPath(dir, ".npmrc"));
+
+  await writeJson(joinPath(dir, "package.json"), {
+    dependencies: {
+      "@oisincoveney/pipeline": `file:${filename}`,
+    },
+    packageManager,
+    private: true,
+    type: "module",
+  });
+  await writeJson(joinPath(dir, "tsconfig.json"), {
+    compilerOptions: {
+      module: "NodeNext",
+      moduleResolution: "NodeNext",
+      noEmit: true,
+      // effect@4 beta declarations currently fail lib checking via
+      // node_modules/effect/dist/internal/schema/schema.d.ts (`SchemaErrorTypeId`).
+      // This fixture validates our exported subpaths, not upstream package internals.
+      skipLibCheck: true,
+      strict: true,
+      target: "ES2022",
+    },
+    include: ["usage.ts"],
+  });
+  await runChecked("nub", ["install", "--ignore-scripts", "--no-frozen-lockfile", "--node-linker", "hoisted"], {
+    cwd: dir,
+  });
 
   return dir;
 };
 
-const runChecked = (
-  command: string,
-  args: string[],
-  options: { cwd: string }
-): string => {
-  try {
-    return execFileSync(command, args, {
-      cwd: options.cwd,
-      encoding: "utf-8",
-      stdio: "pipe",
-    });
-  } catch (error) {
-    const output = error as {
-      message?: string;
-      stderr?: Buffer | string;
-      stdout?: Buffer | string;
-    };
-    throw new Error(
-      [output.message, output.stdout?.toString(), output.stderr?.toString()]
-        .filter(Boolean)
-        .join("\n"),
-      { cause: error }
-    );
-  }
+const runChecked = async (command: string, args: string[], options: { cwd: string }): Promise<string> => {
+  const result = await execa(command, args, { cwd: options.cwd });
+  return result.stdout;
 };
 
-const expectCommandToFail = (
-  command: string,
-  args: string[],
-  options: { cwd: string }
-): string => {
-  try {
-    execFileSync(command, args, {
-      cwd: options.cwd,
-      encoding: "utf-8",
-      stdio: "pipe",
-    });
-  } catch (error) {
-    const output = error as {
-      message?: string;
-      stderr?: Buffer | string;
-      stdout?: Buffer | string;
-    };
-    return [
-      output.message,
-      output.stdout?.toString(),
-      output.stderr?.toString(),
-    ]
-      .filter(Boolean)
-      .join("\n");
-  }
-  throw new Error(`Expected ${command} ${args.join(" ")} to fail`);
+const expectCommandToFail = async (command: string, args: string[], options: { cwd: string }): Promise<string> => {
+  const result = await execa(command, args, { cwd: options.cwd, reject: false });
+  expect(result.exitCode).not.toBe(0);
+  return [result.stdout, result.stderr].filter(Boolean).join("\n");
 };
 
 const packJson = (output: string): string => {
   const start = output.lastIndexOf("[\n  {");
-  if (start === -1) {
-    throw new Error(`Expected npm pack JSON output, got:\n${output}`);
-  }
+  expect(start).not.toBe(-1);
   return output.slice(start);
 };
 
 describe("package public app-facing API", () => {
-  it("pins the package export map and CLI bin surface before structural cleanup", () => {
-    const packageJson = packageJsonSchema.parse(
-      JSON.parse(readFileSync(join(process.cwd(), "package.json"), "utf-8"))
-    );
+  it("pins the package export map and CLI bin surface before structural cleanup", async () => {
+    const packageJson = parseJsonWithSchema(packageJsonSchema, await readText(joinPath(process.cwd(), "package.json")));
 
     expect(packageJson.bin).toEqual({ moka: "dist/index.js" });
     expect(packageJson.exports).toEqual(EXPECTED_PUBLIC_EXPORTS);
   });
 
-  it("does not pack install-managed skills but packs package-owned defaults", () => {
-    const output = runChecked("npm", ["pack", "--dry-run", "--json"], {
+  it("does not pack install-managed skills but packs package-owned defaults", async () => {
+    const output = await runChecked("npm", ["pack", "--dry-run", "--json"], {
       cwd: process.cwd(),
     });
-    const [{ files }] = JSON.parse(packJson(output)) as [
-      { files: { path: string }[] },
-    ];
+    const [{ files }] = parseJsonWithSchema(packDryRunOutput, packJson(output));
     const packedPaths = files.map((file) => file.path);
 
     // Skills are installed by the shared agent harness into host dirs, so the
     // package must not ship skill bodies.
-    expect(packedPaths.some((path) => path.startsWith(".agents/skills/"))).toBe(
-      false
-    );
+    expect(packedPaths.some((path) => path.startsWith(".agents/skills/"))).toBe(false);
     // The package still owns and ships its runtime config defaults.
-    expect(packedPaths).toEqual(
-      expect.arrayContaining([
-        "defaults/pipeline.yaml",
-        "defaults/profiles.yaml",
-      ])
-    );
+    expect(packedPaths).toEqual(expect.arrayContaining(["defaults/pipeline.yaml", "defaults/profiles.yaml"]));
   }, 30_000);
 
-  it("documents stable app-facing config, planner, and runtime imports", () => {
-    const readme = readFileSync(join(process.cwd(), "README.md"), "utf-8");
+  it("documents stable app-facing config, planner, and runtime imports", async () => {
+    const readme = await readText(joinPath(process.cwd(), "README.md"));
 
     expect(readme).toContain("@oisincoveney/pipeline/config");
     expect(readme).toContain("@oisincoveney/pipeline/planner");
@@ -240,14 +242,14 @@ describe("package public app-facing API", () => {
     expect(readme).toContain("PipelineRuntimeResult");
   });
 
-  it("lets a separate TypeScript app compile type and value imports from public subpaths", () => {
-    runChecked("nub", ["run", "build:cli"], {
+  it("lets a separate TypeScript app compile type and value imports from public subpaths", async () => {
+    await runChecked("nub", ["run", "build:cli"], {
       cwd: process.cwd(),
     });
 
-    const consumer = tempConsumerApp();
-    writeFileSync(
-      join(consumer, "usage.ts"),
+    const consumer = await tempConsumerApp();
+    await writeText(
+      joinPath(consumer, "usage.ts"),
       `
 import {
   PipelineConfigError,
@@ -317,6 +319,7 @@ import {
   parseMokaGlobalConfig,
   type MokaGlobalConfig,
 } from "@oisincoveney/pipeline/moka-global-config";
+import { Schema } from "effect";
 
 const parts: PipelineConfigParts = {
   pipeline: "version: 1\\ndefault_workflow: smoke\\nworkflows:\\n  smoke:\\n    nodes:\\n      - id: check\\n        kind: command\\n        command: [node, -e, \\"console.log('ok')\\"]\\n",
@@ -388,8 +391,9 @@ const hookResult: HookResult = parseHookResult({
   status: "pass",
   summary: "parsed hook result",
 });
+const encodeUnknownJson = Schema.encodeUnknownSync(Schema.fromJsonString(Schema.Unknown));
 
-const directHooks: MokaSubmitDirectHooksInput = mokaSubmitDirectHooksSchema.parse({
+const directHooks: MokaSubmitDirectHooksInput = Schema.decodeUnknownSync(mokaSubmitDirectHooksSchema)({
   "node.finish": {
     command: ["node", "scripts/report-node-finish.mjs"],
     failure: "fail",
@@ -400,10 +404,10 @@ const directHooks: MokaSubmitDirectHooksInput = mokaSubmitDirectHooksSchema.pars
     trusted: true,
   },
 });
-const hookPolicy: MokaSubmitHookPolicyInput = mokaSubmitHookPolicySchema.parse({
+const hookPolicy: MokaSubmitHookPolicyInput = Schema.decodeUnknownSync(mokaSubmitHookPolicySchema)({
   allowCommandHooks: false,
 });
-const mokaSubmitInput: MokaSubmitOptionsOutput = mokaSubmitOptionsSchema.parse({
+const mokaSubmitInput: MokaSubmitOptionsOutput = Schema.decodeUnknownSync(mokaSubmitOptionsSchema)({
   activeDeadlineSeconds: 3600,
   brokerAuth: {
     secretName: "broker-api-key",
@@ -428,7 +432,7 @@ const mokaSubmitInput: MokaSubmitOptionsOutput = mokaSubmitOptionsSchema.parse({
     deleteDelayDuration: "30s",
     strategy: "OnPodSuccess",
   },
-  scheduleYaml: ${JSON.stringify("kind: pipeline-schedule\nversion: 1\nschedule_id: smoke-a\ngenerated_at: 2026-06-03T12:00:00.000Z\nsource_entrypoint: execute\ntask: consumer compile smoke\nroot_workflow: root\nworkflows:\n  root:\n    nodes:\n      - id: check\n        kind: command\n        command: [node, -e, \"console.log('ok')\"]\n")},
+  scheduleYaml: ${jsonStringLiteral("kind: pipeline-schedule\nversion: 1\nschedule_id: smoke-a\ngenerated_at: 2026-06-03T12:00:00.000Z\nsource_entrypoint: execute\ntask: consumer compile smoke\nroot_workflow: root\nworkflows:\n  root:\n    nodes:\n      - id: check\n        kind: command\n        command: [node, -e, \"console.log('ok')\"]\n")},
   task: {
     id: "PIPE-56",
     kind: "ticket",
@@ -440,7 +444,7 @@ const mokaSubmitInput: MokaSubmitOptionsOutput = mokaSubmitOptionsSchema.parse({
     secondsAfterSuccess: 300,
   },
 });
-const mokaSubmitOutput: MokaSubmitOutput = mokaSubmitResultSchema.parse({
+const mokaSubmitOutput: MokaSubmitOutput = Schema.decodeUnknownSync(mokaSubmitResultSchema)({
   namespace: "pipeline-namespace",
   payloadConfigMapName: "payload",
   scheduleConfigMapName: "schedule",
@@ -454,7 +458,7 @@ const mokaSubmitTypedInput: MokaSubmitInput = {
 const mokaSubmitRawOptions: MokaSubmitOptionsInput = mokaSubmitInput;
 const mokaSubmitResult: MokaSubmitResult = mokaSubmitOutput;
 const mokaGlobalConfig: MokaGlobalConfig = parseMokaGlobalConfig(
-  ${JSON.stringify("momokaya:\n  kubernetes:\n    kubeconfig: /tmp/cluster.kubeconfig\n    namespace: pipeline-namespace\n  submit:\n    brokerAuth:\n      secretName: broker-api-key\n    eventAuthSecretKey: EVENT_AUTH_TOKEN_KEY\n    eventAuthSecretName: event-auth-secret\n    eventUrl: https://console.example.test/api/pipeline/runner-events\n    gitCredentialsSecretName: git-credentials-secret\n    githubAuthSecretName: github-auth-secret\n    imagePullSecretName: image-pull-secret\n    serviceAccountName: runner-service-account\n")},
+  ${jsonStringLiteral("momokaya:\n  kubernetes:\n    kubeconfig: /tmp/cluster.kubeconfig\n    namespace: pipeline-namespace\n  submit:\n    brokerAuth:\n      secretName: broker-api-key\n    eventAuthSecretKey: EVENT_AUTH_TOKEN_KEY\n    eventAuthSecretName: event-auth-secret\n    eventUrl: https://console.example.test/api/pipeline/runner-events\n    gitCredentialsSecretName: git-credentials-secret\n    githubAuthSecretName: github-auth-secret\n    imagePullSecretName: image-pull-secret\n    serviceAccountName: runner-service-account\n")},
   "/tmp/config.yaml"
 );
 const result: Promise<PipelineRuntimeResult> = runPipelineFromConfig(options);
@@ -485,9 +489,9 @@ const runnerPayload: RunnerCommandPayload = buildRunnerCommandPayload({
   },
 });
 const parsedPayload: RunnerCommandPayload = parseRunnerCommandPayload(
-  JSON.stringify(runnerPayload)
+  encodeUnknownJson(runnerPayload)
 );
-runnerCommandPayloadSchema.parse(parsedPayload);
+Schema.decodeUnknownSync(runnerCommandPayloadSchema)(parsedPayload);
 const runnerManifest: ArgoWorkflowManifest = buildRunnerArgoWorkflowManifest({
   brokerAuth: {
     secretName: "broker-api-key",
@@ -500,19 +504,19 @@ const runnerManifest: ArgoWorkflowManifest = buildRunnerArgoWorkflowManifest({
   scheduleConfigMapName: "pipeline-runner-schedule",
   taskDescriptorConfigMapName: "pipeline-runner-tasks",
 });
-runnerArgoWorkflowManifestSchema.parse(runnerManifest);
+Schema.decodeUnknownSync(runnerArgoWorkflowManifestSchema)(runnerManifest);
 const staticSubmitOptions: SubmitRunnerArgoWorkflowOptions = {
   activeDeadlineSeconds: 3600,
   brokerAuth: { secretName: "broker-api-key" },
   config,
   generateName: "pipeline-runner-smoke-",
   namespace: "pipeline-namespace",
-  payloadJson: JSON.stringify(runnerPayload),
+  payloadJson: encodeUnknownJson(runnerPayload),
   podGC: {
     deleteDelayDuration: "30s",
     strategy: "OnPodSuccess",
   },
-  scheduleYaml: ${JSON.stringify("kind: pipeline-schedule\nversion: 1\nschedule_id: smoke-a\ngenerated_at: 2026-06-03T12:00:00.000Z\nsource_entrypoint: execute\ntask: consumer compile smoke\nroot_workflow: root\nworkflows:\n  root:\n    nodes:\n      - id: check\n        kind: command\n        command: [node, -e, \"console.log('ok')\"]\n")},
+  scheduleYaml: ${jsonStringLiteral("kind: pipeline-schedule\nversion: 1\nschedule_id: smoke-a\ngenerated_at: 2026-06-03T12:00:00.000Z\nsource_entrypoint: execute\ntask: consumer compile smoke\nroot_workflow: root\nworkflows:\n  root:\n    nodes:\n      - id: check\n        kind: command\n        command: [node, -e, \"console.log('ok')\"]\n")},
   ttlStrategy: {
     secondsAfterFailure: 604_800,
     secondsAfterSuccess: 300,
@@ -524,7 +528,7 @@ const dynamicSubmitOptions: SubmitDynamicRunnerArgoWorkflowOptions = {
   config,
   generateName: "pipeline-runner-smoke-",
   namespace: "pipeline-namespace",
-  payloadJson: JSON.stringify(runnerPayload),
+  payloadJson: encodeUnknownJson(runnerPayload),
   podGC: {
     deleteDelayDuration: "30s",
     strategy: "OnPodSuccess",
@@ -563,52 +567,46 @@ void runnerManifest;
 void staticSubmitOptions;
 void dynamicSubmitOptions;
 `,
-      "utf-8"
     );
 
-    runChecked(
-      join(process.cwd(), "node_modules", ".bin", "tsc"),
-      ["--noEmit", "-p", "tsconfig.json"],
-      {
-        cwd: consumer,
-      }
-    );
+    await runChecked(joinPath(process.cwd(), "node_modules", ".bin", "tsc"), ["--noEmit", "-p", "tsconfig.json"], {
+      cwd: consumer,
+    });
   }, 30_000);
 
-  it("does not expose nullable or missing runtime config affordances from the public config API", () => {
-    runChecked("nub", ["run", "build:cli"], {
+  it("does not expose nullable or missing runtime config affordances from the public config API", async () => {
+    await runChecked("nub", ["run", "build:cli"], {
       cwd: process.cwd(),
     });
 
-    const consumer = tempConsumerApp();
-    writeFileSync(
-      join(consumer, "usage.ts"),
+    const consumer = await tempConsumerApp();
+    await writeText(
+      joinPath(consumer, "usage.ts"),
       `
 	import { PipelineConfigError, tryLoadPipelineConfig } from "@oisincoveney/pipeline/config";
 
 	void tryLoadPipelineConfig;
 	void new PipelineConfigError("PIPELINE_CONFIG_MISSING", "missing");
 	`,
-      "utf-8"
     );
 
-    const output = expectCommandToFail(
-      join(process.cwd(), "node_modules", ".bin", "tsc"),
+    const output = await expectCommandToFail(
+      joinPath(process.cwd(), "node_modules", ".bin", "tsc"),
       ["--noEmit", "-p", "tsconfig.json"],
-      { cwd: consumer }
+      { cwd: consumer },
     );
 
     expect(output).toMatch(MISSING_CONFIG_AFFORDANCE_RE);
   }, 30_000);
 
-  it("lets a separate JavaScript app load runtime values from public subpaths after build", () => {
-    runChecked("nub", ["run", "build:cli"], {
+  it("lets a separate JavaScript app load runtime values from public subpaths after build", async () => {
+    await runChecked("nub", ["run", "build:cli"], {
       cwd: process.cwd(),
     });
 
-    const consumer = tempConsumerApp();
-    writeFileSync(
-      join(consumer, "runtime-smoke.mjs"),
+    const consumer = await tempConsumerApp();
+    await writeText(
+      joinPath(consumer, "runtime-smoke.mjs"),
       `
 import { PipelineConfigError, loadPipelineConfig, parsePipelineConfigParts } from "@oisincoveney/pipeline/config";
 import { WorkflowPlannerError, compileWorkflowPlan } from "@oisincoveney/pipeline/planner";
@@ -618,6 +616,9 @@ import { buildRunnerCommandPayload, parseRunnerCommandPayload, runnerCommandPayl
 import { buildRunnerArgoWorkflowManifest } from "@oisincoveney/pipeline/argo-workflow";
 import { defineHook, parseHookResult } from "@oisincoveney/pipeline/hooks";
 import { mokaSubmitOptionsSchema, mokaSubmitResultSchema, submitMoka } from "@oisincoveney/pipeline/moka-submit";
+import { Schema } from "effect";
+
+class PublicApiSmokeError extends Error {}
 
 const values = [
   PipelineConfigError,
@@ -638,22 +639,21 @@ const values = [
 ];
 
 if (values.some((value) => typeof value !== "function")) {
-  throw new Error("public API subpath did not expose expected runtime values");
+  throw new PublicApiSmokeError("public API subpath did not expose expected runtime values");
 }
-if (typeof runnerCommandPayloadSchema.parse !== "function") {
-  throw new Error("runner command payload schema was not exported");
+if (typeof Schema.decodeUnknownSync(runnerCommandPayloadSchema) !== "function") {
+  throw new PublicApiSmokeError("runner command payload schema was not exported");
 }
-if (typeof mokaSubmitOptionsSchema.parse !== "function") {
-  throw new Error("moka submit options schema was not exported");
+if (typeof Schema.decodeUnknownSync(mokaSubmitOptionsSchema) !== "function") {
+  throw new PublicApiSmokeError("moka submit options schema was not exported");
 }
-if (typeof mokaSubmitResultSchema.parse !== "function") {
-  throw new Error("moka submit result schema was not exported");
+if (typeof Schema.decodeUnknownSync(mokaSubmitResultSchema) !== "function") {
+  throw new PublicApiSmokeError("moka submit result schema was not exported");
 }
 `,
-      "utf-8"
     );
 
-    runChecked("node", ["runtime-smoke.mjs"], {
+    await runChecked("node", ["runtime-smoke.mjs"], {
       cwd: consumer,
     });
   }, 30_000);

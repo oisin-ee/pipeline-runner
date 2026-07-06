@@ -2,9 +2,10 @@ import { existsSync, mkdtempSync, readdirSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join, resolve } from "node:path";
 
+import * as Schema from "effect/Schema";
 import { parse as parseYaml } from "yaml";
-import { z } from "zod";
 
+import { parseWithSchema, requiredString, struct } from "../schema-boundary";
 import { committerConfigArgs } from "./create-experiment";
 import { resolveFactorySeams } from "./exec";
 import type { FactorySeams } from "./exec";
@@ -29,10 +30,11 @@ const DEFAULT_INFRA_REPO_URL = "https://github.com/oisin-ee/infra.git";
 const FLEET_REGISTRY_DIR = "k8s/apps/platform-fleet/config";
 const ANSWERS_FILE = ".copier-answers.yml";
 
-const registryEntryRepoSchema = z.object({ repo: z.string() }).passthrough();
+const registryEntryRepo = Schema.StructWithRest(struct({ repo: requiredString }), [
+  Schema.Record(Schema.String, Schema.Unknown),
+]);
 
-const isNonEmptyString = (value?: string): value is string =>
-  value !== undefined && value.length > 0;
+const isNonEmptyString = (value?: string): value is string => value !== undefined && value.length > 0;
 
 export interface TemplateUpdateOptions extends FactorySeams {
   readonly infraRepoUrl?: string;
@@ -44,11 +46,7 @@ export interface TemplateUpdateOptions extends FactorySeams {
   readonly workRoot?: string;
 }
 
-export type TemplateUpdateRepoStatus =
-  | "error"
-  | "not-stamped"
-  | "pr-opened"
-  | "up-to-date";
+export type TemplateUpdateRepoStatus = "error" | "not-stamped" | "pr-opened" | "up-to-date";
 
 export interface TemplateUpdateRepoResult {
   readonly message?: string;
@@ -63,7 +61,7 @@ export interface TemplateUpdateResult {
 }
 
 export const summarizeTemplateUpdate = (
-  results: readonly TemplateUpdateRepoResult[]
+  results: readonly TemplateUpdateRepoResult[],
 ): { readonly failed: number; readonly opened: number } => ({
   failed: results.filter((entry) => entry.status === "error").length,
   opened: results.filter((entry) => entry.status === "pr-opened").length,
@@ -75,26 +73,17 @@ const discoverRegistryRepos = async (input: {
   readonly workRoot: string;
 }): Promise<string[]> => {
   const infraDir = resolve(input.workRoot, "infra-discovery");
-  await input.git(input.workRoot, [
-    "clone",
-    "--depth",
-    "1",
-    "--single-branch",
-    input.infraRepoUrl,
-    infraDir,
-  ]);
+  await input.git(input.workRoot, ["clone", "--depth", "1", "--single-branch", input.infraRepoUrl, infraDir]);
   const registryDir = join(infraDir, FLEET_REGISTRY_DIR);
   const repos = readdirSync(registryDir)
     .filter((file) => file.endsWith(".yaml"))
     .map((file) => {
-      const entry = registryEntryRepoSchema.parse(
-        parseYaml(readFileSync(join(registryDir, file), "utf-8"))
-      );
+      const entry = parseWithSchema(registryEntryRepo, parseYaml(readFileSync(join(registryDir, file), "utf-8")), {
+        onExcessProperty: "preserve",
+      });
       return entry.repo;
     });
-  return [...new Set(repos)].toSorted((left, right) =>
-    left.localeCompare(right)
-  );
+  return [...new Set(repos)].toSorted((left, right) => left.localeCompare(right));
 };
 
 const listRejectFiles = (cloneDir: string, porcelainStatus: string): string[] =>
@@ -119,11 +108,7 @@ const updateRepo = async (input: {
   const { repo } = input;
   try {
     const cloneDir = resolve(input.workRoot, `update-${repo}`);
-    await git(input.workRoot, [
-      "clone",
-      `https://github.com/${input.org}/${repo}.git`,
-      cloneDir,
-    ]);
+    await git(input.workRoot, ["clone", `https://github.com/${input.org}/${repo}.git`, cloneDir]);
 
     const answersPath = join(cloneDir, ANSWERS_FILE);
     if (!existsSync(answersPath)) {
@@ -141,14 +126,9 @@ const updateRepo = async (input: {
     await git(cloneDir, ["checkout", "-b", "template-update/pending"]);
     await exec(
       "copier",
-      [
-        "update",
-        "--trust",
-        "--defaults",
-        ...templateRefArgs(input.templateRef),
-      ],
+      ["update", "--trust", "--defaults", ...templateRefArgs(input.templateRef)],
       // copier re-fetches the private template with its own git subprocess.
-      { cwd: cloneDir, env: githubGitCredentialEnv() }
+      { cwd: cloneDir, env: githubGitCredentialEnv() },
     );
 
     const status = await git(cloneDir, ["status", "--porcelain"]);
@@ -166,22 +146,13 @@ const updateRepo = async (input: {
     const rejects = listRejectFiles(cloneDir, status);
     await git(cloneDir, ["branch", "-m", branch]);
     await git(cloneDir, ["add", "--all"]);
-    await git(cloneDir, [
-      ...committerConfigArgs(),
-      "commit",
-      "-m",
-      `chore: copier update to ${version}`,
-    ]);
+    await git(cloneDir, [...committerConfigArgs(), "commit", "-m", `chore: copier update to ${version}`]);
     await git(cloneDir, ["push", "-u", "origin", branch]);
 
     const prBody = [
       `Automated \`copier update\` to momokaya-template ${version} (template-update lane).`,
       ...(rejects.length > 0
-        ? [
-            "",
-            "WARNING — conflict rejects need manual resolution:",
-            ...rejects.map((file) => `- \`${file}\``),
-          ]
+        ? ["", "WARNING — conflict rejects need manual resolution:", ...rejects.map((file) => `- \`${file}\``)]
         : []),
     ].join("\n");
     const { stdout } = await exec(
@@ -198,7 +169,7 @@ const updateRepo = async (input: {
         "--body",
         prBody,
       ],
-      { cwd: cloneDir }
+      { cwd: cloneDir },
     );
     return { prUrl: stdout.trim(), repo, status: "pr-opened", version };
   } catch (error) {
@@ -223,7 +194,7 @@ const templateUpdateWorkRoot = (workRoot?: string): string =>
 
 const discoverTemplateUpdateRepos = async (
   options: TemplateUpdateOptions,
-  context: TemplateUpdateRunContext
+  context: TemplateUpdateRunContext,
 ): Promise<string[]> => {
   if (options.repos !== undefined && options.repos.length > 0) {
     return [...options.repos];
@@ -235,14 +206,12 @@ const discoverTemplateUpdateRepos = async (
   });
 };
 
-const optionalTemplateRef = (
-  templateRef?: string
-): { readonly templateRef?: string } =>
+const optionalTemplateRef = (templateRef?: string): { readonly templateRef?: string } =>
   isNonEmptyString(templateRef) ? { templateRef } : {};
 
 const updateTemplateRepos = async (
   context: TemplateUpdateRunContext,
-  repos: readonly string[]
+  repos: readonly string[],
 ): Promise<TemplateUpdateRepoResult[]> => {
   const results: TemplateUpdateRepoResult[] = [];
   for (const repo of repos) {
@@ -254,15 +223,13 @@ const updateTemplateRepos = async (
         ...optionalTemplateRef(context.templateRef),
         templateMatch: context.templateMatch,
         workRoot: context.workRoot,
-      })
+      }),
     );
   }
   return results;
 };
 
-const templateUpdateResultLogLine = (
-  entry: TemplateUpdateRepoResult
-): string => {
+const templateUpdateResultLogLine = (entry: TemplateUpdateRepoResult): string => {
   const prUrl = isNonEmptyString(entry.prUrl) ? ` ${entry.prUrl}` : "";
   const message = isNonEmptyString(entry.message) ? ` (${entry.message})` : "";
   return `template-update: ${entry.repo} -> ${entry.status}${prUrl}${message}`;
@@ -270,16 +237,14 @@ const templateUpdateResultLogLine = (
 
 const logTemplateUpdateResults = (
   log: ReturnType<typeof resolveFactorySeams>["log"],
-  results: readonly TemplateUpdateRepoResult[]
+  results: readonly TemplateUpdateRepoResult[],
 ): void => {
   for (const entry of results) {
     log(templateUpdateResultLogLine(entry));
   }
 };
 
-export const runTemplateUpdate = async (
-  options: TemplateUpdateOptions
-): Promise<TemplateUpdateResult> => {
+export const runTemplateUpdate = async (options: TemplateUpdateOptions): Promise<TemplateUpdateResult> => {
   const seams = resolveFactorySeams(options);
   const { log } = seams;
   const context: TemplateUpdateRunContext = {

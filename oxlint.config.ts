@@ -1,23 +1,8 @@
 import { effect, strict } from "@oisin-ee/oxlint-config";
 import { defineConfig } from "oxlint";
 import type { DummyRuleMap } from "oxlint";
-import core from "ultracite/oxlint/core";
 
-const repoIgnorePatterns = [
-  "backlog/archive/**",
-  "backlog/completed/**",
-  "backlog/.locks/**",
-  ".pipeline/runs/**",
-  ".pipeline/journal/**",
-  ".pipeline/worktrees/**",
-  ".pipeline/dogfood/**",
-  ".worktrees/**",
-  "report/**",
-  ".opencode/node_modules/**",
-  ".devspace/**",
-  ".fallow/**",
-  ".serena/**",
-];
+import { toolIgnorePatterns } from "./tool-ignore-patterns.ts";
 
 const promotedEffectRules: DummyRuleMap = {
   "effect/avoid-direct-json": "error",
@@ -53,14 +38,15 @@ const effectWithErrors = {
 };
 
 export default defineConfig({
-  extends: [core, strict],
-  ignorePatterns: [...(core.ignorePatterns ?? []), ...repoIgnorePatterns],
+  extends: [strict],
+  ignorePatterns: [...toolIgnorePatterns],
   options: {
     denyWarnings: true,
     typeAware: true,
     typeCheck: true,
   },
   overrides: [{ files: ["src/**/*.ts", "tests/**/*.ts"], ...effectWithErrors }],
+  plugins: ["typescript", "import"],
   rules: {
     "import/no-namespace": ["error", { ignore: ["effect/*"] }],
   },

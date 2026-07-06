@@ -2,17 +2,10 @@ import { Effect, Option } from "effect";
 
 import { loadPipelineConfig } from "../config";
 import type { PipelineConfig } from "../config";
-import type {
-  AgentResult,
-  RunnerExecutionOptions,
-  RunnerLaunchPlan,
-} from "../runner";
+import type { AgentResult, RunnerExecutionOptions, RunnerLaunchPlan } from "../runner";
 import type { PipelineRuntimeOptions } from "./contracts";
 import type { OpencodeServerHandle } from "./opencode-server";
-import {
-  createOpencodeExecutor,
-  createOpencodeSessionRegistry,
-} from "./opencode-session-executor";
+import { createOpencodeExecutor, createOpencodeSessionRegistry } from "./opencode-session-executor";
 import {
   OpencodeRuntimeServerService,
   OpencodeRuntimeServerServiceLive,
@@ -21,7 +14,7 @@ import type { OpenOpencodeRuntimeServer } from "./services/opencode-runtime-serv
 
 export type RuntimeExecutor = (
   plan: RunnerLaunchPlan,
-  options: RunnerExecutionOptions
+  options: RunnerExecutionOptions,
 ) => AgentResult | Promise<AgentResult>;
 
 const NO_AVAILABLE_MODELS = Option.none<ReadonlySet<string>>();
@@ -47,7 +40,7 @@ export const configUsesOpencode = (config: PipelineConfig): boolean =>
   Object.values(config.runners).some((runner) => runner.type === "opencode");
 
 const resolveConfigForRun = (
-  options: PipelineRuntimeOptions
+  options: PipelineRuntimeOptions,
 ): {
   config: PipelineConfig;
   worktreePath: string;
@@ -60,9 +53,7 @@ const resolveConfigForRun = (
 };
 
 const opencodeSessionReporter =
-  (
-    reporter: NonNullable<PipelineRuntimeOptions["reporter"]>
-  ): ((nodeId: string, sessionId: string) => void) =>
+  (reporter: NonNullable<PipelineRuntimeOptions["reporter"]>): ((nodeId: string, sessionId: string) => void) =>
   (nodeId, sessionId) => {
     reporter({ nodeId, sessionId, type: "node.session" });
   };
@@ -72,15 +63,11 @@ const opencodeSessionReporter =
  * provider's models as `provider/model`) from the opencode `/config/providers`
  * endpoint, for availability-aware model selection.
  */
-const queryAvailableOpencodeModels = async (
-  client: OpencodeServerHandle["client"]
-): Promise<ReadonlySet<string>> => {
+const queryAvailableOpencodeModels = async (client: OpencodeServerHandle["client"]): Promise<ReadonlySet<string>> => {
   const response = await client.config.providers();
   const providers = response.data?.providers ?? [];
   return new Set(
-    providers.flatMap((provider) =>
-      Object.keys(provider.models).map((modelId) => `${provider.id}/${modelId}`)
-    )
+    providers.flatMap((provider) => Object.keys(provider.models).map((modelId) => `${provider.id}/${modelId}`)),
   );
 };
 
@@ -91,12 +78,8 @@ const ensureExecutorEffect = (
     signal?: AbortSignal;
     worktreePath: string;
   },
-  registry: ReturnType<typeof createOpencodeSessionRegistry>
-): Effect.Effect<
-  { delegate: RuntimeExecutor; handle: OpencodeServerHandle },
-  unknown,
-  OpencodeRuntimeServerService
-> =>
+  registry: ReturnType<typeof createOpencodeSessionRegistry>,
+): Effect.Effect<{ delegate: RuntimeExecutor; handle: OpencodeServerHandle }, unknown, OpencodeRuntimeServerService> =>
   Effect.gen(function* effectBody() {
     const server = yield* OpencodeRuntimeServerService;
     const handle = yield* server.open(input);
@@ -115,24 +98,16 @@ const leaseOpencodeRuntimeEffect = (input: {
   signal?: AbortSignal;
   worktreePath: string;
   openServer?: OpenOpencodeRuntimeServer;
-}): Effect.Effect<
-  OpencodeRuntimeLease,
-  never,
-  OpencodeRuntimeServerService
-> => {
+}): Effect.Effect<OpencodeRuntimeLease, never, OpencodeRuntimeServerService> => {
   const registry = createOpencodeSessionRegistry();
   let handle = Option.none<OpencodeServerHandle>();
   let pending = Option.none<Promise<RuntimeExecutor>>();
-  let availableModelsPending =
-    Option.none<Promise<Option.Option<ReadonlySet<string>>>>();
+  let availableModelsPending = Option.none<Promise<Option.Option<ReadonlySet<string>>>>();
 
   const ensureExecutor = async (): Promise<RuntimeExecutor> => {
     const executorPromise = Option.getOrElse(pending, async () => {
       const next = Effect.runPromise(
-        Effect.provide(
-          ensureExecutorEffect(input, registry),
-          OpencodeRuntimeServerServiceLive
-        )
+        Effect.provide(ensureExecutorEffect(input, registry), OpencodeRuntimeServerServiceLive),
       ).then((executor) => {
         handle = Option.some(executor.handle);
         return executor.delegate;
@@ -143,18 +118,14 @@ const leaseOpencodeRuntimeEffect = (input: {
     return await executorPromise;
   };
 
-  const resolveAvailableModels = async (): Promise<
-    Option.Option<ReadonlySet<string>>
-  > => {
+  const resolveAvailableModels = async (): Promise<Option.Option<ReadonlySet<string>>> => {
     const modelsPromise = Option.getOrElse(availableModelsPending, async () => {
       const next = ensureExecutor()
         .then(async () => {
           if (Option.isNone(handle)) {
             return Option.none<ReadonlySet<string>>();
           }
-          return Option.some(
-            await queryAvailableOpencodeModels(handle.value.client)
-          );
+          return Option.some(await queryAvailableOpencodeModels(handle.value.client));
         })
         .catch(() => NO_AVAILABLE_MODELS);
       availableModelsPending = Option.some(next);
@@ -198,18 +169,13 @@ export const leaseOpencodeRuntime = async (input: {
   /** Test seam: override how the server is opened. Defaults to startServer. */
   openServer?: OpenOpencodeRuntimeServer;
 }): Promise<OpencodeRuntimeLease> =>
-  await Effect.runPromise(
-    Effect.provide(
-      leaseOpencodeRuntimeEffect(input),
-      OpencodeRuntimeServerServiceLive
-    )
-  );
+  await Effect.runPromise(Effect.provide(leaseOpencodeRuntimeEffect(input), OpencodeRuntimeServerServiceLive));
 
 const runWithLeasedOpencode = <T>(
   options: PipelineRuntimeOptions,
   config: PipelineConfig,
   worktreePath: string,
-  run: (resolved: PipelineRuntimeOptions) => Effect.Effect<T, unknown>
+  run: (resolved: PipelineRuntimeOptions) => Effect.Effect<T, unknown>,
 ): Effect.Effect<T, unknown> =>
   Effect.scoped(
     Effect.gen(function* effectBody() {
@@ -218,37 +184,29 @@ const runWithLeasedOpencode = <T>(
           async () =>
             await leaseOpencodeRuntime({
               config,
-              ...(options.reporter === undefined
-                ? {}
-                : { onSession: opencodeSessionReporter(options.reporter) }),
-              ...(options.signal === undefined
-                ? {}
-                : { signal: options.signal }),
+              ...(options.reporter === undefined ? {} : { onSession: opencodeSessionReporter(options.reporter) }),
+              ...(options.signal === undefined ? {} : { signal: options.signal }),
               worktreePath,
-            })
+            }),
         ),
         (lease) =>
           Effect.promise(async () => {
             await lease.release();
-          })
+          }),
       );
-      const availableModels = yield* Effect.promise(
-        async () => await lease.availableModels()
-      );
+      const availableModels = yield* Effect.promise(async () => await lease.availableModels());
       return yield* run({
         ...options,
         config,
         executor: lease.executor,
-        ...(Option.isSome(availableModels)
-          ? { availableModels: availableModels.value }
-          : {}),
+        ...(Option.isSome(availableModels) ? { availableModels: availableModels.value } : {}),
       });
-    })
+    }),
   );
 
 export const withOpencodeRuntime = <T>(
   options: PipelineRuntimeOptions,
-  run: (resolved: PipelineRuntimeOptions) => Effect.Effect<T, unknown>
+  run: (resolved: PipelineRuntimeOptions) => Effect.Effect<T, unknown>,
 ): Effect.Effect<T, unknown> =>
   Effect.gen(function* effectBody() {
     if (options.executor !== undefined) {

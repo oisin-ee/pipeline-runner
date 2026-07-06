@@ -11,28 +11,18 @@ import type {
 import { parseGateJson } from "../../gates";
 import type { AcceptanceContext } from "../json-source";
 
-const effectiveTaskContext = (
-  node: PlannedWorkflowNode,
-  context: AcceptanceContext
-): PipelineTaskContext | undefined => node.taskContext ?? context.taskContext;
+const effectiveTaskContext = (node: PlannedWorkflowNode, context: AcceptanceContext): PipelineTaskContext | undefined =>
+  node.taskContext ?? context.taskContext;
 
-const acceptanceEntries = (
-  value: unknown,
-  key = "acceptance"
-): Record<string, unknown>[] => {
+const acceptanceEntries = (value: unknown, key = "acceptance"): Record<string, unknown>[] => {
   if (!isRecord(value)) {
     return [];
   }
   const raw = value[key] ?? value.criteria ?? value.acceptanceCriteria;
-  return Array.isArray(raw)
-    ? raw.filter((item): item is Record<string, unknown> => isRecord(item))
-    : [];
+  return Array.isArray(raw) ? raw.filter((item): item is Record<string, unknown> => isRecord(item)) : [];
 };
 
-const coverageCountUnmetCriteria = (
-  id: string,
-  count: number
-): UnmetCriterion[] => {
+const coverageCountUnmetCriteria = (id: string, count: number): UnmetCriterion[] => {
   const unmet: UnmetCriterion[] = [];
   if (count === 0) {
     unmet.push({
@@ -52,13 +42,12 @@ const coverageCountUnmetCriteria = (
 };
 
 const hasNonEmptyEvidence = (value: unknown): boolean =>
-  Array.isArray(value) &&
-  value.some((item) => typeof item === "string" && item.trim().length > 0);
+  Array.isArray(value) && value.some((item) => typeof item === "string" && item.trim().length > 0);
 
 const entryUnmetCriteria = (
   entry: Record<string, unknown>,
   expectedIds: Set<string>,
-  seen: Map<string, number>
+  seen: Map<string, number>,
 ): UnmetCriterion[] => {
   const id = typeof entry.id === "string" ? entry.id : "";
   if (id.length === 0) {
@@ -106,7 +95,7 @@ const entryUnmetCriteria = (
  */
 export const acceptanceUnmetCriteria = (
   expected: AcceptanceCriterion[],
-  entries: Record<string, unknown>[]
+  entries: Record<string, unknown>[],
 ): UnmetCriterion[] => {
   const unmet: UnmetCriterion[] = [];
   const expectedIds = new Set(expected.map((criterion) => criterion.id));
@@ -132,11 +121,9 @@ export const evaluateAcceptanceGate = (
   nodeId: string,
   context: AcceptanceContext,
   attempt: NodeAttemptResult,
-  node?: PlannedWorkflowNode
+  node?: PlannedWorkflowNode,
 ): RuntimeGateResult => {
-  const expected =
-    (node ? effectiveTaskContext(node, context) : context.taskContext)
-      ?.acceptanceCriteria ?? [];
+  const expected = (node ? effectiveTaskContext(node, context) : context.taskContext)?.acceptanceCriteria ?? [];
   if (expected.length === 0) {
     return {
       evidence: ["no acceptance criteria in task context"],
@@ -144,8 +131,7 @@ export const evaluateAcceptanceGate = (
       kind: gate.kind,
       nodeId,
       passed: gate.required === false,
-      reason:
-        gate.required === false ? undefined : "missing task acceptance context",
+      reason: gate.required === false ? undefined : "missing task acceptance context",
     };
   }
   const parsed = parseGateJson(gate, context, attempt);
@@ -163,9 +149,7 @@ export const evaluateAcceptanceGate = (
   const unmet = acceptanceUnmetCriteria(expected, entries);
   const passed = unmet.length === 0;
   return {
-    evidence: passed
-      ? ["acceptance coverage passed"]
-      : unmet.map((item) => item.reason),
+    evidence: passed ? ["acceptance coverage passed"] : unmet.map((item) => item.reason),
     gateId,
     kind: gate.kind,
     nodeId,

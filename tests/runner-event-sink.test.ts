@@ -9,22 +9,15 @@ const REQUEST_TIMED_OUT_RE = /timed out/iu;
 
 const okResponse = (): Response => new Response("", { status: 200 });
 
-const responseWithStatus = (status: number): Response =>
-  new Response(`status ${status}`, { status });
+const responseWithStatus = (status: number): Response => new Response(`status ${status}`, { status });
 
-const hasEventSequences = (
-  value: unknown
-): value is { events: { sequence: number }[] } =>
+const hasEventSequences = (value: unknown): value is { events: { sequence: number }[] } =>
   typeof value === "object" &&
   value !== null &&
   "events" in value &&
   Array.isArray(value.events) &&
   value.events.every(
-    (event) =>
-      typeof event === "object" &&
-      event !== null &&
-      "sequence" in event &&
-      typeof event.sequence === "number"
+    (event) => typeof event === "object" && event !== null && "sequence" in event && typeof event.sequence === "number",
   );
 
 const parseEventSequencesBody = (body: string): { sequence: number }[] => {
@@ -35,20 +28,16 @@ const parseEventSequencesBody = (body: string): { sequence: number }[] => {
   return parsed.events;
 };
 
-const loadSinkModule = async (): Promise<Record<string, any>> =>
-  await import("../src/runner-event-sink");
+const loadSinkModule = async (): Promise<Record<string, any>> => await import("../src/runner-event-sink");
 
-const loadContractModule = async (): Promise<Record<string, any>> =>
-  await import("../src/runner-command-contract");
+const loadContractModule = async (): Promise<Record<string, any>> => await import("../src/runner-command-contract");
 
 const requestFromCall = (call: unknown[]): Request => {
   const [input, init] = call as [RequestInfo | URL, RequestInit | undefined];
   return new Request(input, init);
 };
 
-const parseBodies = async (
-  fetchMock: ReturnType<typeof vi.fn>
-): Promise<any[]> => {
+const parseBodies = async (fetchMock: ReturnType<typeof vi.fn>): Promise<any[]> => {
   const bodies: any[] = [];
   for (const call of fetchMock.mock.calls) {
     bodies.push(JSON.parse(await requestFromCall(call).text()));
@@ -97,12 +86,8 @@ describe("runner event sink", () => {
     const firstRequest = requestFromCall(fetchMock.mock.calls[0]);
     expect(firstRequest.url).toBe(EVENT_SINK_URL);
     expect(firstRequest.method).toBe("POST");
-    expect(firstRequest.headers.get("Authorization")).toBe(
-      "Bearer console-token"
-    );
-    expect(firstRequest.headers.get("Content-Type")).toContain(
-      "application/json"
-    );
+    expect(firstRequest.headers.get("Authorization")).toBe("Bearer console-token");
+    expect(firstRequest.headers.get("Content-Type")).toContain("application/json");
     expect(await parseBodies(fetchMock)).toEqual([
       {
         events: [
@@ -180,34 +165,28 @@ describe("runner event sink", () => {
     expect(fetchMock).toHaveBeenCalledTimes(3);
   });
 
-  it.each([408, 429, 500, 503, 511])(
-    "retries retryable HTTP %i responses",
-    async (status) => {
-      const { createRunnerEventSink } = await loadSinkModule();
-      const fetchMock = vi
-        .fn()
-        .mockResolvedValueOnce(responseWithStatus(status))
-        .mockResolvedValueOnce(okResponse());
-      const sink = createRunnerEventSink({
-        authToken: "console-token",
-        fetch: fetchMock,
-        maxRetries: 1,
-        retryDelayMs: 0,
-        runId: "run_123",
-        url: EVENT_SINK_URL,
-      });
+  it.each([408, 429, 500, 503, 511])("retries retryable HTTP %i responses", async (status) => {
+    const { createRunnerEventSink } = await loadSinkModule();
+    const fetchMock = vi.fn().mockResolvedValueOnce(responseWithStatus(status)).mockResolvedValueOnce(okResponse());
+    const sink = createRunnerEventSink({
+      authToken: "console-token",
+      fetch: fetchMock,
+      maxRetries: 1,
+      retryDelayMs: 0,
+      runId: "run_123",
+      url: EVENT_SINK_URL,
+    });
 
-      sink.recordRuntimeEvent({
-        outcome: "PASS",
-        type: "workflow.finish",
-        workflowId: "default",
-      });
+    sink.recordRuntimeEvent({
+      outcome: "PASS",
+      type: "workflow.finish",
+      workflowId: "default",
+    });
 
-      await sink.flush();
+    await sink.flush();
 
-      expect(fetchMock.mock.calls.length).toBeGreaterThanOrEqual(2);
-    }
-  );
+    expect(fetchMock.mock.calls.length).toBeGreaterThanOrEqual(2);
+  });
 
   it("does not retry permanent 400 responses", async () => {
     const { createRunnerEventSink } = await loadSinkModule();
@@ -235,9 +214,7 @@ describe("runner event sink", () => {
     vi.useFakeTimers();
     try {
       const { createRunnerEventSink } = await loadSinkModule();
-      const fetchMock = vi.fn(
-        async () => await new Promise<Response>(() => {})
-      );
+      const fetchMock = vi.fn(async () => await new Promise<Response>(() => {}));
       const sink = createRunnerEventSink({
         authToken: "console-token",
         fetch: fetchMock,
@@ -263,39 +240,34 @@ describe("runner event sink", () => {
     }
   });
 
-  it.each([401, 403])(
-    "treats %i as a terminal event sink authorization failure",
-    async (status) => {
-      const { createRunnerEventSink } = await loadSinkModule();
-      const fetchMock = vi.fn(() => responseWithStatus(status));
-      const sink = createRunnerEventSink({
-        authToken: "console-token",
-        fetch: fetchMock,
-        maxRetries: 3,
-        retryDelayMs: 0,
-        runId: "run_123",
-        url: EVENT_SINK_URL,
-      });
+  it.each([401, 403])("treats %i as a terminal event sink authorization failure", async (status) => {
+    const { createRunnerEventSink } = await loadSinkModule();
+    const fetchMock = vi.fn(() => responseWithStatus(status));
+    const sink = createRunnerEventSink({
+      authToken: "console-token",
+      fetch: fetchMock,
+      maxRetries: 3,
+      retryDelayMs: 0,
+      runId: "run_123",
+      url: EVENT_SINK_URL,
+    });
 
-      sink.recordRuntimeEvent({
-        outcome: "PASS",
+    sink.recordRuntimeEvent({
+      outcome: "PASS",
+      type: "workflow.finish",
+      workflowId: "default",
+    });
+
+    await expect(sink.flush()).rejects.toThrow(new RegExp(`event sink.*${status}: status ${status}`, "iu"));
+    expect(fetchMock.mock.calls.length).toBeGreaterThanOrEqual(1);
+    const bodies = await parseBodies(fetchMock);
+    expect(bodies.at(-1)?.events).toEqual([
+      expect.objectContaining({
+        finalResult: { outcome: "PASS", workflowId: "default" },
         type: "workflow.finish",
-        workflowId: "default",
-      });
-
-      await expect(sink.flush()).rejects.toThrow(
-        new RegExp(`event sink.*${status}: status ${status}`, "iu")
-      );
-      expect(fetchMock.mock.calls.length).toBeGreaterThanOrEqual(1);
-      const bodies = await parseBodies(fetchMock);
-      expect(bodies.at(-1)?.events).toEqual([
-        expect.objectContaining({
-          finalResult: { outcome: "PASS", workflowId: "default" },
-          type: "workflow.finish",
-        }),
-      ]);
-    }
-  );
+      }),
+    ]);
+  });
 
   it("flushes batches in the same order events were recorded", async () => {
     const { createRunnerEventSink } = await loadSinkModule();
@@ -322,15 +294,13 @@ describe("runner event sink", () => {
 
     expect(
       (await parseBodies(fetchMock)).flatMap((body) =>
-        body.events.map((event: { sequence: number }) => event.sequence)
-      )
+        body.events.map((event: { sequence: number }) => event.sequence),
+      ),
     ).toEqual([1, 2, 3, 4]);
     expect(
       (await parseBodies(fetchMock)).flatMap((body) =>
-        body.events.map(
-          (event: { node: { nodeId: string } }) => event.node.nodeId
-        )
-      )
+        body.events.map((event: { node: { nodeId: string } }) => event.node.nodeId),
+      ),
     ).toEqual(["red", "green", "verify", "review"]);
   });
 
@@ -376,9 +346,7 @@ describe("runner event sink", () => {
     await sink.flush();
 
     expect(deliveredBatches).toHaveLength(3);
-    expect(
-      deliveredBatches.flatMap((batch) => batch.map((event) => event.sequence))
-    ).toEqual([1, 2, 3, 4, 5]);
+    expect(deliveredBatches.flatMap((batch) => batch.map((event) => event.sequence))).toEqual([1, 2, 3, 4, 5]);
   });
 
   it("flushes runtime events without waiting for an explicit final flush", async () => {
@@ -465,8 +433,8 @@ describe("runner event sink", () => {
           type: "workflow.planned",
           workflowId: "default",
         },
-        { runId: "run_123", sequence: 1, timestamp: TIMESTAMP }
-      )
+        { runId: "run_123", sequence: 1, timestamp: TIMESTAMP },
+      ),
     ).toEqual([
       expect.objectContaining({
         sequence: 1,
@@ -483,9 +451,9 @@ describe("runner event sink", () => {
         type: "workflow.edge",
       }),
     ]);
-    expect(
-      singleRecord({ attempt: 1, nodeId: "red", type: "node.start" })
-    ).toMatchObject({ node: { nodeId: "red", status: "running" } });
+    expect(singleRecord({ attempt: 1, nodeId: "red", type: "node.start" })).toMatchObject({
+      node: { nodeId: "red", status: "running" },
+    });
     expect(
       singleRecord({
         gateId: "RED",
@@ -493,7 +461,7 @@ describe("runner event sink", () => {
         nodeId: "red",
         passed: true,
         type: "gate.finish",
-      })
+      }),
     ).toMatchObject({
       gate: { gateId: "RED", passed: true, status: "passed" },
     });
@@ -504,7 +472,7 @@ describe("runner event sink", () => {
         path: "tests/runner-event-sink.test.ts",
         required: true,
         type: "artifact.check.finish",
-      })
+      }),
     ).toMatchObject({
       artifact: {
         passed: true,
@@ -519,7 +487,7 @@ describe("runner event sink", () => {
         nodeId: "red",
         output: "targeted failing tests",
         type: "node.output.recorded",
-      })
+      }),
     ).toMatchObject({
       log: {
         message: "targeted failing tests",
@@ -532,14 +500,14 @@ describe("runner event sink", () => {
         outcome: "FAIL",
         type: "workflow.finish",
         workflowId: "default",
-      })
+      }),
     ).toMatchObject({ finalResult: { outcome: "FAIL" } });
     expect(
       singleRecord({
         outcome: "CANCELLED",
         type: "workflow.finish",
         workflowId: "default",
-      })
+      }),
     ).toMatchObject({ finalResult: { outcome: "CANCELLED" } });
   });
 
@@ -556,8 +524,8 @@ describe("runner event sink", () => {
           sessionId: "ses_abc",
           type: "node.session",
         },
-        { runId: "run_123", sequence: 1, timestamp: TIMESTAMP }
-      )
+        { runId: "run_123", sequence: 1, timestamp: TIMESTAMP },
+      ),
     ).toEqual([]);
   });
 
@@ -582,8 +550,7 @@ describe("runner event sink", () => {
             at: TIMESTAMP,
             log: {
               level: "warn",
-              message:
-                "Runner received a termination signal and cancelled the run.",
+              message: "Runner received a termination signal and cancelled the run.",
             },
             runId: "run_123",
             sequence: 1,

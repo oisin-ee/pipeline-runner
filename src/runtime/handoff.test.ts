@@ -1,12 +1,7 @@
-import { Option } from "effect";
+import * as Option from "effect/Option";
 import { describe, expect, it } from "vitest";
 
-import {
-  handoffFinalizerPrompt,
-  parseHandoff,
-  renderHandoff,
-  synthesizeMinimalHandoff,
-} from "./handoff";
+import { handoffFinalizerPrompt, parseHandoff, renderHandoff, synthesizeMinimalHandoff } from "./handoff";
 
 describe("parseHandoff", () => {
   it("defaults arrays when only a summary is provided", () => {
@@ -49,14 +44,14 @@ describe("renderHandoff", () => {
   it("renders the node id, summary, and only non-empty sections", () => {
     const text = renderHandoff("green", {
       artifacts: [{ lineRange: [1, 9], path: "src/a.ts" }],
-      decisions: ["use zod"],
+      decisions: ["use Effect Schema"],
       openQuestions: [],
       summary: "impl done",
       testNames: ["a.test.ts"],
     });
     expect(text).toContain("## green");
     expect(text).toContain("impl done");
-    expect(text).toContain("- use zod");
+    expect(text).toContain("- use Effect Schema");
     expect(text).toContain("- src/a.ts:1-9");
     expect(text).toContain("- a.test.ts");
     expect(text).not.toContain("Open questions");

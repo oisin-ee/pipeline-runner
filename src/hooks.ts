@@ -1,30 +1,29 @@
-import { z } from "zod";
+import * as Schema from "effect/Schema";
 
-export const hookArtifactSchema = z
-  .object({
-    contentType: z.string().optional(),
-    name: z.string().min(1),
-    path: z.string().min(1),
-  })
-  .strict();
+import { parseWithSchema, requiredString, stringRecord, unknownRecord, struct } from "./schema-boundary";
 
-export const hookResultSchema = z
-  .object({
-    artifacts: z.array(hookArtifactSchema).optional(),
-    outputs: z.record(z.string(), z.unknown()).optional(),
-    patch: z
-      .object({
-        runLabels: z.record(z.string(), z.string()).optional(),
-        taskContext: z.record(z.string(), z.unknown()).optional(),
-      })
-      .strict()
-      .optional(),
-    status: z.enum(["pass", "fail", "skip"]),
-    summary: z.string().optional(),
-  })
-  .strict();
+const hookArtifact = struct({
+  contentType: Schema.optional(Schema.String),
+  name: requiredString,
+  path: requiredString,
+});
 
-export type HookResult = z.infer<typeof hookResultSchema>;
+const hookResult = struct({
+  artifacts: Schema.optional(Schema.mutable(Schema.Array(hookArtifact))),
+  outputs: Schema.optional(unknownRecord),
+  patch: Schema.optional(
+    struct({
+      runLabels: Schema.optional(stringRecord),
+      taskContext: Schema.optional(unknownRecord),
+    }),
+  ),
+  status: Schema.Literals(["pass", "fail", "skip"]),
+  summary: Schema.optional(Schema.String),
+});
+
+export { hookArtifact as hookArtifactSchema, hookResult as hookResultSchema };
+
+export type HookResult = typeof hookResult.Type;
 
 export interface HookContext {
   event: {
@@ -57,11 +56,9 @@ export interface HookContext {
   };
 }
 
-export type HookFunction = (
-  context: HookContext
-) => HookResult | Promise<HookResult>;
+export type HookFunction = (context: HookContext) => HookResult | Promise<HookResult>;
 
 export const defineHook = <T extends HookFunction>(hook: T): T => hook;
 
 export const parseHookResult = (value: unknown): HookResult =>
-  hookResultSchema.parse(value);
+  parseWithSchema(hookResult, value, { onExcessProperty: "error" });

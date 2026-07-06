@@ -55,9 +55,7 @@ export interface NextNodeInput {
  * settled — a failed node is not re-emitted as ready, and a failed dependency
  * blocks its dependents via {@link computeReadyNodeIds}'s default check.
  */
-export const collectStoredResults = (
-  input: NextNodeInput
-): RuntimeNodeResult[] =>
+export const collectStoredResults = (input: NextNodeInput): RuntimeNodeResult[] =>
   input.nodes.flatMap((node) => {
     const record = input.store.get(input.runId, node.id);
     return Option.isSome(record) ? [record.value.result] : [];
@@ -81,13 +79,11 @@ const buildEnvelopeForNodeOption = (input: NextNodeInput, nodeId: string) => {
   const passedByNodeId = new Map(
     collectStoredResults(input)
       .filter((result) => result.status === "passed")
-      .map((result) => [result.nodeId, result])
+      .map((result) => [result.nodeId, result]),
   );
   const upstreamOutputs = node.needs.flatMap((needId) => {
     const result = passedByNodeId.get(needId);
-    return result === undefined
-      ? []
-      : [{ nodeId: needId, output: result.output }];
+    return result === undefined ? [] : [{ nodeId: needId, output: result.output }];
   });
   return Option.some({
     criteria,
@@ -129,9 +125,7 @@ export const recordNodeResult = (input: RecordNodeResultInput): void => {
  * fake; the core never references a concrete executor.
  */
 export interface StepNodeDeps extends NextNodeInput {
-  readonly executeNode: (
-    envelope: NextNodeEnvelope
-  ) => Promise<RuntimeNodeResult>;
+  readonly executeNode: (envelope: NextNodeEnvelope) => Promise<RuntimeNodeResult>;
 }
 
 /**
@@ -141,17 +135,12 @@ export interface StepNodeDeps extends NextNodeInput {
  * loop callers use {@link stepRun}. Fails when `nodeId` is absent from the graph
  * (no envelope can be built), surfacing the error rather than silently skipping.
  */
-export const stepNode = (
-  deps: StepNodeDeps,
-  nodeId: string
-): Effect.Effect<RuntimeNodeResult, unknown> =>
+export const stepNode = (deps: StepNodeDeps, nodeId: string): Effect.Effect<RuntimeNodeResult, unknown> =>
   Effect.gen(function* effectBody() {
     const envelope = buildEnvelopeForNode(deps, nodeId);
     if (envelope === undefined) {
       return yield* Effect.fail(
-        new Error(
-          `Cannot step node '${nodeId}': it is not present in run ${deps.runId}'s graph.`
-        )
+        new Error(`Cannot step node '${nodeId}': it is not present in run ${deps.runId}'s graph.`),
       );
     }
     const result = yield* Effect.tryPromise({
@@ -164,16 +153,14 @@ export const stepNode = (
 
 const stepReadyNodes = (
   deps: StepNodeDeps,
-  results: RuntimeNodeResult[]
+  results: RuntimeNodeResult[],
 ): Effect.Effect<readonly RuntimeNodeResult[], unknown> => {
   const completed = collectStoredResults(deps);
   const nodeId = computeReadyNodeIds({ completed, nodes: deps.nodes })[0];
   if (nodeId === undefined) {
     return Effect.succeed(results);
   }
-  return Effect.flatMap(stepNode(deps, nodeId), (result) =>
-    stepReadyNodes(deps, [...results, result])
-  );
+  return Effect.flatMap(stepNode(deps, nodeId), (result) => stepReadyNodes(deps, [...results, result]));
 };
 
 /**
@@ -183,7 +170,5 @@ const stepReadyNodes = (
  * upstream failure). Selection stays separate from execution so engines that do
  * their own selection (Argo) bypass this and call {@link stepNode} directly.
  */
-export const stepRun = (
-  deps: StepNodeDeps
-): Effect.Effect<readonly RuntimeNodeResult[], unknown> =>
+export const stepRun = (deps: StepNodeDeps): Effect.Effect<readonly RuntimeNodeResult[], unknown> =>
   stepReadyNodes(deps, []);

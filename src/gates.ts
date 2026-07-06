@@ -6,7 +6,8 @@ import { execa } from "execa";
 import { resolveCommand } from "package-manager-detector/commands";
 import { detect } from "package-manager-detector/detect";
 
-import { parseJson } from "./safe-json";
+import { parseJscpdDuplicateViolations } from "./jscpd-output";
+import { isNumberValue, isRecord, isStringValue, parseJson, stringRecord } from "./safe-json";
 
 export interface TestResult {
   command?: string;
@@ -39,14 +40,12 @@ interface ProjectCommand {
 
 type PackageManagerAgent = Parameters<typeof resolveCommand>[0];
 
-const displayCommand = (command: ProjectCommand): string =>
-  [command.command, ...command.args].join(" ");
+const displayCommand = (command: ProjectCommand): string => [command.command, ...command.args].join(" ");
 
 const optionalLine = (value: Option.Option<string>): Option.Option<string> =>
   Option.match(value, {
     onNone: () => Option.none(),
-    onSome: (resolved) =>
-      resolved.length === 0 ? Option.none() : Option.some(resolved),
+    onSome: (resolved) => (resolved.length === 0 ? Option.none() : Option.some(resolved)),
   });
 
 const nonEmptyLines = (values: Option.Option<string>[]): string[] =>
@@ -54,18 +53,13 @@ const nonEmptyLines = (values: Option.Option<string>[]): string[] =>
     Option.match(value, {
       onNone: () => [],
       onSome: (resolved) => [resolved],
-    })
+    }),
   );
 
 const readPackageScripts = (worktreePath: string): Record<string, string> => {
   try {
-    const pkg = parseJson(
-      readFileSync(join(worktreePath, "package.json"), "utf-8"),
-      "package.json"
-    ) as {
-      scripts?: Record<string, string>;
-    };
-    return pkg.scripts ?? {};
+    const pkg = parseJson(readFileSync(join(worktreePath, "package.json"), "utf-8"), "package.json");
+    return isRecord(pkg) ? stringRecord(pkg.scripts) : {};
   } catch {
     return {};
   }
@@ -83,27 +77,21 @@ const envCommand = (envName: string): Option.Option<ProjectCommand> => {
   return Option.some({ args: [], command: raw, shell: true });
 };
 
-const detectPackageManagerAgent = async (
-  worktreePath: string
-): Promise<PackageManagerAgent> => {
+const detectPackageManagerAgent = async (worktreePath: string): Promise<PackageManagerAgent> => {
   const pm = await detect({ cwd: worktreePath, stopDir: worktreePath });
   return pm?.agent ?? "npm";
 };
 
 const resolvePackageScript = async (
   worktreePath: string,
-  scriptName: string
+  scriptName: string,
 ): Promise<Option.Option<ProjectCommand>> => {
   const scripts = readPackageScripts(worktreePath);
   if (!Object.hasOwn(scripts, scriptName)) {
     return Option.none();
   }
 
-  const resolved = resolveCommand(
-    await detectPackageManagerAgent(worktreePath),
-    "run",
-    [scriptName]
-  );
+  const resolved = resolveCommand(await detectPackageManagerAgent(worktreePath), "run", [scriptName]);
   if (resolved === null) {
     return Option.none();
   }
@@ -113,7 +101,7 @@ const resolvePackageScript = async (
 const resolvePackageBinaryCommand = async (
   worktreePath: string,
   binary: string,
-  args: string[]
+  args: string[],
 ): Promise<Option.Option<ProjectCommand>> => {
   if (!existsSync(join(worktreePath, "package.json"))) {
     return Option.none();
@@ -147,36 +135,35 @@ const resolvePackageBinaryCommand = async (
   }
 };
 
-const commandError = (
-  err: unknown
-): {
+interface CommandError {
   exitCode?: number;
   message?: string;
   shortMessage?: string;
   stderr?: string;
   stdout?: string;
-} =>
-  err as {
-    exitCode?: number;
-    message?: string;
-    shortMessage?: string;
-    stderr?: string;
-    stdout?: string;
-  };
+}
 
-const hidePipelineRunsDirectory = (
-  worktreePath: string
-): Option.Option<{ restore: () => void }> => {
+const commandError = (err: unknown): CommandError => {
+  if (!isRecord(err)) {
+    return {};
+  }
+  return {
+    ...(isNumberValue(err.exitCode) ? { exitCode: err.exitCode } : {}),
+    ...(isStringValue(err.message) ? { message: err.message } : {}),
+    ...(isStringValue(err.shortMessage) ? { shortMessage: err.shortMessage } : {}),
+    ...(isStringValue(err.stderr) ? { stderr: err.stderr } : {}),
+    ...(isStringValue(err.stdout) ? { stdout: err.stdout } : {}),
+  };
+};
+
+const hidePipelineRunsDirectory = (worktreePath: string): Option.Option<{ restore: () => void }> => {
   const pipelineDir = join(worktreePath, ".pipeline");
   const runsDir = join(pipelineDir, "runs");
   if (!existsSync(runsDir)) {
     return Option.none();
   }
 
-  const hiddenRunsDir = join(
-    pipelineDir,
-    `.runs-hidden-${process.pid}-${Date.now()}`
-  );
+  const hiddenRunsDir = join(pipelineDir, `.runs-hidden-${process.pid}-${Date.now()}`);
   renameSync(runsDir, hiddenRunsDir);
   return Option.some({
     restore: () => {
@@ -207,22 +194,16 @@ const runProjectCommand = async (
   projectCommand: ProjectCommand,
   worktreePath: string,
   signal?: AbortSignal,
-  options?: { hidePipelineRuns?: boolean }
+  options?: { hidePipelineRuns?: boolean },
 ): Promise<{ command?: string; exitCode: number; output: string }> => {
-  const hiddenRuns =
-    options?.hidePipelineRuns === true
-      ? hidePipelineRunsDirectory(worktreePath)
-      : Option.none();
+  const hiddenRuns = options?.hidePipelineRuns === true ? hidePipelineRunsDirectory(worktreePath) : Option.none();
   try {
     const result = await execa(projectCommand.command, projectCommand.args, {
       cancelSignal: signal,
       cwd: worktreePath,
       shell: projectCommand.shell,
     });
-    const output = nonEmptyLines([
-      Option.some(result.stdout),
-      Option.some(result.stderr),
-    ]).join("\n");
+    const output = nonEmptyLines([Option.some(result.stdout), Option.some(result.stderr)]).join("\n");
     return {
       command: displayCommand(projectCommand),
       exitCode: result.exitCode ?? 0,
@@ -247,10 +228,7 @@ const runProjectCommand = async (
 
 // ─── runTests ─────────────────────────────────────────────────────────────────
 
-export const runTests = async (
-  worktreePath: string,
-  signal?: AbortSignal
-): Promise<TestResult> => {
+export const runTests = async (worktreePath: string, signal?: AbortSignal): Promise<TestResult> => {
   const overrideCommand = envCommand("PIPELINE_TEST_COMMAND");
   const projectCommand = Option.isSome(overrideCommand)
     ? overrideCommand
@@ -260,16 +238,11 @@ export const runTests = async (
     return {
       exitCode: 1,
       failingTests: [],
-      output:
-        "No test command found. Set PIPELINE_TEST_COMMAND or define a package test script.",
+      output: "No test command found. Set PIPELINE_TEST_COMMAND or define a package test script.",
     };
   }
 
-  const result = await runProjectCommand(
-    projectCommand.value,
-    worktreePath,
-    signal
-  );
+  const result = await runProjectCommand(projectCommand.value, worktreePath, signal);
   return {
     ...result,
     failingTests: result.exitCode === 0 ? [] : parseFailingTests(result.output),
@@ -280,7 +253,7 @@ export const runTests = async (
 
 export const runLint = async (
   worktreePath: string,
-  signal?: AbortSignal
+  signal?: AbortSignal,
 ): Promise<{ command?: string; exitCode: number; output: string }> => {
   const overrideCommand = envCommand("PIPELINE_LINT_COMMAND");
   const projectCommand = Option.isSome(overrideCommand)
@@ -299,7 +272,7 @@ export const runLint = async (
 
 export const runFallow = async (
   worktreePath: string,
-  signal?: AbortSignal
+  signal?: AbortSignal,
 ): Promise<{ command?: string; exitCode: number; output: string }> => {
   const overrideCommand = envCommand("PIPELINE_FALLOW_COMMAND");
   const scriptCommand = Option.isSome(overrideCommand)
@@ -322,7 +295,7 @@ export const runFallow = async (
 
 export const runTypecheck = async (
   worktreePath: string,
-  signal?: AbortSignal
+  signal?: AbortSignal,
 ): Promise<{ command?: string; exitCode: number; output: string }> => {
   const overrideCommand = envCommand("PIPELINE_TYPECHECK_COMMAND");
   const projectCommand = Option.isSome(overrideCommand)
@@ -340,20 +313,14 @@ export const runTypecheck = async (
 export const runSemgrep = async (
   worktreePath: string,
   signal?: AbortSignal,
-  changedFiles?: Iterable<string>
+  changedFiles?: Iterable<string>,
 ): Promise<{ command?: string; exitCode: number; output: string }> => {
   const overrideCommand = envCommand("PIPELINE_SEMGREP_COMMAND");
   const targets =
     changedFiles === undefined
       ? undefined
-      : [...new Set(changedFiles)].filter((file) =>
-          existsSync(join(worktreePath, file))
-        );
-  if (
-    Option.isNone(overrideCommand) &&
-    targets !== undefined &&
-    targets.length === 0
-  ) {
+      : [...new Set(changedFiles)].filter((file) => existsSync(join(worktreePath, file)));
+  if (Option.isNone(overrideCommand) && targets !== undefined && targets.length === 0) {
     return {
       command: "uvx semgrep scan --config=p/ci --error",
       exitCode: 0,
@@ -361,13 +328,7 @@ export const runSemgrep = async (
     };
   }
   const projectCommand = Option.getOrElse(overrideCommand, () => ({
-    args: [
-      "semgrep",
-      "scan",
-      "--config=p/ci",
-      "--error",
-      ...(targets === undefined ? ["."] : ["--", ...targets]),
-    ],
+    args: ["semgrep", "scan", "--config=p/ci", "--error", ...(targets === undefined ? ["."] : ["--", ...targets])],
     command: "uvx",
   }));
 
@@ -376,17 +337,10 @@ export const runSemgrep = async (
 
 // ─── artifactExists ───────────────────────────────────────────────────────────
 
-export const artifactExists = (
-  worktreePath: string,
-  filename: string
-): boolean => existsSync(join(worktreePath, filename));
+export const artifactExists = (worktreePath: string, filename: string): boolean =>
+  existsSync(join(worktreePath, filename));
 
 // ─── runJscpd ─────────────────────────────────────────────────────────────────
-
-interface JscpdDuplicate {
-  firstFile?: { name?: string; start?: number };
-  secondFile?: { name?: string };
-}
 
 const JSCPD_DEFAULT_IGNORES = [
   "**/node_modules/**",
@@ -403,25 +357,9 @@ const JSCPD_DEFAULT_IGNORES = [
   "**/.agents/skills/**",
 ];
 
-const parseJscpdOutput = (output: string): { violations: GateViolation[] } => {
-  try {
-    const data = parseJson(output, "jscpd output") as {
-      duplicates?: JscpdDuplicate[];
-    };
-    const violations: GateViolation[] = (data.duplicates ?? []).map((dup) => ({
-      file: dup.firstFile?.name ?? "unknown",
-      line: dup.firstFile?.start,
-      message: `Duplicate code block detected between ${dup.firstFile?.name} and ${dup.secondFile?.name}`,
-    }));
-    return { violations };
-  } catch {
-    return { violations: [] };
-  }
-};
-
 export const runJscpd = async (
   worktreePath: string,
-  signal?: AbortSignal
+  signal?: AbortSignal,
 ): Promise<{ violations: GateViolation[] }> => {
   try {
     const result = await execa(
@@ -440,11 +378,11 @@ export const runJscpd = async (
       {
         cancelSignal: signal,
         cwd: worktreePath,
-      }
+      },
     );
-    return parseJscpdOutput(result.stdout);
+    return { violations: parseJscpdDuplicateViolations(result.stdout) };
   } catch (error) {
-    const e = error as { stdout?: string };
-    return parseJscpdOutput(e.stdout ?? "");
+    const e = commandError(error);
+    return { violations: parseJscpdDuplicateViolations(e.stdout ?? "") };
   }
 };

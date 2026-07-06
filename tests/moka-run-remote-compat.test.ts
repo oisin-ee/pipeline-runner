@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createCliProgram } from "../src/cli/program";
 import type { submitMoka } from "../src/moka-submit";
 import { runnerCommandPayloadSchema } from "../src/runner-command-contract";
+import { parseResultWithSchema } from "../src/schema-boundary";
 
 type CapturedMokaSubmitInput = Parameters<typeof submitMoka>[0];
 
@@ -74,17 +75,12 @@ const withTempWorktree = async (run: () => Promise<void>): Promise<void> => {
 };
 
 const parseMoka = async (args: string[]): Promise<void> => {
-  await createCliProgram().parseAsync(
-    ["node", "/repo/node_modules/.bin/moka", ...args],
-    { from: "node" }
-  );
+  await createCliProgram().parseAsync(["node", "/repo/node_modules/.bin/moka", ...args], { from: "node" });
 };
 
 const onlySubmitInput = (): CapturedMokaSubmitInput => {
   if (mockState.submitInputs.length !== 1) {
-    throw new Error(
-      `Expected exactly one moka submit input, received ${mockState.submitInputs.length}`
-    );
+    throw new Error(`Expected exactly one moka submit input, received ${mockState.submitInputs.length}`);
   }
   return mockState.submitInputs[0] as CapturedMokaSubmitInput;
 };
@@ -121,14 +117,7 @@ const baseRunnerPayload = (mode: "execute" | "full" | "quick") => ({
 describe("moka run remote submit compatibility", () => {
   it("submits the same quick graph shape as the existing moka submit --quick path", async () => {
     await withTempWorktree(async () => {
-      await parseMoka([
-        "run",
-        "Ship the quick remote graph",
-        "--target",
-        "remote",
-        "--effort",
-        "quick",
-      ]);
+      await parseMoka(["run", "Ship the quick remote graph", "--target", "remote", "--effort", "quick"]);
       const runSubmitShape = graphSubmitShape(onlySubmitInput());
 
       mockState.submitInputs.length = 0;
@@ -143,14 +132,7 @@ describe("moka run remote submit compatibility", () => {
 
   it("maps thorough remote runs to the full graph submission mode", async () => {
     await withTempWorktree(async () => {
-      await parseMoka([
-        "run",
-        "Ship the full remote graph",
-        "--target",
-        "remote",
-        "--effort",
-        "thorough",
-      ]);
+      await parseMoka(["run", "Ship the full remote graph", "--target", "remote", "--effort", "thorough"]);
 
       expect(graphSubmitShape(onlySubmitInput())).toMatchObject({
         mode: "full",
@@ -162,15 +144,7 @@ describe("moka run remote submit compatibility", () => {
 
   it("submits explicit argv through moka run --target remote --command", async () => {
     await withTempWorktree(async () => {
-      await parseMoka([
-        "run",
-        "--target",
-        "remote",
-        "--command",
-        "--",
-        "bun",
-        "test",
-      ]);
+      await parseMoka(["run", "--target", "remote", "--command", "--", "bun", "test"]);
 
       expect(onlySubmitInput()).toMatchObject({
         commandArgv: ["bun", "test"],
@@ -180,14 +154,8 @@ describe("moka run remote submit compatibility", () => {
   });
 
   it("keeps runner graph payload modes compatible with full and quick only", () => {
-    expect(
-      runnerCommandPayloadSchema.safeParse(baseRunnerPayload("full")).success
-    ).toBe(true);
-    expect(
-      runnerCommandPayloadSchema.safeParse(baseRunnerPayload("quick")).success
-    ).toBe(true);
-    expect(
-      runnerCommandPayloadSchema.safeParse(baseRunnerPayload("execute")).success
-    ).toBe(false);
+    expect(parseResultWithSchema(runnerCommandPayloadSchema, baseRunnerPayload("full")).ok).toBe(true);
+    expect(parseResultWithSchema(runnerCommandPayloadSchema, baseRunnerPayload("quick")).ok).toBe(true);
+    expect(parseResultWithSchema(runnerCommandPayloadSchema, baseRunnerPayload("execute")).ok).toBe(false);
   });
 });

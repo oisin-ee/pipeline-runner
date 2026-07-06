@@ -1,11 +1,5 @@
 import type { RetryReason } from "./actor-ids";
-import type {
-  NodeExecutionState,
-  NodeStatus,
-  RuntimeFailure,
-  RuntimeGateResult,
-  RuntimeNodeResult,
-} from "./contracts";
+import type { NodeExecutionState, NodeStatus, RuntimeFailure, RuntimeGateResult, RuntimeNodeResult } from "./contracts";
 import type { NodeRetryDecision } from "./retry";
 
 export type NodeExecutionEvent =
@@ -57,7 +51,7 @@ const initialNodeExecutionState = (nodeId: string): NodeExecutionState => ({
 
 type NodeExecutionEventHandler<T extends NodeExecutionEvent["type"]> = (
   state: NodeExecutionState,
-  event: Extract<NodeExecutionEvent, { type: T }>
+  event: Extract<NodeExecutionEvent, { type: T }>,
 ) => NodeExecutionState;
 
 type NodeExecutionEventType = NodeExecutionEvent["type"];
@@ -70,36 +64,27 @@ interface NodeExecutionTransition<T extends NodeExecutionEventType> {
 
 interface RuntimeNodeExecutionTransition {
   allowedFrom: readonly NodeStatus[];
-  apply: (
-    state: NodeExecutionState,
-    event: NodeExecutionEvent
-  ) => NodeExecutionState;
+  apply: (state: NodeExecutionState, event: NodeExecutionEvent) => NodeExecutionState;
   statusAfter: NodeStatus;
 }
 
-type NodeExecutionTransitions = Record<
-  NodeExecutionEventType,
-  RuntimeNodeExecutionTransition
->;
+type NodeExecutionTransitions = Record<NodeExecutionEventType, RuntimeNodeExecutionTransition>;
 
-const unchangedNodeState = (state: NodeExecutionState): NodeExecutionState =>
-  state;
+const unchangedNodeState = (state: NodeExecutionState): NodeExecutionState => state;
 
 const isNodeExecutionEventType = <T extends NodeExecutionEventType>(
   event: NodeExecutionEvent,
-  type: T
+  type: T,
 ): event is Extract<NodeExecutionEvent, { type: T }> => event.type === type;
 
 const defineNodeExecutionTransition = <T extends NodeExecutionEventType>(
   type: T,
-  transition: NodeExecutionTransition<T>
+  transition: NodeExecutionTransition<T>,
 ): RuntimeNodeExecutionTransition => ({
   allowedFrom: transition.allowedFrom,
   apply: (state, event) => {
     if (!isNodeExecutionEventType(event, type)) {
-      throw new Error(
-        `NodeExecutionEvent handler ${type} received ${event.type}`
-      );
+      throw new Error(`NodeExecutionEvent handler ${type} received ${event.type}`);
     }
     return transition.apply(state, event);
   },
@@ -109,22 +94,18 @@ const defineNodeExecutionTransition = <T extends NodeExecutionEventType>(
 const assertNodeExecutionTransitionAllowed = (
   state: NodeExecutionState,
   event: NodeExecutionEvent,
-  transition: RuntimeNodeExecutionTransition
+  transition: RuntimeNodeExecutionTransition,
 ): void => {
   if (transition.allowedFrom.includes(state.status)) {
     return;
   }
 
   throw new Error(
-    `Illegal NodeExecutionEvent ${event.type} from node status ${state.status}; allowed from: ${transition.allowedFrom.join(", ")}`
+    `Illegal NodeExecutionEvent ${event.type} from node status ${state.status}; allowed from: ${transition.allowedFrom.join(", ")}`,
   );
 };
 
-const stateFromResult = (
-  state: NodeExecutionState,
-  result: RuntimeNodeResult,
-  at: string
-): NodeExecutionState => ({
+const stateFromResult = (state: NodeExecutionState, result: RuntimeNodeResult, at: string): NodeExecutionState => ({
   ...state,
   attempts: result.attempts,
   evidence: result.evidence,
@@ -218,22 +199,16 @@ const nodeExecutionTransitions: NodeExecutionTransitions = {
     }),
     statusAfter: "skipped",
   }),
-  SNAPSHOT_AFTER_FINISHED: defineNodeExecutionTransition(
-    "SNAPSHOT_AFTER_FINISHED",
-    {
-      allowedFrom: ["running"],
-      apply: unchangedNodeState,
-      statusAfter: "running",
-    }
-  ),
-  SNAPSHOT_BEFORE_FINISHED: defineNodeExecutionTransition(
-    "SNAPSHOT_BEFORE_FINISHED",
-    {
-      allowedFrom: ["running"],
-      apply: unchangedNodeState,
-      statusAfter: "running",
-    }
-  ),
+  SNAPSHOT_AFTER_FINISHED: defineNodeExecutionTransition("SNAPSHOT_AFTER_FINISHED", {
+    allowedFrom: ["running"],
+    apply: unchangedNodeState,
+    statusAfter: "running",
+  }),
+  SNAPSHOT_BEFORE_FINISHED: defineNodeExecutionTransition("SNAPSHOT_BEFORE_FINISHED", {
+    allowedFrom: ["running"],
+    apply: unchangedNodeState,
+    statusAfter: "running",
+  }),
   STARTED: defineNodeExecutionTransition("STARTED", {
     allowedFrom: ["ready", "running"],
     apply: (state, event) => ({
@@ -248,20 +223,14 @@ const nodeExecutionTransitions: NodeExecutionTransitions = {
     apply: unchangedNodeState,
     statusAfter: "running",
   }),
-  SUCCESS_HOOKS_STARTED: defineNodeExecutionTransition(
-    "SUCCESS_HOOKS_STARTED",
-    {
-      allowedFrom: ["gating"],
-      apply: unchangedNodeState,
-      statusAfter: "gating",
-    }
-  ),
+  SUCCESS_HOOKS_STARTED: defineNodeExecutionTransition("SUCCESS_HOOKS_STARTED", {
+    allowedFrom: ["gating"],
+    apply: unchangedNodeState,
+    statusAfter: "gating",
+  }),
 };
 
-const applyNodeExecutionEvent = (
-  state: NodeExecutionState,
-  event: NodeExecutionEvent
-): NodeExecutionState => {
+const applyNodeExecutionEvent = (state: NodeExecutionState, event: NodeExecutionEvent): NodeExecutionState => {
   const transition = nodeExecutionTransitions[event.type];
   assertNodeExecutionTransitionAllowed(state, event, transition);
   return {

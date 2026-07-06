@@ -1,12 +1,5 @@
 import { execFileSync } from "node:child_process";
-import {
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import type { IncomingMessage, Server, ServerResponse } from "node:http";
 import { tmpdir } from "node:os";
@@ -14,16 +7,20 @@ import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 
+import * as Arr from "effect/Array";
+import * as HashMap from "effect/HashMap";
+import * as Option from "effect/Option";
+import * as R from "effect/Record";
+import * as Schema from "effect/Schema";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { z } from "zod";
 
+import type { PipelineRuntimeOptions, PipelineRuntimeResult } from "../src/pipeline-runtime";
+import type { PlannedWorkflowNode, WorkflowExecutionPlan } from "../src/planning/compile";
+import { createDependencyGraph } from "../src/planning/graph";
 import type { MokaRunManifest } from "../src/run-control/contracts";
-import type {
-  CreateRunRequest,
-  ReadRunRequest,
-  RunControlStore,
-} from "../src/run-control/run-control-store";
+import type { CreateRunRequest, ReadRunRequest, RunControlStore } from "../src/run-control/run-control-store";
 import { parseJson } from "../src/safe-json";
+import { parseWithSchema, struct } from "../src/schema-boundary";
 
 interface CapturedCreateRun {
   input: CreateRunRequest;
@@ -45,8 +42,24 @@ interface MockExecaResult {
 type MockExeca = (
   command: string,
   args?: string[],
-  options?: MockExecaOptions
+  options?: MockExecaOptions,
 ) => MockExecaResult | Promise<MockExecaResult>;
+
+type PipelineRunner = (options: PipelineRuntimeOptions) => Promise<PipelineRuntimeResult>;
+
+const runtimePlanFixture = (workflowId: string, nodes: PlannedWorkflowNode[] = []): WorkflowExecutionPlan => ({
+  execution: { failFast: false },
+  graph: createDependencyGraph(nodes, {
+    dependenciesOf: (node) => node.needs,
+    valueOf: (node) => node,
+  }),
+  parallelBatches: Arr.match(nodes, {
+    onEmpty: () => [],
+    onNonEmpty: (values) => [Array.from(values)],
+  }),
+  topologicalOrder: nodes,
+  workflowId,
+});
 
 const mockExeca = vi.hoisted(() => vi.fn<MockExeca>());
 
@@ -63,53 +76,46 @@ const runControlMock = vi.hoisted<{
 }));
 
 vi.mock("../src/run-control/run-control-store", async (importOriginal) => {
-  const actual =
-    await importOriginal<
-      typeof import("../src/run-control/run-control-store")
-    >();
+  const actual = await importOriginal<typeof import("../src/run-control/run-control-store")>();
   const { Effect } = await import("effect");
 
   const memoryRunControlStore = (workspaceRoot: string): RunControlStore => {
-    const runManifests = new Map<string, MokaRunManifest>();
+    let runManifests = HashMap.empty<string, MokaRunManifest>();
+    const runManifest = (runId: string): Option.Option<MokaRunManifest> => HashMap.get(runManifests, runId);
+    const queuedNodeEntry = (nodeId: string): [string, MokaRunManifest["nodes"][string]] => [nodeId, "queued"];
 
     return {
       createRun: (input) => {
         runControlMock.createRunInputs.push({ input, workspaceRoot });
-        const nodes: MokaRunManifest["nodes"] = {};
-        for (const nodeId of input.nodeIds) {
-          nodes[nodeId] = "queued";
-        }
+        const nodes: MokaRunManifest["nodes"] = R.fromEntries(input.nodeIds.map(queuedNodeEntry));
         const manifest: MokaRunManifest = {
           effort: input.effort,
           events: [],
           mode: input.mode,
           nodes,
           runId: input.runId,
-          ...(input.schedule !== undefined && input.schedule !== ""
-            ? { schedule: input.schedule }
-            : {}),
+          ...(input.schedule !== undefined && input.schedule !== "" ? { schedule: input.schedule } : {}),
           status: "queued",
           target: input.target,
         };
-        runManifests.set(input.runId, manifest);
+        runManifests = HashMap.set(runManifests, input.runId, manifest);
         return Effect.succeed(manifest);
       },
-      listRuns: () => Effect.succeed([...runManifests.values()]),
+      listRuns: () => Effect.succeed(Array.from(HashMap.values(runManifests))),
       publishSchedule: (input) => {
-        const current = runManifests.get(input.runId);
-        if (!current) {
+        const current = runManifest(input.runId);
+        if (Option.isNone(current)) {
           return Effect.fail(new Error(`Run ${input.runId} does not exist.`));
         }
-        const nodes = { ...current.nodes };
+        const nodes = { ...current.value.nodes };
         for (const nodeId of input.nodeIds) {
           nodes[nodeId] ??= "queued";
         }
-        const manifest = { ...current, nodes, schedule: input.schedule };
-        runManifests.set(input.runId, manifest);
+        const manifest = { ...current.value, nodes, schedule: input.schedule };
+        runManifests = HashMap.set(runManifests, input.runId, manifest);
         return Effect.succeed(manifest);
       },
-      readRun: (input: ReadRunRequest) =>
-        Effect.succeed(runManifests.get(input.runId)),
+      readRun: (input: ReadRunRequest) => Effect.succeed(Option.getOrUndefined(runManifest(input.runId))),
       recordEvent: () => Effect.void,
       statusPaths: (input) => ({
         events: `.memory/runs/${input.runId}/events.jsonl`,
@@ -120,7 +126,7 @@ vi.mock("../src/run-control/run-control-store", async (importOriginal) => {
       updateNodeStatus: () => Effect.void,
       updateRunController: (input) =>
         Effect.succeed(
-          runManifests.get(input.runId) ?? {
+          Option.getOrElse(runManifest(input.runId), () => ({
             effort: "normal",
             events: [],
             mode: "write",
@@ -128,34 +134,29 @@ vi.mock("../src/run-control/run-control-store", async (importOriginal) => {
             runId: input.runId,
             status: "queued",
             target: "local",
-          }
+          })),
         ),
       updateRunStatus: () => Effect.void,
-      writeNodeArtifact: (input) =>
-        Effect.succeed({ path: `.memory/runs/${input.runId}/${input.name}` }),
+      writeNodeArtifact: (input) => Effect.succeed({ path: `.memory/runs/${input.runId}/${input.name}` }),
     };
   };
 
   return {
     ...actual,
     withRunControlStoreScoped: vi.fn(
-      (
-        workspaceRoot: string,
-        use: Parameters<typeof actual.withRunControlStoreScoped>[1]
-      ) => {
+      (workspaceRoot: string, use: Parameters<typeof actual.withRunControlStoreScoped>[1]) => {
         const store =
           runControlMock.mode === "memory"
             ? memoryRunControlStore(workspaceRoot)
             : actual.fileRunControlStore(workspaceRoot);
         return use(store);
-      }
+      },
     ),
   };
 });
 
 const DESCRIPTION_RE = /description/iu;
-const FAILURE_DETAILS_RE =
-  /verify: missing artifact[\s\S]*agent boundary node=verify[\s\S]*raw verifier output/u;
+const FAILURE_DETAILS_RE = /verify: missing artifact[\s\S]*agent boundary node=verify[\s\S]*raw verifier output/u;
 const COMMAND_CONTINUATION_RE = /^ {20,}\S/u;
 const COMMAND_SUMMARY_RE = /^ {2}([a-z][\w-]*)(?:\s|$)(.*)$/u;
 const NON_CANONICAL_ENTRYPOINT_RE = /\b(?:alias|preset|compatibility)\b/iu;
@@ -167,60 +168,52 @@ const SCHEDULE_RUN_WORKFLOW_RE = /Workflow: schedule-run-\d{14}-root/u;
 const PIPELINE_RUNTIME_STATUS_RE = /^.. \.pipeline(?:\/|$)/u;
 const NO_REPO_COPY_RE = /clone|copy|mirror/iu;
 const MISSING_TOOLHIVE_WORKLOAD_RE = /missing ToolHive workload/u;
-const ORIGINAL_PIPELINE_MCP_GATEWAY_AUTHORIZATION =
-  process.env.PIPELINE_MCP_GATEWAY_AUTHORIZATION;
+const ORIGINAL_PIPELINE_MCP_GATEWAY_AUTHORIZATION = process.env.PIPELINE_MCP_GATEWAY_AUTHORIZATION;
 const ORIGINAL_PIPELINE_TEST_COMMAND = process.env.PIPELINE_TEST_COMMAND;
-const CLAUDE_GATEWAY_AUTH_HEADER = [
-  "$",
-  "{PIPELINE_MCP_GATEWAY_AUTHORIZATION}",
-].join("");
-const opencodePromptBodySchema = z.object({
-  agent: z.string().optional(),
-  model: z.object({ modelID: z.string(), providerID: z.string() }).optional(),
-  parts: z.array(z.object({ text: z.string(), type: z.string() })),
-  variant: z.string().optional(),
+const CLAUDE_GATEWAY_AUTH_HEADER = ["$", "{PIPELINE_MCP_GATEWAY_AUTHORIZATION}"].join("");
+const opencodePromptBodySchema = struct({
+  agent: Schema.optional(Schema.String),
+  model: Schema.optional(struct({ modelID: Schema.String, providerID: Schema.String })),
+  parts: Schema.mutable(Schema.Array(struct({ text: Schema.String, type: Schema.String }))),
+  variant: Schema.optional(Schema.String),
 });
-const packageJsonVersionSchema = z.object({
-  version: z.string(),
+const packageJsonVersionSchema = struct({
+  version: Schema.String,
 });
-const packageJsonPublicApiSchema = z.object({
-  bin: z.record(z.string(), z.string()).optional(),
-  exports: z.record(z.string(), z.unknown()).optional(),
-  name: z.string(),
-  publishConfig: z.object({ access: z.string() }).optional(),
+const packageJsonPublicApiSchema = struct({
+  bin: Schema.optional(Schema.Record(Schema.String, Schema.String)),
+  exports: Schema.optional(Schema.Record(Schema.String, Schema.Unknown)),
+  name: Schema.String,
+  publishConfig: Schema.optional(struct({ access: Schema.String })),
 });
-const gatewayMcpServerSchema = z.object({
-  enabled: z.boolean().optional(),
-  headers: z.record(z.string(), z.string()).optional(),
-  oauth: z.boolean().optional(),
-  type: z.string(),
-  url: z.string(),
+const gatewayMcpServerSchema = struct({
+  enabled: Schema.optional(Schema.Boolean),
+  headers: Schema.optional(Schema.Record(Schema.String, Schema.String)),
+  oauth: Schema.optional(Schema.Boolean),
+  type: Schema.String,
+  url: Schema.String,
 });
-const opencodeGatewayFileSchema = z.object({
-  mcp: z.record(z.string(), gatewayMcpServerSchema),
+const opencodeGatewayFileSchema = struct({
+  mcp: Schema.Record(Schema.String, gatewayMcpServerSchema),
 });
-const claudeGatewayFileSchema = z.object({
-  mcpServers: z.record(z.string(), gatewayMcpServerSchema),
+const claudeGatewayFileSchema = struct({
+  mcpServers: Schema.Record(Schema.String, gatewayMcpServerSchema),
 });
 
-const parseOpencodePromptBody = (source: string) => {
-  const parsed = opencodePromptBodySchema.safeParse(
-    parseJson(source, "OpenCode prompt body")
-  );
-  return parsed.success ? parsed.data : { parts: [] };
-};
+const parseOpencodePromptBody = (source: string) =>
+  parseWithSchema(opencodePromptBodySchema, parseJson(source, "OpenCode prompt body"));
 
 const parsePackageJsonVersion = (source: string) =>
-  packageJsonVersionSchema.parse(parseJson(source, "package.json"));
+  parseWithSchema(packageJsonVersionSchema, parseJson(source, "package.json"));
 
 const parsePackageJsonPublicApi = (source: string) =>
-  packageJsonPublicApiSchema.parse(parseJson(source, "package.json"));
+  parseWithSchema(packageJsonPublicApiSchema, parseJson(source, "package.json"));
 
 const parseOpencodeGatewayFile = (source: string) =>
-  opencodeGatewayFileSchema.parse(parseJson(source, "OpenCode gateway JSON"));
+  parseWithSchema(opencodeGatewayFileSchema, parseJson(source, "OpenCode gateway JSON"));
 
 const parseClaudeGatewayFile = (source: string) =>
-  claudeGatewayFileSchema.parse(parseJson(source, "Claude gateway JSON"));
+  parseWithSchema(claudeGatewayFileSchema, parseJson(source, "Claude gateway JSON"));
 
 const isStringArray = (value: unknown): value is string[] =>
   Array.isArray(value) && value.every((item) => typeof item === "string");
@@ -286,9 +279,7 @@ interface MockAgentResponse {
 
 const MOCK_AGENT_RESPONSES: MockAgentResponse[] = [
   {
-    matches: (prompt) =>
-      prompt.includes("moka-acceptance-reviewer") ||
-      prompt.includes("acceptance reviewer"),
+    matches: (prompt) => prompt.includes("moka-acceptance-reviewer") || prompt.includes("acceptance reviewer"),
     response: {
       acceptance: [{ evidence: ["accepted"], id: "1", verdict: "PASS" }],
       evidence: ["acceptance passed"],
@@ -297,16 +288,14 @@ const MOCK_AGENT_RESPONSES: MockAgentResponse[] = [
     },
   },
   {
-    matches: (prompt) =>
-      prompt.includes("moka-verifier") || prompt.includes("verifier"),
+    matches: (prompt) => prompt.includes("moka-verifier") || prompt.includes("verifier"),
     response: {
       evidence: ["verified by CLI fixture"],
       verdict: "PASS",
     },
   },
   {
-    matches: (prompt) =>
-      prompt.includes("moka-learner") || prompt.includes("LEARN phase"),
+    matches: (prompt) => prompt.includes("moka-learner") || prompt.includes("LEARN phase"),
     response: {
       evidence: ["stored lesson"],
       qdrant: { attempted: true, succeeded: true },
@@ -357,8 +346,7 @@ const mockAgentStdout = (command: string, args?: string[]): string => {
     ].join("\n");
   }
   return JSON.stringify(
-    MOCK_AGENT_RESPONSES.find(({ matches }) => matches(prompt))?.response ??
-      DEFAULT_MOCK_AGENT_RESPONSE
+    MOCK_AGENT_RESPONSES.find(({ matches }) => matches(prompt))?.response ?? DEFAULT_MOCK_AGENT_RESPONSE,
   );
 };
 
@@ -386,12 +374,7 @@ interface OpencodeStub {
 const startOpencodeStub = async (): Promise<OpencodeStub> => {
   const promptBodies: OpencodeStub["promptBodies"] = [];
 
-  const respond = (
-    res: ServerResponse,
-    status: number,
-    body: unknown,
-    contentType = "application/json"
-  ): void => {
+  const respond = (res: ServerResponse, status: number, body: unknown, contentType = "application/json"): void => {
     const payload = JSON.stringify(body);
     res.writeHead(status, {
       "Content-Length": Buffer.byteLength(payload),
@@ -412,49 +395,43 @@ const startOpencodeStub = async (): Promise<OpencodeStub> => {
       req.on("error", reject);
     });
 
-  const server: Server = createServer(
-    async (req: IncomingMessage, res: ServerResponse) => {
-      const url = req.url ?? "";
-      const method = req.method ?? "GET";
+  const server: Server = createServer(async (req: IncomingMessage, res: ServerResponse) => {
+    const url = req.url ?? "";
+    const method = req.method ?? "GET";
 
-      // POST /session — create a new session
-      if (
-        method === "POST" &&
-        url.startsWith("/session") &&
-        !url.includes("/message")
-      ) {
-        respond(res, 200, { id: "stub-session-1" });
-        return;
-      }
-
-      // GET /event — empty SSE stream (no events; closes immediately)
-      if (method === "GET" && url.startsWith("/event")) {
-        res.writeHead(200, {
-          "Cache-Control": "no-cache",
-          Connection: "keep-alive",
-          "Content-Type": "text/event-stream",
-        });
-        res.end();
-        return;
-      }
-
-      // POST /session/{id}/message — agent prompt
-      if (method === "POST" && url.includes("/message")) {
-        const raw = await readBody(req);
-        const body = parseOpencodePromptBody(raw);
-        promptBodies.push(body);
-
-        const promptText = body.parts.map((p) => p.text).join("\n");
-        const text = mockAgentStdout("opencode", [promptText]);
-        respond(res, 200, {
-          parts: [{ sessionID: "stub-session-1", text, type: "text" }],
-        });
-        return;
-      }
-
-      respond(res, 404, { error: `stub: unhandled ${method} ${url}` });
+    // POST /session — create a new session
+    if (method === "POST" && url.startsWith("/session") && !url.includes("/message")) {
+      respond(res, 200, { id: "stub-session-1" });
+      return;
     }
-  );
+
+    // GET /event — empty SSE stream (no events; closes immediately)
+    if (method === "GET" && url.startsWith("/event")) {
+      res.writeHead(200, {
+        "Cache-Control": "no-cache",
+        Connection: "keep-alive",
+        "Content-Type": "text/event-stream",
+      });
+      res.end();
+      return;
+    }
+
+    // POST /session/{id}/message — agent prompt
+    if (method === "POST" && url.includes("/message")) {
+      const raw = await readBody(req);
+      const body = parseOpencodePromptBody(raw);
+      promptBodies.push(body);
+
+      const promptText = body.parts.map((p) => p.text).join("\n");
+      const text = mockAgentStdout("opencode", [promptText]);
+      respond(res, 200, {
+        parts: [{ sessionID: "stub-session-1", text, type: "text" }],
+      });
+      return;
+    }
+
+    respond(res, 404, { error: `stub: unhandled ${method} ${url}` });
+  });
 
   return await new Promise((resolve, reject) => {
     server.listen(0, "127.0.0.1", () => {
@@ -508,7 +485,7 @@ const redirectHostConfig = (root: string): NodeJS.ProcessEnv => {
 };
 
 const restoreHostConfig = (saved: NodeJS.ProcessEnv): void => {
-  for (const [key, value] of Object.entries(saved)) {
+  for (const [key, value] of R.toEntries(saved)) {
     restoreEnv(key, value);
   }
 };
@@ -545,34 +522,38 @@ const EXECUTE_SHIP_IT_ARGV = [
   "it",
 ];
 
-const GATEWAY_DOCTOR_ARGV = [
-  "node",
-  "/repo/node_modules/.bin/oisin-pipeline",
-  "mcp",
-  "gateway",
-  "doctor",
-];
+const GATEWAY_DOCTOR_ARGV = ["node", "/repo/node_modules/.bin/oisin-pipeline", "mcp", "gateway", "doctor"];
 
-const spyOutput = (spy: ConsoleSpy): string =>
-  spy.mock.calls.map(([message]) => String(message)).join("\n");
+const spyOutput = (spy: ConsoleSpy): string => spy.mock.calls.map(([message]) => String(message)).join("\n");
 
-const topLevelCommandSummaries = (help: string): Map<string, string> => {
-  const summaries = new Map<string, string>();
+interface CommandSummary {
+  command: string;
+  summary: string;
+}
+
+const commandSummaryText = (summaries: readonly CommandSummary[], command: string): string =>
+  summaries.find((summary) => summary.command === command)?.summary ?? "";
+
+const setCommandSummary = (summaries: readonly CommandSummary[], command: string, summary: string): CommandSummary[] =>
+  summaries.some((entry) => entry.command === command)
+    ? summaries.map((entry) => (entry.command === command ? { command, summary } : entry))
+    : [...summaries, { command, summary }];
+
+const topLevelCommandSummaries = (help: string): CommandSummary[] => {
+  let summaries: CommandSummary[] = [];
   let currentCommand = "";
   for (const line of help.split("\n")) {
     const commandLine = COMMAND_SUMMARY_RE.exec(line);
     if (commandLine) {
       currentCommand = commandLine[1];
-      summaries.set(currentCommand, line.trim().replaceAll(/\s+/gu, " "));
+      summaries = setCommandSummary(summaries, currentCommand, line.trim().replaceAll(/\s+/gu, " "));
       continue;
     }
     if (currentCommand !== "" && COMMAND_CONTINUATION_RE.test(line)) {
-      summaries.set(
+      summaries = setCommandSummary(
+        summaries,
         currentCommand,
-        `${summaries.get(currentCommand) ?? ""} ${line.trim()}`.replaceAll(
-          /\s+/gu,
-          " "
-        )
+        `${commandSummaryText(summaries, currentCommand)} ${line.trim()}`.replaceAll(/\s+/gu, " "),
       );
     }
   }
@@ -580,25 +561,16 @@ const topLevelCommandSummaries = (help: string): Map<string, string> => {
 };
 
 const kubectlCalls = (): string[][] =>
-  mockExeca.mock.calls.flatMap(([command, args]) =>
-    command === "kubectl" && isStringArray(args) ? [args] : []
-  );
+  mockExeca.mock.calls.flatMap(([command, args]) => (command === "kubectl" && isStringArray(args) ? [args] : []));
 
-const stripKubectlContext = (args: string[]): string[] =>
-  args[0] === "--context" ? args.slice(2) : args;
+const stripKubectlContext = (args: string[]): string[] => (args[0] === "--context" ? args.slice(2) : args);
 
-const clusterDoctorExecaResult = async (
-  command: string,
-  args: string[] = []
-) => {
+const clusterDoctorExecaResult = async (command: string, args: string[] = []) => {
   if (command !== "kubectl") {
     return { exitCode: 0, stderr: "", stdout: "ok" };
   }
   const kubectlArgs = stripKubectlContext(args);
-  if (
-    kubectlArgs.join(" ") ===
-    "auth can-i create workflows.argoproj.io -n test-ns"
-  ) {
+  if (kubectlArgs.join(" ") === "auth can-i create workflows.argoproj.io -n test-ns") {
     return { exitCode: 0, stderr: "", stdout: "no" };
   }
   if (kubectlArgs.includes("pipeline-runner-event-auth")) {
@@ -634,16 +606,11 @@ const clusterDoctorExecaResult = async (
 };
 
 const readPackageVersion = (): string => {
-  const packageJson = parsePackageJsonVersion(
-    readFileSync(join(process.cwd(), "package.json"), "utf-8")
-  );
+  const packageJson = parsePackageJsonVersion(readFileSync(join(process.cwd(), "package.json"), "utf-8"));
   return packageJson.version;
 };
 
-const withCliTarget = async (
-  targetPath: string,
-  run: (fixture: CliTargetFixture) => Promise<void>
-): Promise<void> => {
+const withCliTarget = async (targetPath: string, run: (fixture: CliTargetFixture) => Promise<void>): Promise<void> => {
   const { runCli } = await import("../src/index");
   const originalTargetPath = process.env.PIPELINE_TARGET_PATH;
   const log = vi.spyOn(console, "log").mockImplementation(() => {});
@@ -666,18 +633,13 @@ const withCliTarget = async (
 
 const withDirectInitDir = async (
   prefix: string,
-  run: (fixture: { dir: string; runCli: RunCli }) => Promise<void>
+  run: (fixture: { dir: string; runCli: RunCli }) => Promise<void>,
 ): Promise<void> => {
   const { runCli } = await import("../src/index");
   const dir = mkdtempSync(join(tmpdir(), prefix));
   const originalTargetPath = process.env.PIPELINE_TARGET_PATH;
   const savedHostEnv: NodeJS.ProcessEnv = {};
-  const hostEnvKeys = [
-    "CLAUDE_CONFIG_DIR",
-    "CODEX_HOME",
-    "OPENCODE_CONFIG_DIR",
-    "GEMINI_CONFIG_DIR",
-  ];
+  const hostEnvKeys = ["CLAUDE_CONFIG_DIR", "CODEX_HOME", "OPENCODE_CONFIG_DIR", "GEMINI_CONFIG_DIR"];
   try {
     process.env.PIPELINE_TARGET_PATH = dir;
     for (const key of hostEnvKeys) {
@@ -689,7 +651,7 @@ const withDirectInitDir = async (
     process.env.GEMINI_CONFIG_DIR = join(dir, ".gemini");
     await run({ dir, runCli });
   } finally {
-    for (const [key, value] of Object.entries(savedHostEnv)) {
+    for (const [key, value] of R.toEntries(savedHostEnv)) {
       if (value === undefined) {
         Reflect.deleteProperty(process.env, key);
       } else {
@@ -705,10 +667,7 @@ const generatedHostFilesExist = (root: string, paths: string[]): boolean =>
   paths.every((relativePath) => existsSync(join(root, relativePath)));
 
 const hasMcpmRegistration = (): boolean =>
-  mockExeca.mock.calls.some(
-    ([command, args]) =>
-      command === "uvx" && Array.isArray(args) && args.includes("mcpm")
-  );
+  mockExeca.mock.calls.some(([command, args]) => command === "uvx" && Array.isArray(args) && args.includes("mcpm"));
 
 const executeShipIt = async (runCli: RunCli): Promise<void> => {
   await runCli(EXECUTE_SHIP_IT_ARGV);
@@ -721,7 +680,7 @@ const runGatewayDoctor = async (runCli: RunCli): Promise<void> => {
 const prepareGatewayWorkspace = async (
   runCli: RunCli,
   dir: string,
-  options: { init?: boolean } = {}
+  options: { init?: boolean } = {},
 ): Promise<void> => {
   if (options.init === true) {
     await runCli(["node", "/repo/node_modules/.bin/oisin-pipeline", "init"]);
@@ -737,14 +696,12 @@ afterEach(() => {
   if (ORIGINAL_PIPELINE_MCP_GATEWAY_AUTHORIZATION === undefined) {
     delete process.env.PIPELINE_MCP_GATEWAY_AUTHORIZATION;
   } else {
-    process.env.PIPELINE_MCP_GATEWAY_AUTHORIZATION =
-      ORIGINAL_PIPELINE_MCP_GATEWAY_AUTHORIZATION;
+    process.env.PIPELINE_MCP_GATEWAY_AUTHORIZATION = ORIGINAL_PIPELINE_MCP_GATEWAY_AUTHORIZATION;
   }
   restoreEnv("PIPELINE_TEST_COMMAND", ORIGINAL_PIPELINE_TEST_COMMAND);
 });
 
-const isAgentRepoClone = (args: string[]): boolean =>
-  args.slice(0, 3).join(" ") === "repo clone oisin-ee/agent";
+const isAgentRepoClone = (args: string[]): boolean => args.slice(0, 3).join(" ") === "repo clone oisin-ee/agent";
 
 const writeFileAt = (root: string, path: string, content: string): void => {
   const target = join(root, path);
@@ -753,24 +710,13 @@ const writeFileAt = (root: string, path: string, content: string): void => {
 };
 
 const installMockAgentRepo = (target: string): void => {
-  writeFileAt(
-    target,
-    "hooks/claude-code/hooks/check.sh",
-    "#!/bin/sh\necho claude\n"
-  );
+  writeFileAt(target, "hooks/claude-code/hooks/check.sh", "#!/bin/sh\necho claude\n");
   writeFileAt(target, "hooks/codex/hooks/check.sh", "#!/bin/sh\necho codex\n");
-  writeFileAt(
-    target,
-    "hooks/opencode/plugin/agent-hooks.ts",
-    "export const AgentHooks = async () => ({})\n"
-  );
+  writeFileAt(target, "hooks/opencode/plugin/agent-hooks.ts", "export const AgentHooks = async () => ({})\n");
   writeFileAt(target, "rules/00-test.md", "# Test Rule\n");
 };
 
-const installMockAgentRepoIfRequested = (
-  command: string,
-  args: string[] | void
-): void => {
+const installMockAgentRepoIfRequested = (command: string, args: string[] | void): void => {
   if (command === "gh" && Array.isArray(args) && isAgentRepoClone(args)) {
     installMockAgentRepo(args[3]);
   }
@@ -779,7 +725,7 @@ const installMockAgentRepoIfRequested = (
 const installMockRulesyncOutputIfRequested = (
   command: string,
   args: string[] | void,
-  options: { env?: Record<string, string> } | void
+  options: { env?: Record<string, string> } | void,
 ): void => {
   if (
     command !== "npx" ||
@@ -800,49 +746,31 @@ const installMockRulesyncOutputIfRequested = (
   writeFileAt(home, ".config/opencode/AGENTS.md", "opencode rules\n");
 };
 
-const writeMockSkillFile = (
-  cwd: string,
-  relativePath: string,
-  skill: string
-): void => {
+const writeMockSkillFile = (cwd: string, relativePath: string, skill: string): void => {
   const path = join(cwd, relativePath);
   mkdirSync(dirname(path), { recursive: true });
-  writeFileSync(
-    path,
-    `---\nname: ${skill}\ndescription: Mock ${skill} skill.\n---\n\n# ${skill}\n`
-  );
+  writeFileSync(path, `---\nname: ${skill}\ndescription: Mock ${skill} skill.\n---\n\n# ${skill}\n`);
 };
 
 const writeMockSkills = (
   skills: string[],
   cwd: string,
   agents: string[] = ["opencode", "codex", "claude-code"],
-  copy = true
+  copy = true,
 ): void => {
   const lockSkills: Record<string, unknown> = {};
   const lock: Record<string, unknown> = { skills: lockSkills, version: 1 };
   for (const skill of skills) {
-    writeMockSkillFile(
-      cwd,
-      join(".agents", "skills", skill, "SKILL.md"),
-      skill
-    );
+    writeMockSkillFile(cwd, join(".agents", "skills", skill, "SKILL.md"), skill);
     if (copy && agents.includes("claude-code")) {
-      writeMockSkillFile(
-        cwd,
-        join(".claude", "skills", skill, "SKILL.md"),
-        skill
-      );
+      writeMockSkillFile(cwd, join(".claude", "skills", skill, "SKILL.md"), skill);
     }
     lockSkills[skill] = { source: "mock" };
   }
   writeFileSync(join(cwd, "skills-lock.json"), `${JSON.stringify(lock)}\n`);
 };
 
-const withCliTempDir = async (
-  prefix: string,
-  run: (fixture: CliTempFixture) => Promise<void>
-): Promise<void> => {
+const withCliTempDir = async (prefix: string, run: (fixture: CliTempFixture) => Promise<void>): Promise<void> => {
   const dir = mkdtempSync(join(tmpdir(), prefix));
   const savedHostEnv: NodeJS.ProcessEnv = {};
   const hostEnvKeys = [
@@ -870,7 +798,7 @@ const withCliTempDir = async (
       await run({ ...fixture, dir });
     });
   } finally {
-    for (const [key, value] of Object.entries(savedHostEnv)) {
+    for (const [key, value] of R.toEntries(savedHostEnv)) {
       if (value === undefined) {
         Reflect.deleteProperty(process.env, key);
       } else {
@@ -885,15 +813,9 @@ const installMockSkills = (args: string[], cwd = process.cwd()): void => {
   if (skillIndex === -1) {
     return;
   }
-  const requestedSkills = args
-    .slice(skillIndex + 1)
-    .filter((arg) => !arg.startsWith("-"));
-  const skills = requestedSkills.includes("*")
-    ? DEFAULT_TEST_SKILLS
-    : requestedSkills;
-  const agents = args.flatMap((arg, index) =>
-    arg === "--agent" && args[index + 1] ? [args[index + 1]] : []
-  );
+  const requestedSkills = args.slice(skillIndex + 1).filter((arg) => !arg.startsWith("-"));
+  const skills = requestedSkills.includes("*") ? DEFAULT_TEST_SKILLS : requestedSkills;
+  const agents = args.flatMap((arg, index) => (arg === "--agent" && args[index + 1] ? [args[index + 1]] : []));
   writeMockSkills(skills, cwd, agents, args.includes("--copy"));
 };
 
@@ -902,49 +824,32 @@ beforeEach(() => {
   runControlMock.createRunInputs.length = 0;
   runControlMock.mode = "file";
   process.env.PIPELINE_MCP_GATEWAY_AUTHORIZATION = "Basic test-basic-payload";
-  mockExeca.mockImplementation(
-    async (command: string, args?: string[], options?: MockExecaOptions) => {
-      const hookResultPath = options?.env?.PIPELINE_HOOK_RESULT;
-      if (hookResultPath !== undefined && hookResultPath !== "") {
-        writeFileSync(
-          hookResultPath,
-          JSON.stringify({ status: "pass", summary: command })
-        );
-      }
-      if (
-        command === "npx" &&
-        Array.isArray(args) &&
-        args.includes("skills") &&
-        args.includes("add")
-      ) {
-        installMockSkills(args, options?.cwd);
-      }
-      installMockRulesyncOutputIfRequested(command, args, options);
-      installMockAgentRepoIfRequested(command, args);
-      return {
-        exitCode: 0,
-        stderr: "",
-        stdout: mockAgentStdout(command, args),
-      };
+  mockExeca.mockImplementation(async (command: string, args?: string[], options?: MockExecaOptions) => {
+    const hookResultPath = options?.env?.PIPELINE_HOOK_RESULT;
+    if (hookResultPath !== undefined && hookResultPath !== "") {
+      writeFileSync(hookResultPath, JSON.stringify({ status: "pass", summary: command }));
     }
-  );
+    if (command === "npx" && Array.isArray(args) && args.includes("skills") && args.includes("add")) {
+      installMockSkills(args, options?.cwd);
+    }
+    installMockRulesyncOutputIfRequested(command, args, options);
+    installMockAgentRepoIfRequested(command, args);
+    return {
+      exitCode: 0,
+      stderr: "",
+      stdout: mockAgentStdout(command, args),
+    };
+  });
 });
 
-const writeCliProjectFile = (
-  root: string,
-  path: string,
-  content: string
-): void => {
+const writeCliProjectFile = (root: string, path: string, content: string): void => {
   const fullPath = join(root, path);
   mkdirSync(dirname(fullPath), { recursive: true });
   writeFileSync(fullPath, content);
 };
 
-const writeProjectFileSet = (
-  root: string,
-  files: Record<string, string>
-): void => {
-  for (const [path, content] of Object.entries(files)) {
+const writeProjectFileSet = (root: string, files: Record<string, string>): void => {
+  for (const [path, content] of R.toEntries(files)) {
     writeCliProjectFile(root, path, content.trimStart());
   }
 };
@@ -1150,7 +1055,7 @@ const writeCliValidateLintConfig = (
   options: {
     pipeline?: string;
     profiles?: string;
-  } = {}
+  } = {},
 ): void => {
   writeProjectFileSet(root, {
     ".agents/skills/present/SKILL.md": `
@@ -1209,24 +1114,17 @@ runners:
 
 const validateCliLintFixture = async (
   fixture: CliTempFixture,
-  parts: Parameters<typeof writeCliValidateLintConfig>[1]
+  parts: Parameters<typeof writeCliValidateLintConfig>[1],
 ): Promise<CliOutputCapture> => {
   writeCliValidateLintConfig(fixture.dir, parts);
-  await fixture.runCli([
-    "node",
-    "/repo/node_modules/.bin/oisin-pipeline",
-    "validate",
-  ]);
+  await fixture.runCli(["node", "/repo/node_modules/.bin/oisin-pipeline", "validate"]);
   return {
     stderr: fixture.stderr(),
     stdout: fixture.output(),
   };
 };
 
-const isToolHiveListCommand = (
-  command: string,
-  args: string[] | void
-): boolean =>
+const isToolHiveListCommand = (command: string, args: string[] | void): boolean =>
   command === "thv" &&
   Array.isArray(args) &&
   args.includes("list") &&
@@ -1244,7 +1142,7 @@ const toolHiveWorkload = (name: string): Record<string, string> => ({
 const toolHiveListResult = (
   command: string,
   args: string[] | void,
-  names: string[]
+  names: string[],
 ): { exitCode: number; stderr: string; stdout: string } | void =>
   isToolHiveListCommand(command, args)
     ? {
@@ -1254,33 +1152,17 @@ const toolHiveListResult = (
       }
     : undefined;
 
-const writeHookResult = (
-  command: string,
-  options: { env?: Record<string, string> } | void
-): void => {
+const writeHookResult = (command: string, options: { env?: Record<string, string> } | void): void => {
   const resultPath = options?.env?.PIPELINE_HOOK_RESULT;
   if (resultPath !== undefined && resultPath !== "") {
-    writeFileSync(
-      resultPath,
-      JSON.stringify({ status: "pass", summary: command })
-    );
+    writeFileSync(resultPath, JSON.stringify({ status: "pass", summary: command }));
   }
 };
 
-const isSkillsInstallCommand = (
-  command: string,
-  args: string[] | void
-): args is string[] =>
-  command === "npx" &&
-  Array.isArray(args) &&
-  args.includes("skills") &&
-  args.includes("add");
+const isSkillsInstallCommand = (command: string, args: string[] | void): args is string[] =>
+  command === "npx" && Array.isArray(args) && args.includes("skills") && args.includes("add");
 
-const installSkillsForCommand = (
-  command: string,
-  args: string[] | void,
-  options: { cwd?: string } | void
-): void => {
+const installSkillsForCommand = (command: string, args: string[] | void, options: { cwd?: string } | void): void => {
   if (isSkillsInstallCommand(command, args)) {
     installMockSkills(args, options?.cwd);
   }
@@ -1294,18 +1176,14 @@ const emptyExecaResult = (): {
 
 const mockToolHiveWorkloads = (names: string[]): void => {
   mockExeca.mockImplementation(
-    async (
-      command: string,
-      args?: string[],
-      options?: { cwd?: string; env?: Record<string, string> }
-    ) => {
+    async (command: string, args?: string[], options?: { cwd?: string; env?: Record<string, string> }) => {
       const result = toolHiveListResult(command, args, names);
       writeHookResult(command, options);
       installSkillsForCommand(command, args, options);
       installMockRulesyncOutputIfRequested(command, args, options);
       installMockAgentRepoIfRequested(command, args);
       return result ?? emptyExecaResult();
-    }
+    },
   );
 };
 
@@ -1319,10 +1197,7 @@ const COMPLETE_TOOLHIVE_WORKLOADS = [
   "uidotsh",
 ];
 
-const writeThermoNuclearReviewValidateFixture = (
-  root: string,
-  options: { includeSkill: boolean }
-): void => {
+const writeThermoNuclearReviewValidateFixture = (root: string, options: { includeSkill: boolean }): void => {
   writeProjectFileSet(root, {
     ".pipeline/pipeline.yaml": `
 version: 1
@@ -1395,13 +1270,12 @@ runners:
     writeCliProjectFile(
       root,
       ".agents/skills/thermo-nuclear-code-quality-review/SKILL.md",
-      "---\nname: thermo-nuclear-code-quality-review\n---\n\n# Thermo-Nuclear Code Quality Review\n"
+      "---\nname: thermo-nuclear-code-quality-review\n---\n\n# Thermo-Nuclear Code Quality Review\n",
     );
   }
 };
 
-const execaCommands = (): string[] =>
-  mockExeca.mock.calls.map(([command]) => String(command));
+const execaCommands = (): string[] => mockExeca.mock.calls.map(([command]) => String(command));
 
 // ─── CLI entry ────────────────────────────────────────────────────────────────
 
@@ -1427,121 +1301,81 @@ describe("execute", () => {
           ".opencode/commands/moka-quick.md",
           ".opencode/commands/moka-inspect.md",
           ".opencode/opencode.json",
-        ])
+        ]),
       ).toBe(true);
       // No skill install: moka init never shells out to `npx skills add`.
       expect(
         mockExeca.mock.calls.some(
           ([command, args]) =>
-            command === "npx" &&
-            Array.isArray(args) &&
-            args.includes("skills") &&
-            args.includes("add")
-        )
+            command === "npx" && Array.isArray(args) && args.includes("skills") && args.includes("add"),
+        ),
       ).toBe(false);
       // No harness clone: moka init never clones oisin-ee/agent.
       expect(
         mockExeca.mock.calls.some(
           ([command, args]) =>
-            command === "gh" &&
-            Array.isArray(args) &&
-            args.slice(0, 3).join(" ") === "repo clone oisin-ee/agent"
-        )
+            command === "gh" && Array.isArray(args) && args.slice(0, 3).join(" ") === "repo clone oisin-ee/agent",
+        ),
       ).toBe(false);
       expect(
         mockExeca.mock.calls.some(
-          ([command, args]) =>
-            command === "npx" &&
-            Array.isArray(args) &&
-            args.includes("@uidotsh/install")
-        )
+          ([command, args]) => command === "npx" && Array.isArray(args) && args.includes("@uidotsh/install"),
+        ),
       ).toBe(false);
       expect(hasMcpmRegistration()).toBe(false);
     });
   });
 
   it("does not run MCPM registration during init", async () => {
-    await withDirectInitDir(
-      "pipeline-cli-init-redacted-mcp-",
-      async ({ runCli }) => {
-        process.env.PIPELINE_MCP_GATEWAY_AUTHORIZATION =
-          "Basic test-basic-payload";
-        const initExeca: MockExeca = async (
-          command: string,
-          args?: string[],
-          options?: MockExecaOptions
-        ) => {
-          if (isSkillsInstallCommand(command, args)) {
-            installMockSkills(args, options?.cwd);
-          }
-          installMockRulesyncOutputIfRequested(command, args, options);
-          installMockAgentRepoIfRequested(command, args);
-          return { exitCode: 0, stderr: "", stdout: "" };
-        };
-        mockExeca.mockImplementation(initExeca);
+    await withDirectInitDir("pipeline-cli-init-redacted-mcp-", async ({ runCli }) => {
+      process.env.PIPELINE_MCP_GATEWAY_AUTHORIZATION = "Basic test-basic-payload";
+      const initExeca: MockExeca = async (command: string, args?: string[], options?: MockExecaOptions) => {
+        if (isSkillsInstallCommand(command, args)) {
+          installMockSkills(args, options?.cwd);
+        }
+        installMockRulesyncOutputIfRequested(command, args, options);
+        installMockAgentRepoIfRequested(command, args);
+        return { exitCode: 0, stderr: "", stdout: "" };
+      };
+      mockExeca.mockImplementation(initExeca);
 
-        await runCli([
-          "node",
-          "/repo/node_modules/.bin/oisin-pipeline",
-          "init",
-        ]);
-        expect(hasMcpmRegistration()).toBe(false);
-      }
-    );
+      await runCli(["node", "/repo/node_modules/.bin/oisin-pipeline", "init"]);
+      expect(hasMcpmRegistration()).toBe(false);
+    });
   });
 
   it("initializes gateway-only MCP config when gateway authorization is missing", async () => {
-    await withCliTempDir(
-      "pipeline-cli-init-missing-gateway-auth-",
-      async ({ dir, output, runCli }) => {
-        delete process.env.PIPELINE_MCP_GATEWAY_AUTHORIZATION;
+    await withCliTempDir("pipeline-cli-init-missing-gateway-auth-", async ({ dir, output, runCli }) => {
+      delete process.env.PIPELINE_MCP_GATEWAY_AUTHORIZATION;
 
-        await runCli([
-          "node",
-          "/repo/node_modules/.bin/oisin-pipeline",
-          "init",
-        ]);
+      await runCli(["node", "/repo/node_modules/.bin/oisin-pipeline", "init"]);
 
-        expect(
-          mockExeca.mock.calls.some(
-            ([command, args]) =>
-              command === "uvx" &&
-              Array.isArray(args) &&
-              args.includes("oisin-pipeline-qdrant")
-          )
-        ).toBe(false);
-        expect(existsSync(join(dir, ".mcp.json"))).toBe(false);
-        expect(existsSync(join(dir, ".pipeline"))).toBe(false);
-        const stdout = output();
-        expect(stdout).not.toContain("Skipped MCPM registration");
-        expect(stdout).not.toContain("PIPELINE_MCP_GATEWAY_AUTHORIZATION");
-      }
-    );
+      expect(
+        mockExeca.mock.calls.some(
+          ([command, args]) => command === "uvx" && Array.isArray(args) && args.includes("oisin-pipeline-qdrant"),
+        ),
+      ).toBe(false);
+      expect(existsSync(join(dir, ".mcp.json"))).toBe(false);
+      expect(existsSync(join(dir, ".pipeline"))).toBe(false);
+      const stdout = output();
+      expect(stdout).not.toContain("Skipped MCPM registration");
+      expect(stdout).not.toContain("PIPELINE_MCP_GATEWAY_AUTHORIZATION");
+    });
   });
 
   it("initializes host resources into PIPELINE_TARGET_PATH", async () => {
     await withCliTempDir("pipeline-cli-install-", async ({ dir, runCli }) => {
       await runCli(["node", "/repo/node_modules/.bin/oisin-pipeline", "init"]);
 
-      expect(
-        existsSync(join(dir, ".opencode", "commands", "moka-execute.md"))
-      ).toBe(true);
-      expect(existsSync(join(dir, ".opencode", "commands", "execute.md"))).toBe(
-        false
-      );
-      expect(
-        existsSync(join(dir, ".opencode", "commands", "moka-quick.md"))
-      ).toBe(true);
+      expect(existsSync(join(dir, ".opencode", "commands", "moka-execute.md"))).toBe(true);
+      expect(existsSync(join(dir, ".opencode", "commands", "execute.md"))).toBe(false);
+      expect(existsSync(join(dir, ".opencode", "commands", "moka-quick.md"))).toBe(true);
       expect(existsSync(join(dir, ".opencode", "opencode.json"))).toBe(true);
-      const opencode = parseOpencodeGatewayFile(
-        readFileSync(join(dir, ".opencode", "opencode.json"), "utf-8")
-      );
+      const opencode = parseOpencodeGatewayFile(readFileSync(join(dir, ".opencode", "opencode.json"), "utf-8"));
       expect(opencode.mcp["pipeline-gateway"]).toMatchObject({
         type: "remote",
       });
-      expect(opencode.mcp["pipeline-gateway"].url).toBe(
-        "https://pipeline-mcp.momokaya.ee/mcp/"
-      );
+      expect(opencode.mcp["pipeline-gateway"].url).toBe("https://pipeline-mcp.momokaya.ee/mcp/");
     });
   });
 
@@ -1549,14 +1383,9 @@ describe("execute", () => {
     const { runCli } = await import("../src/index");
     const log = vi.spyOn(console, "log").mockImplementation(() => {});
     try {
-      await expect(
-        runCli([
-          "node",
-          "/repo/node_modules/.bin/oisin-pipeline",
-          "init",
-          "--help",
-        ])
-      ).rejects.toThrow("outputHelp");
+      await expect(runCli(["node", "/repo/node_modules/.bin/oisin-pipeline", "init", "--help"])).rejects.toThrow(
+        "outputHelp",
+      );
       expect(spyOutput(log)).not.toContain("--source");
     } finally {
       log.mockRestore();
@@ -1565,19 +1394,13 @@ describe("execute", () => {
 
   it("detects relative Node entrypoint paths as CLI executions", async () => {
     const { isCliEntrypoint } = await import("../src/index");
-    const sourcePath = fileURLToPath(
-      new URL("../src/index.ts", import.meta.url)
-    );
+    const sourcePath = fileURLToPath(new URL("../src/index.ts", import.meta.url));
 
-    expect(isCliEntrypoint(["node", relative(process.cwd(), sourcePath)])).toBe(
-      true
-    );
+    expect(isCliEntrypoint(["node", relative(process.cwd(), sourcePath)])).toBe(true);
   });
 
   it("declares installable binaries and typed subpath exports", () => {
-    const pkg = parsePackageJsonPublicApi(
-      readFileSync(join(process.cwd(), "package.json"), "utf-8")
-    );
+    const pkg = parsePackageJsonPublicApi(readFileSync(join(process.cwd(), "package.json"), "utf-8"));
 
     expect(pkg).toMatchObject({
       name: "@oisincoveney/pipeline",
@@ -1627,7 +1450,7 @@ describe("execute", () => {
     const error = vi.spyOn(console, "error").mockImplementation(() => {});
     const log = vi.spyOn(console, "log").mockImplementation(() => {});
 
-    const pipelineRunner = vi.fn().mockImplementation(async ({ reporter }) => {
+    const pipelineRunner = vi.fn<PipelineRunner>().mockImplementation(async ({ reporter }) => {
       reporter?.({
         nodeIds: ["inspect"],
         type: "workflow.start",
@@ -1649,8 +1472,7 @@ describe("execute", () => {
         level: "info",
         name: "runtime.state.enter",
         nodeId: "inspect",
-        summary:
-          "node actor pipeline.node.run-123.custom.inspect entered running",
+        summary: "node actor pipeline.node.run-123.custom.inspect entered running",
         type: "runtime.observability",
         workflowId: "custom",
       });
@@ -1694,6 +1516,7 @@ describe("execute", () => {
         failureDetails: [],
         gates: [],
         hookFailures: [],
+        nodeStates: {},
         nodes: [
           {
             attempts: 1,
@@ -1705,11 +1528,8 @@ describe("execute", () => {
           },
         ],
         outcome: "PASS",
-        plan: {
-          parallelBatches: [],
-          topologicalOrder: [],
-          workflowId: "custom",
-        },
+        plan: runtimePlanFixture("custom"),
+        structuredOutputs: [],
       };
     });
 
@@ -1721,12 +1541,8 @@ describe("execute", () => {
         workflow: "custom",
       });
     } finally {
-      finalOutput = log.mock.calls
-        .map(([message]) => String(message))
-        .join("\n");
-      stderrOutput = error.mock.calls
-        .map(([message]) => String(message))
-        .join("\n");
+      finalOutput = log.mock.calls.map(([message]) => String(message)).join("\n");
+      stderrOutput = error.mock.calls.map(([message]) => String(message)).join("\n");
       error.mockRestore();
       log.mockRestore();
     }
@@ -1738,15 +1554,13 @@ describe("execute", () => {
         task: "PIPE-42 trivial NOOP",
         workflowId: "custom",
         worktreePath: process.cwd(),
-      })
+      }),
     );
     expect(stderrOutput).toBe("");
     expect(finalOutput).toContain("Pipeline starting: custom (inspect)");
+    expect(finalOutput).toContain("Node starting: inspect runner=opencode profile=moka-inspector attempt=1");
     expect(finalOutput).toContain(
-      "Node starting: inspect runner=opencode profile=moka-inspector attempt=1"
-    );
-    expect(finalOutput).toContain(
-      "Runtime observed: runtime.state.enter - node actor pipeline.node.run-123.custom.inspect entered running"
+      "Runtime observed: runtime.state.enter - node actor pipeline.node.run-123.custom.inspect entered running",
     );
     expect(finalOutput).toContain("live agent line");
     expect(finalOutput).toContain("Gate passed: inspect/acceptance");
@@ -1754,9 +1568,7 @@ describe("execute", () => {
     expect(finalOutput).toContain("acceptance evidence line");
     expect(finalOutput).toContain("Node finished: inspect passed exit=0");
     expect(finalOutput).toContain("Pipeline finished: custom PASS");
-    expect(finalOutput.indexOf("live agent line")).toBeLessThan(
-      finalOutput.indexOf("Pipeline complete: PASS")
-    );
+    expect(finalOutput.indexOf("live agent line")).toBeLessThan(finalOutput.indexOf("Pipeline complete: PASS"));
     expect(finalOutput).toContain("Node outputs:");
     expect(finalOutput).toContain("repo report");
   });
@@ -1790,55 +1602,38 @@ describe("execute", () => {
       expect.objectContaining({
         entrypoint: "quick",
         task: "ship",
-      })
+      }),
     );
   });
 
   it("generates and executes schedule artifacts for scheduled execute entrypoints", async () => {
-    await withCliTempDir(
-      "pipeline-cli-schedule-plan-",
-      async ({ dir, output, runCli }) => {
-        initGitRepo(dir);
-        runControlMock.mode = "memory";
-        process.env.PIPELINE_TEST_COMMAND = "test-bin";
+    await withCliTempDir("pipeline-cli-schedule-plan-", async ({ dir, output, runCli }) => {
+      initGitRepo(dir);
+      runControlMock.mode = "memory";
+      process.env.PIPELINE_TEST_COMMAND = "test-bin";
 
-        await runCli([
-          "node",
-          "/repo/node_modules/.bin/oisin-pipeline",
-          "run",
-          "--entrypoint",
-          "execute",
-          "ship",
-          "it",
-        ]);
+      await runCli(["node", "/repo/node_modules/.bin/oisin-pipeline", "run", "--entrypoint", "execute", "ship", "it"]);
 
-        const stdout = output();
-        expect(stdout).toMatch(SCHEDULE_GENERATED_RE);
-        expect(stdout).not.toContain("Schedule generated: .pipeline/runs/");
-        expect(stdout).not.toContain("Run after approval:");
-        expect(stdout).toMatch(SCHEDULE_RUN_WORKFLOW_RE);
-        expect(execaCommands()).toContain("opencode");
-        expect(existsSync(join(dir, ".pipeline"))).toBe(false);
-        expect(pipelineRuntimeStatusEntries(gitStatusPorcelain(dir))).toEqual(
-          []
-        );
-        expect(runControlMock.createRunInputs).toHaveLength(1);
-        expect(runControlMock.createRunInputs[0].input.schedule).toContain(
-          "kind: pipeline-schedule"
-        );
-      }
-    );
+      const stdout = output();
+      expect(stdout).toMatch(SCHEDULE_GENERATED_RE);
+      expect(stdout).not.toContain("Schedule generated: .pipeline/runs/");
+      expect(stdout).not.toContain("Run after approval:");
+      expect(stdout).toMatch(SCHEDULE_RUN_WORKFLOW_RE);
+      expect(execaCommands()).toContain("opencode");
+      expect(existsSync(join(dir, ".pipeline"))).toBe(false);
+      expect(pipelineRuntimeStatusEntries(gitStatusPorcelain(dir))).toEqual([]);
+      expect(runControlMock.createRunInputs).toHaveLength(1);
+      expect(runControlMock.createRunInputs[0].input.schedule).toContain("kind: pipeline-schedule");
+    });
   });
 
   it("executes a schedule artifact via run --schedule", async () => {
-    await withCliTempDir(
-      "pipeline-cli-schedule-run-",
-      async ({ dir, output, runCli }) => {
-        runControlMock.mode = "memory";
-        const schedulePath = join(dir, "approved-schedule.yaml");
-        writeFileSync(
-          schedulePath,
-          `
+    await withCliTempDir("pipeline-cli-schedule-run-", async ({ dir, output, runCli }) => {
+      runControlMock.mode = "memory";
+      const schedulePath = join(dir, "approved-schedule.yaml");
+      writeFileSync(
+        schedulePath,
+        `
 version: 1
 kind: pipeline-schedule
 schedule_id: approved-a
@@ -1859,26 +1654,15 @@ workflows:
           acceptance_criteria:
             - id: "1"
               text: Endpoint validates runner events.
-`
-        );
+`,
+      );
 
-        await runCli([
-          "node",
-          "/repo/node_modules/.bin/oisin-pipeline",
-          "run",
-          "--schedule",
-          schedulePath,
-          "Ship",
-          "it",
-        ]);
+      await runCli(["node", "/repo/node_modules/.bin/oisin-pipeline", "run", "--schedule", schedulePath, "Ship", "it"]);
 
-        expect(output()).toContain("Workflow: schedule-approved-a-root");
-        expect(runControlMock.createRunInputs).toHaveLength(1);
-        expect(runControlMock.createRunInputs[0].input.schedule).toContain(
-          "schedule_id: approved-a"
-        );
-      }
-    );
+      expect(output()).toContain("Workflow: schedule-approved-a-root");
+      expect(runControlMock.createRunInputs).toHaveLength(1);
+      expect(runControlMock.createRunInputs[0].input.schedule).toContain("schedule_id: approved-a");
+    });
   });
 
   it("executes package-backed schedule agents through CLI subprocesses", async () => {
@@ -1886,13 +1670,11 @@ workflows:
     const originalServerUrl = process.env.OPENCODE_SERVER_URL;
     process.env.OPENCODE_SERVER_URL = stub.url;
     try {
-      await withCliTempDir(
-        "pipeline-cli-schedule-opencode-",
-        async ({ dir, output, runCli }) => {
-          const schedulePath = join(dir, "approved-opencode-schedule.yaml");
-          writeFileSync(
-            schedulePath,
-            `
+      await withCliTempDir("pipeline-cli-schedule-opencode-", async ({ dir, output, runCli }) => {
+        const schedulePath = join(dir, "approved-opencode-schedule.yaml");
+        writeFileSync(
+          schedulePath,
+          `
 version: 1
 kind: pipeline-schedule
 schedule_id: approved-opencode
@@ -1906,31 +1688,28 @@ workflows:
       - id: implement
         kind: agent
         profile: moka-code-writer
-`
-          );
+`,
+        );
 
-          await runCli([
-            "node",
-            "/repo/node_modules/.bin/oisin-pipeline",
-            "run",
-            "--schedule",
-            schedulePath,
-            "Ship",
-            "it",
-          ]);
+        await runCli([
+          "node",
+          "/repo/node_modules/.bin/oisin-pipeline",
+          "run",
+          "--schedule",
+          schedulePath,
+          "Ship",
+          "it",
+        ]);
 
-          // With the PIPE-73 SDK transport the executor uses the opencode serve
-          // API rather than execa. Verify the stub was invoked (at least one
-          // session.prompt call reached it) and the workflow ran to completion.
-          expect(stub.promptBodies.length).toBeGreaterThan(0);
-          // The moka-code-writer profile does not declare a host_model, so no
-          // model field is forwarded in the prompt body.
-          expect(stub.promptBodies[0]).not.toHaveProperty("model");
-          expect(output()).toContain(
-            "Workflow: schedule-approved-opencode-root"
-          );
-        }
-      );
+        // With the PIPE-73 SDK transport the executor uses the opencode serve
+        // API rather than execa. Verify the stub was invoked (at least one
+        // session.prompt call reached it) and the workflow ran to completion.
+        expect(stub.promptBodies.length).toBeGreaterThan(0);
+        // The moka-code-writer profile does not declare a host_model, so no
+        // model field is forwarded in the prompt body.
+        expect(stub.promptBodies[0]).not.toHaveProperty("model");
+        expect(output()).toContain("Workflow: schedule-approved-opencode-root");
+      });
     } finally {
       restoreEnv("OPENCODE_SERVER_URL", originalServerUrl);
       await stub.stop();
@@ -1938,14 +1717,12 @@ workflows:
   });
 
   it("validates and explains a schedule artifact", async () => {
-    await withCliTempDir(
-      "pipeline-cli-schedule-inspect-",
-      async ({ dir, output, runCli }) => {
-        writeScheduledCliConfig(dir);
-        const schedulePath = join(dir, "approved-schedule.yaml");
-        writeFileSync(
-          schedulePath,
-          `
+    await withCliTempDir("pipeline-cli-schedule-inspect-", async ({ dir, output, runCli }) => {
+      writeScheduledCliConfig(dir);
+      const schedulePath = join(dir, "approved-schedule.yaml");
+      writeFileSync(
+        schedulePath,
+        `
 version: 1
 kind: pipeline-schedule
 schedule_id: approved-b
@@ -1959,32 +1736,19 @@ workflows:
       - id: scheduled
         kind: command
         command: [node, -e, "console.log('scheduled')"]
-`
-        );
+`,
+      );
 
-        await runCli([
-          "node",
-          "/repo/node_modules/.bin/oisin-pipeline",
-          "validate",
-          "--schedule",
-          schedulePath,
-        ]);
-        await runCli([
-          "node",
-          "/repo/node_modules/.bin/oisin-pipeline",
-          "explain-plan",
-          "--schedule",
-          schedulePath,
-        ]);
+      await runCli(["node", "/repo/node_modules/.bin/oisin-pipeline", "validate", "--schedule", schedulePath]);
+      await runCli(["node", "/repo/node_modules/.bin/oisin-pipeline", "explain-plan", "--schedule", schedulePath]);
 
-        const stdout = output();
-        expect(stdout).toContain("OK: schedule-approved-b-root (1 nodes)");
-        expect(stdout).toContain("Workflow: schedule-approved-b-root");
-        expect(stdout).toContain("- scheduled kind=command needs=none");
-        expect(stdout).not.toContain("Unrecognized key: task_context");
-        expect(execaCommands()).toEqual([]);
-      }
-    );
+      const stdout = output();
+      expect(stdout).toContain("OK: schedule-approved-b-root (1 nodes)");
+      expect(stdout).toContain("Workflow: schedule-approved-b-root");
+      expect(stdout).toContain("- scheduled kind=command needs=none");
+      expect(stdout).not.toContain("Unrecognized key: task_context");
+      expect(execaCommands()).toEqual([]);
+    });
   });
 
   it("dispatches package entrypoint subcommands from package config", async () => {
@@ -1993,13 +1757,7 @@ workflows:
     process.env.OPENCODE_SERVER_URL = stub.url;
     try {
       await withCliTempDir("pipeline-cli-entrypoint-", async ({ runCli }) => {
-        await runCli([
-          "node",
-          "/repo/node_modules/.bin/oisin-pipeline",
-          "inspect",
-          "ship",
-          "it",
-        ]);
+        await runCli(["node", "/repo/node_modules/.bin/oisin-pipeline", "inspect", "ship", "it"]);
 
         // With the PIPE-73 SDK transport the executor calls session.prompt
         // instead of execa("opencode"). Verify the stub received a prompt
@@ -2025,13 +1783,11 @@ workflows:
       const help = createCliProgram().helpInformation();
       const commandSummaries = topLevelCommandSummaries(help);
 
-      expect(commandSummaries.get("run") ?? "").toMatch(PRIMARY_COMMAND_RE);
+      expect(commandSummaryText(commandSummaries, "run")).toMatch(PRIMARY_COMMAND_RE);
       for (const entrypointCommand of ["quick", "execute", "inspect"]) {
-        expect(commandSummaries.get(entrypointCommand) ?? "").not.toMatch(
-          NON_CANONICAL_ENTRYPOINT_RE
-        );
+        expect(commandSummaryText(commandSummaries, entrypointCommand)).not.toMatch(NON_CANONICAL_ENTRYPOINT_RE);
       }
-      const commandOrder = [...commandSummaries.keys()];
+      const commandOrder = commandSummaries.map(({ command }) => command);
       const runIndex = commandOrder.indexOf("run");
       expect(runIndex).toBeGreaterThanOrEqual(0);
       expect(commandOrder.indexOf("quick")).toBeGreaterThan(runIndex);
@@ -2057,12 +1813,9 @@ workflows:
       });
 
       await expect(
-        program.parseAsync(
-          ["node", "/repo/node_modules/.bin/moka", "--version"],
-          {
-            from: "node",
-          }
-        )
+        program.parseAsync(["node", "/repo/node_modules/.bin/moka", "--version"], {
+          from: "node",
+        }),
       ).rejects.toMatchObject({ code: "commander.version", exitCode: 0 });
 
       expect(stdout.trim()).toBe(readPackageVersion());
@@ -2074,9 +1827,7 @@ workflows:
       const { createCliProgram } = await import("../src/index");
       const help = createCliProgram().helpInformation();
 
-      expect(help.replaceAll(/\s+/gu, " ")).toContain(
-        "package-owned @oisincoveney/pipeline config"
-      );
+      expect(help.replaceAll(/\s+/gu, " ")).toContain("package-owned @oisincoveney/pipeline config");
       expect(help).not.toContain(".pipeline/pipeline.yaml");
       expect(help).not.toMatch(PIPELINE_YAML_SOURCE_RE);
     });
@@ -2086,20 +1837,12 @@ workflows:
     await withCliTempDir("pipeline-cli-moka-submit-", async () => {
       const { createCliProgram } = await import("../src/index");
       const program = createCliProgram();
-      const k8sRun = program.commands.find(
-        (command) => command.name() === "k8s-run"
-      );
-      const submitCmd = program.commands.find(
-        (command) => command.name() === "submit"
-      );
+      const k8sRun = program.commands.find((command) => command.name() === "k8s-run");
+      const submitCmd = program.commands.find((command) => command.name() === "submit");
 
       expect(k8sRun).toBeUndefined();
-      expect(
-        program.commands.find((command) => command.name() === "quick")
-      ).toBeDefined();
-      expect(
-        program.commands.find((command) => command.name() === "execute")
-      ).toBeDefined();
+      expect(program.commands.find((command) => command.name() === "quick")).toBeDefined();
+      expect(program.commands.find((command) => command.name() === "execute")).toBeDefined();
       const help = submitCmd?.helpInformation() ?? "";
       expect(help).not.toContain("--local");
       expect(help).toContain("--quick");
@@ -2113,16 +1856,10 @@ workflows:
     await withCliTempDir("pipeline-cli-moka-submit-command-", async () => {
       const { createCliProgram } = await import("../src/index");
       const program = createCliProgram();
-      const argoCmd = program.commands.find(
-        (command) => command.name() === "argo"
-      );
-      const submitCommand = program.commands.find(
-        (command) => command.name() === "submit"
-      );
+      const argoCmd = program.commands.find((command) => command.name() === "argo");
+      const submitCommand = program.commands.find((command) => command.name() === "submit");
 
-      expect(
-        argoCmd?.commands.find((command) => command.name() === "submit-command")
-      ).toBeUndefined();
+      expect(argoCmd?.commands.find((command) => command.name() === "submit-command")).toBeUndefined();
       expect(submitCommand).toBeDefined();
       const help = submitCommand?.helpInformation() ?? "";
       expect(help).toContain("[input...]");
@@ -2139,33 +1876,24 @@ workflows:
     await withCliTempDir("pipeline-cli-argo-render-", async () => {
       const { createCliProgram } = await import("../src/index");
       const program = createCliProgram();
-      const argoCmd = program.commands.find(
-        (command) => command.name() === "argo"
-      );
+      const argoCmd = program.commands.find((command) => command.name() === "argo");
 
       expect(argoCmd).toBeUndefined();
     });
   });
 
   it("lets builtin collision commands win over configured entrypoints", async () => {
-    await withCliTempDir(
-      "pipeline-cli-collision-",
-      async ({ dir, output, runCli }) => {
-        writeCliEntrypointConfig(dir);
+    await withCliTempDir("pipeline-cli-collision-", async ({ dir, output, runCli }) => {
+      writeCliEntrypointConfig(dir);
 
-        await runCli([
-          "node",
-          "/repo/node_modules/.bin/oisin-pipeline",
-          "validate",
-        ]);
+      await runCli(["node", "/repo/node_modules/.bin/oisin-pipeline", "validate"]);
 
-        const stdout = output();
-        expect(stdout).toContain("OK: inspect");
-        expect(stdout).not.toContain("validate-entrypoint");
-        expect(execaCommands()).not.toContain("validate-start-bin");
-        expect(execaCommands()).not.toContain("validate-entrypoint-bin");
-      }
-    );
+      const stdout = output();
+      expect(stdout).toContain("OK: inspect");
+      expect(stdout).not.toContain("validate-entrypoint");
+      expect(execaCommands()).not.toContain("validate-start-bin");
+      expect(execaCommands()).not.toContain("validate-entrypoint-bin");
+    });
   });
 
   it("supports explicit scheduled entrypoint execution via run --entrypoint", async () => {
@@ -2189,9 +1917,7 @@ workflows:
   it("keeps init and doctor bootstrap commands reachable without config", async () => {
     const { runCli } = await import("../src/index");
     const initDir = mkdtempSync(join(tmpdir(), "pipeline-cli-bootstrap-init-"));
-    const doctorDir = mkdtempSync(
-      join(tmpdir(), "pipeline-cli-bootstrap-doctor-")
-    );
+    const doctorDir = mkdtempSync(join(tmpdir(), "pipeline-cli-bootstrap-doctor-"));
     const originalTargetPath = process.env.PIPELINE_TARGET_PATH;
     const savedHostEnv = redirectHostConfig(initDir);
     const log = vi.spyOn(console, "log").mockImplementation(() => {});
@@ -2203,14 +1929,8 @@ workflows:
 
       writeMockSkills(DEFAULT_TEST_SKILLS, doctorDir, [], false);
       process.env.PIPELINE_TARGET_PATH = doctorDir;
-      await runCli([
-        "node",
-        "/repo/node_modules/.bin/oisin-pipeline",
-        "doctor",
-      ]);
-      expect(
-        log.mock.calls.map(([message]) => String(message)).join("\n")
-      ).toContain("PASS pipeline-config: valid");
+      await runCli(["node", "/repo/node_modules/.bin/oisin-pipeline", "doctor"]);
+      expect(log.mock.calls.map(([message]) => String(message)).join("\n")).toContain("PASS pipeline-config: valid");
     } finally {
       log.mockRestore();
       if (originalTargetPath === undefined) {
@@ -2232,23 +1952,14 @@ workflows:
 
     try {
       process.env.PIPELINE_TARGET_PATH = dir;
-      for (const key of [
-        "CLAUDE_CONFIG_DIR",
-        "CODEX_HOME",
-        "OPENCODE_CONFIG_DIR",
-        "GEMINI_CONFIG_DIR",
-      ]) {
+      for (const key of ["CLAUDE_CONFIG_DIR", "CODEX_HOME", "OPENCODE_CONFIG_DIR", "GEMINI_CONFIG_DIR"]) {
         savedHostEnv[key] = process.env[key];
       }
       process.env.CLAUDE_CONFIG_DIR = join(dir, ".claude");
       process.env.CODEX_HOME = join(dir, ".codex");
       process.env.OPENCODE_CONFIG_DIR = join(dir, ".opencode");
       process.env.GEMINI_CONFIG_DIR = join(dir, ".gemini");
-      const initExeca: MockExeca = async (
-        command: string,
-        args?: string[],
-        options?: MockExecaOptions
-      ) => {
+      const initExeca: MockExeca = async (command: string, args?: string[], options?: MockExecaOptions) => {
         if (isSkillsInstallCommand(command, args)) {
           installMockSkills(args, options?.cwd);
         }
@@ -2261,26 +1972,15 @@ workflows:
       await runCli(["node", "/repo/node_modules/.bin/oisin-pipeline", "init"]);
 
       expect(existsSync(join(dir, ".pipeline"))).toBe(false);
-      expect(
-        existsSync(join(dir, ".opencode", "commands", "moka-execute.md"))
-      ).toBe(true);
+      expect(existsSync(join(dir, ".opencode", "commands", "moka-execute.md"))).toBe(true);
 
       // The just-installed harness is current, so init --check passes (no throw).
-      await runCli([
-        "node",
-        "/repo/node_modules/.bin/oisin-pipeline",
-        "init",
-        "--check",
-      ]);
+      await runCli(["node", "/repo/node_modules/.bin/oisin-pipeline", "init", "--check"]);
 
       // Global harness install/verify does not make any git calls.
-      expect(mockExeca).not.toHaveBeenCalledWith(
-        "git",
-        expect.anything(),
-        expect.anything()
-      );
+      expect(mockExeca).not.toHaveBeenCalledWith("git", expect.anything(), expect.anything());
     } finally {
-      for (const [key, value] of Object.entries(savedHostEnv)) {
+      for (const [key, value] of R.toEntries(savedHostEnv)) {
         if (value === undefined) {
           Reflect.deleteProperty(process.env, key);
         } else {
@@ -2314,48 +2014,23 @@ workflows:
   });
 
   it("does not repair partial repo-local pipeline files", async () => {
-    await withCliTempDir(
-      "pipeline-cli-partial-init-",
-      async ({ dir, output, runCli }) => {
-        writeCliProjectFile(
-          dir,
-          ".pipeline/pipeline.yaml",
-          "version: 1\ndefault_workflow: default\nworkflows: {}\n"
-        );
+    await withCliTempDir("pipeline-cli-partial-init-", async ({ dir, output, runCli }) => {
+      writeCliProjectFile(dir, ".pipeline/pipeline.yaml", "version: 1\ndefault_workflow: default\nworkflows: {}\n");
 
-        await runCli([
-          "node",
-          "/repo/node_modules/.bin/oisin-pipeline",
-          "init",
-        ]);
+      await runCli(["node", "/repo/node_modules/.bin/oisin-pipeline", "init"]);
 
-        expect(existsSync(join(dir, ".pipeline", "profiles.yaml"))).toBe(false);
-        expect(existsSync(join(dir, ".pipeline", "runners.yaml"))).toBe(false);
-        expect(output()).toContain(
-          "no repo-local pipeline config files were created"
-        );
-      }
-    );
+      expect(existsSync(join(dir, ".pipeline", "profiles.yaml"))).toBe(false);
+      expect(existsSync(join(dir, ".pipeline", "runners.yaml"))).toBe(false);
+      expect(output()).toContain("no repo-local pipeline config files were created");
+    });
   });
 
   it("validates and explains the initialized YAML plan", async () => {
     await withCliTempDir("pipeline-cli-plan-", async ({ output, runCli }) => {
       await runCli(["node", "/repo/node_modules/.bin/oisin-pipeline", "init"]);
-      await runCli([
-        "node",
-        "/repo/node_modules/.bin/oisin-pipeline",
-        "validate",
-      ]);
-      await runCli([
-        "node",
-        "/repo/node_modules/.bin/oisin-pipeline",
-        "explain-plan",
-      ]);
-      await runCli([
-        "node",
-        "/repo/node_modules/.bin/oisin-pipeline",
-        "doctor",
-      ]);
+      await runCli(["node", "/repo/node_modules/.bin/oisin-pipeline", "validate"]);
+      await runCli(["node", "/repo/node_modules/.bin/oisin-pipeline", "explain-plan"]);
+      await runCli(["node", "/repo/node_modules/.bin/oisin-pipeline", "doctor"]);
 
       const stdout = output();
       expect(stdout).toContain("OK: inspect");
@@ -2367,11 +2042,7 @@ workflows:
 
   it("validates the package inspect workflow without legacy warnings", async () => {
     await withCliTarget(process.cwd(), async (fixture) => {
-      await fixture.runCli([
-        "node",
-        "/repo/node_modules/.bin/oisin-pipeline",
-        "validate",
-      ]);
+      await fixture.runCli(["node", "/repo/node_modules/.bin/oisin-pipeline", "validate"]);
       expect(fixture.stderr()).not.toContain("WARN ");
       expect(fixture.output()).toContain("OK: inspect");
     });
@@ -2379,11 +2050,7 @@ workflows:
 
   it("explains the package inspect workflow topology", async () => {
     await withCliTarget(process.cwd(), async (fixture) => {
-      await fixture.runCli([
-        "node",
-        "/repo/node_modules/.bin/oisin-pipeline",
-        "explain-plan",
-      ]);
+      await fixture.runCli(["node", "/repo/node_modules/.bin/oisin-pipeline", "explain-plan"]);
       const stdout = fixture.output();
       expect(stdout).toContain("Workflow: inspect");
       expect(stdout).toContain("Batches: [inspect]");
@@ -2421,11 +2088,9 @@ workflows:
   });
 
   it("validate ignores repo-local optional asset paths and validates package config", async () => {
-    await withCliTempDir(
-      "pipeline-cli-lint-missing-",
-      async ({ dir, output, runCli, stderr }) => {
-        writeCliValidateLintConfig(dir, {
-          profiles: `
+    await withCliTempDir("pipeline-cli-lint-missing-", async ({ dir, output, runCli, stderr }) => {
+      writeCliValidateLintConfig(dir, {
+        profiles: `
 version: 1
 skills:
   missing-skill:
@@ -2440,28 +2105,21 @@ profiles:
       format: json_schema
       schema_path: .pipeline/schemas/missing.schema.json
 `,
-        });
+      });
 
-        await runCli([
-          "node",
-          "/repo/node_modules/.bin/oisin-pipeline",
-          "validate",
-        ]);
+      await runCli(["node", "/repo/node_modules/.bin/oisin-pipeline", "validate"]);
 
-        const stderrOutput = stderr();
-        expect(stderrOutput).not.toContain("missing-skill");
-        expect(stderrOutput).not.toContain(".pipeline/prompts/missing.md");
-        expect(output()).toContain("OK: inspect");
-      }
-    );
+      const stderrOutput = stderr();
+      expect(stderrOutput).not.toContain("missing-skill");
+      expect(stderrOutput).not.toContain(".pipeline/prompts/missing.md");
+      expect(output()).toContain("OK: inspect");
+    });
   });
 
   it("validate does not warn about missing epic-router asset files once the bundle exists", async () => {
-    await withCliTempDir(
-      "pipeline-cli-lint-epic-router-",
-      async ({ dir, output, runCli, stderr }) => {
-        writeProjectFileSet(dir, {
-          ".pipeline/pipeline.yaml": `
+    await withCliTempDir("pipeline-cli-lint-epic-router-", async ({ dir, output, runCli, stderr }) => {
+      writeProjectFileSet(dir, {
+        ".pipeline/pipeline.yaml": `
 version: 1
 default_workflow: default
 orchestrator:
@@ -2473,7 +2131,7 @@ workflows:
         kind: command
         command: [node, --version]
 `,
-          ".pipeline/profiles.yaml": `
+        ".pipeline/profiles.yaml": `
 version: 1
 mcp_gateway:
   provider: toolhive
@@ -2509,7 +2167,7 @@ profiles:
         enabled: true
         max_attempts: 1
 `,
-          ".pipeline/runners.yaml": `
+        ".pipeline/runners.yaml": `
 version: 1
 runners:
   opencode:
@@ -2525,89 +2183,62 @@ runners:
       network: [inherit]
       output_formats: [text, json_schema]
 `,
-        });
-        for (const assetPath of [
-          ".pipeline/prompts/epic-router.md",
-          ".pipeline/schemas/epic-plan.schema.json",
-        ]) {
-          const sourcePath = join(process.cwd(), assetPath);
-          if (existsSync(sourcePath)) {
-            writeCliProjectFile(
-              dir,
-              assetPath,
-              readFileSync(sourcePath, "utf-8")
-            );
-          }
+      });
+      for (const assetPath of [".pipeline/prompts/epic-router.md", ".pipeline/schemas/epic-plan.schema.json"]) {
+        const sourcePath = join(process.cwd(), assetPath);
+        if (existsSync(sourcePath)) {
+          writeCliProjectFile(dir, assetPath, readFileSync(sourcePath, "utf-8"));
         }
-
-        await runCli([
-          "node",
-          "/repo/node_modules/.bin/oisin-pipeline",
-          "validate",
-        ]);
-
-        const stderrOutput = stderr();
-        expect(stderrOutput).not.toContain(
-          "profiles.moka-epic-router.instructions.path references missing file '.pipeline/prompts/epic-router.md'"
-        );
-        expect(stderrOutput).not.toContain(
-          "profiles.moka-epic-router.output.schema_path references missing file '.pipeline/schemas/epic-plan.schema.json'"
-        );
-        expect(stderrOutput).not.toContain("WARN missing-file-reference");
-        expect(output()).toContain("OK: inspect");
       }
-    );
+
+      await runCli(["node", "/repo/node_modules/.bin/oisin-pipeline", "validate"]);
+
+      const stderrOutput = stderr();
+      expect(stderrOutput).not.toContain(
+        "profiles.moka-epic-router.instructions.path references missing file '.pipeline/prompts/epic-router.md'",
+      );
+      expect(stderrOutput).not.toContain(
+        "profiles.moka-epic-router.output.schema_path references missing file '.pipeline/schemas/epic-plan.schema.json'",
+      );
+      expect(stderrOutput).not.toContain("WARN missing-file-reference");
+      expect(output()).toContain("OK: inspect");
+    });
   });
 
   it("validate --strict ignores repo-local lint warnings and validates package config", async () => {
-    await withCliTempDir(
-      "pipeline-cli-lint-thermo-review-present-",
-      async ({ dir, output, runCli, stderr }) => {
-        writeThermoNuclearReviewValidateFixture(dir, { includeSkill: true });
+    await withCliTempDir("pipeline-cli-lint-thermo-review-present-", async ({ dir, output, runCli, stderr }) => {
+      writeThermoNuclearReviewValidateFixture(dir, { includeSkill: true });
 
-        await runCli([
-          "node",
-          "/repo/node_modules/.bin/oisin-pipeline",
-          "validate",
-          "--strict",
-        ]);
+      await runCli(["node", "/repo/node_modules/.bin/oisin-pipeline", "validate", "--strict"]);
 
-        const stderrOutput = stderr();
-        expect(stderrOutput).not.toContain("WARN missing-file-reference");
-        expect(stderrOutput).not.toContain(
-          "skills.thermo-nuclear-code-quality-review.path references missing file '.agents/skills/thermo-nuclear-code-quality-review/SKILL.md'"
-        );
-        expect(stderrOutput).not.toContain(
-          "profiles.moka-thermo-nuclear-reviewer.instructions.path references missing file '.agents/skills/thermo-nuclear-code-quality-review/SKILL.md'"
-        );
-        expect(stderrOutput).not.toContain(
-          "profiles.moka-thermo-nuclear-reviewer.output.schema_path references missing file '.pipeline/schemas/review.schema.json'"
-        );
-        expect(stderrOutput).not.toContain("WARN entrypoint-shadowed");
-        expect(output()).toContain("OK: inspect");
-      }
-    );
+      const stderrOutput = stderr();
+      expect(stderrOutput).not.toContain("WARN missing-file-reference");
+      expect(stderrOutput).not.toContain(
+        "skills.thermo-nuclear-code-quality-review.path references missing file '.agents/skills/thermo-nuclear-code-quality-review/SKILL.md'",
+      );
+      expect(stderrOutput).not.toContain(
+        "profiles.moka-thermo-nuclear-reviewer.instructions.path references missing file '.agents/skills/thermo-nuclear-code-quality-review/SKILL.md'",
+      );
+      expect(stderrOutput).not.toContain(
+        "profiles.moka-thermo-nuclear-reviewer.output.schema_path references missing file '.pipeline/schemas/review.schema.json'",
+      );
+      expect(stderrOutput).not.toContain("WARN entrypoint-shadowed");
+      expect(output()).toContain("OK: inspect");
+    });
   });
 
   it("validate does not emit repo-local thermo-nuclear review missing-file warnings", async () => {
-    await withCliTempDir(
-      "pipeline-cli-lint-thermo-review-missing-",
-      async ({ dir, output, runCli, stderr }) => {
-        writeThermoNuclearReviewValidateFixture(dir, { includeSkill: false });
+    await withCliTempDir("pipeline-cli-lint-thermo-review-missing-", async ({ dir, output, runCli, stderr }) => {
+      writeThermoNuclearReviewValidateFixture(dir, { includeSkill: false });
 
-        await runCli([
-          "node",
-          "/repo/node_modules/.bin/oisin-pipeline",
-          "validate",
-        ]);
+      await runCli(["node", "/repo/node_modules/.bin/oisin-pipeline", "validate"]);
 
-        const missingFileWarnings = stderr()
-          .split("\n")
-          .filter((line) => line.includes("WARN missing-file-reference"));
-        expect(missingFileWarnings).toEqual([]);
-        expect(output()).toContain("OK: inspect");
-      }
-    );
+      const missingFileWarnings = stderr()
+        .split("\n")
+        .filter((line) => line.includes("WARN missing-file-reference"));
+      expect(missingFileWarnings).toEqual([]);
+      expect(output()).toContain("OK: inspect");
+    });
   });
 
   it("validate ignores repo-local singleton parallel lint fixtures", async () => {
@@ -2636,11 +2267,9 @@ workflows:
   });
 
   it("validate --strict ignores repo-local lint warnings because package config owns runtime", async () => {
-    await withCliTempDir(
-      "pipeline-cli-lint-strict-",
-      async ({ dir, output, runCli, stderr }) => {
-        writeCliValidateLintConfig(dir, {
-          pipeline: `
+    await withCliTempDir("pipeline-cli-lint-strict-", async ({ dir, output, runCli, stderr }) => {
+      writeCliValidateLintConfig(dir, {
+        pipeline: `
 version: 1
 default_workflow: default
 entrypoints:
@@ -2656,27 +2285,19 @@ workflows:
         kind: command
         command: [node, --version]
 `,
-        });
+      });
 
-        await runCli([
-          "node",
-          "/repo/node_modules/.bin/oisin-pipeline",
-          "validate",
-          "--strict",
-        ]);
+      await runCli(["node", "/repo/node_modules/.bin/oisin-pipeline", "validate", "--strict"]);
 
-        expect(stderr()).not.toContain("WARN entrypoint-shadowed");
-        expect(output()).toContain("OK: inspect");
-      }
-    );
+      expect(stderr()).not.toContain("WARN entrypoint-shadowed");
+      expect(output()).toContain("OK: inspect");
+    });
   });
 
   it("validate --no-lint skips WARN output and succeeds schema and plan validation only", async () => {
-    await withCliTempDir(
-      "pipeline-cli-lint-disabled-",
-      async ({ dir, output, runCli, stderr }) => {
-        writeCliValidateLintConfig(dir, {
-          profiles: `
+    await withCliTempDir("pipeline-cli-lint-disabled-", async ({ dir, output, runCli, stderr }) => {
+      writeCliValidateLintConfig(dir, {
+        profiles: `
 version: 1
 skills:
   missing-skill:
@@ -2691,38 +2312,23 @@ profiles:
       format: json_schema
       schema_path: .pipeline/schemas/missing.schema.json
 `,
-        });
+      });
 
-        await runCli([
-          "node",
-          "/repo/node_modules/.bin/oisin-pipeline",
-          "validate",
-          "--no-lint",
-        ]);
+      await runCli(["node", "/repo/node_modules/.bin/oisin-pipeline", "validate", "--no-lint"]);
 
-        expect(stderr()).not.toContain("WARN ");
-        expect(output()).toContain("OK: inspect");
-      }
-    );
+      expect(stderr()).not.toContain("WARN ");
+      expect(output()).toContain("OK: inspect");
+    });
   });
 
   it("validate --no-lint ignores malformed repo-local schemas and validates package config", async () => {
-    await withCliTempDir(
-      "pipeline-cli-lint-schema-",
-      async ({ dir, runCli, stderr }) => {
-        writeMalformedCliConfig(dir);
+    await withCliTempDir("pipeline-cli-lint-schema-", async ({ dir, runCli, stderr }) => {
+      writeMalformedCliConfig(dir);
 
-        await runCli([
-          "node",
-          "/repo/node_modules/.bin/oisin-pipeline",
-          "validate",
-          "--strict",
-          "--no-lint",
-        ]);
+      await runCli(["node", "/repo/node_modules/.bin/oisin-pipeline", "validate", "--strict", "--no-lint"]);
 
-        expect(stderr()).not.toContain("WARN ");
-      }
-    );
+      expect(stderr()).not.toContain("WARN ");
+    });
   });
 
   it("doctor reports missing prerequisites", async () => {
@@ -2774,13 +2380,13 @@ profiles:
           "test-ns",
           "--kube-context",
           "test-context",
-        ])
+        ]),
       ).rejects.toThrow("Doctor checks failed.");
 
       const output = log.mock.calls.flat().join("\n");
       expect(output).toContain("FAIL secret/pipeline-runner-event-auth");
       expect(output).toContain(
-        "Secret pipeline-runner-event-auth missing in test-ns; expected ExternalSecret pipeline-runner-event-auth to sync it from agent-runtime/pipeline-runner/event-auth"
+        "Secret pipeline-runner-event-auth missing in test-ns; expected ExternalSecret pipeline-runner-event-auth to sync it from agent-runtime/pipeline-runner/event-auth",
       );
       expect(output).toContain("FAIL clustersecretstore/openbao");
       expect(output).toContain("OpenBao auth drift");
@@ -2816,9 +2422,7 @@ profiles:
 
   it("doctor reports forbidden cluster resources as inaccessible", async () => {
     const { runCli } = await import("../src/index");
-    const dir = mkdtempSync(
-      join(tmpdir(), "pipeline-cli-cluster-doctor-forbidden-")
-    );
+    const dir = mkdtempSync(join(tmpdir(), "pipeline-cli-cluster-doctor-forbidden-"));
     const originalTargetPath = process.env.PIPELINE_TARGET_PATH;
     const originalHome = process.env.HOME;
     const log = vi.spyOn(console, "log").mockImplementation(() => {});
@@ -2827,29 +2431,20 @@ profiles:
       writeMockSkills(DEFAULT_TEST_SKILLS, dir, [], false);
       process.env.HOME = dir;
       process.env.PIPELINE_TARGET_PATH = dir;
-      const doctorExeca: MockExeca = async (
-        command: string,
-        args: string[] = []
-      ) => {
+      const doctorExeca: MockExeca = async (command: string, args: string[] = []) => {
         if (command !== "kubectl") {
           return { exitCode: 0, stderr: "", stdout: "ok" };
         }
         const kubectlArgs = stripKubectlContext(args);
         if (kubectlArgs.includes("pipeline-runner-event-auth")) {
           throw Object.assign(
-            new Error(
-              'Error from server (Forbidden): secrets "pipeline-runner-event-auth" is forbidden'
-            ),
+            new Error('Error from server (Forbidden): secrets "pipeline-runner-event-auth" is forbidden'),
             {
-              stderr:
-                'Error from server (Forbidden): secrets "pipeline-runner-event-auth" is forbidden',
-            }
+              stderr: 'Error from server (Forbidden): secrets "pipeline-runner-event-auth" is forbidden',
+            },
           );
         }
-        if (
-          kubectlArgs.join(" ") ===
-          "auth can-i create workflows.argoproj.io -n test-ns"
-        ) {
+        if (kubectlArgs.join(" ") === "auth can-i create workflows.argoproj.io -n test-ns") {
           return { exitCode: 0, stderr: "", stdout: "yes" };
         }
         if (kubectlArgs.includes("-o") && kubectlArgs.includes("json")) {
@@ -2866,23 +2461,13 @@ profiles:
       mockExeca.mockImplementation(doctorExeca);
 
       await expect(
-        runCli([
-          "node",
-          "/repo/node_modules/.bin/oisin-pipeline",
-          "doctor",
-          "--cluster",
-          "test-ns",
-        ])
+        runCli(["node", "/repo/node_modules/.bin/oisin-pipeline", "doctor", "--cluster", "test-ns"]),
       ).rejects.toThrow("Doctor checks failed.");
 
       const output = log.mock.calls.flat().join("\n");
       expect(output).toContain("FAIL secret/pipeline-runner-event-auth");
-      expect(output).toContain(
-        "secret/pipeline-runner-event-auth inaccessible with the current kube identity"
-      );
-      expect(output).not.toContain(
-        "expected ExternalSecret pipeline-runner-event-auth to sync it"
-      );
+      expect(output).toContain("secret/pipeline-runner-event-auth inaccessible with the current kube identity");
+      expect(output).not.toContain("expected ExternalSecret pipeline-runner-event-auth to sync it");
     } finally {
       log.mockRestore();
       restoreEnv("PIPELINE_TARGET_PATH", originalTargetPath);
@@ -2893,9 +2478,7 @@ profiles:
 
   it("doctor uses configured kubeconfig and namespace for cluster checks", async () => {
     const { runCli } = await import("../src/index");
-    const dir = mkdtempSync(
-      join(tmpdir(), "pipeline-cli-cluster-doctor-kubeconfig-")
-    );
+    const dir = mkdtempSync(join(tmpdir(), "pipeline-cli-cluster-doctor-kubeconfig-"));
     const originalHome = process.env.HOME;
     const originalTargetPath = process.env.PIPELINE_TARGET_PATH;
     const configuredKubeconfig = join(dir, "momokaya-agent-restricted.yaml");
@@ -2920,23 +2503,17 @@ profiles:
           "    imagePullSecretName: image-pull-secret",
           "    serviceAccountName: configured-runner",
           "",
-        ].join("\n")
+        ].join("\n"),
       );
       writeMockSkills(DEFAULT_TEST_SKILLS, dir, [], false);
       process.env.HOME = dir;
       process.env.PIPELINE_TARGET_PATH = dir;
-      const doctorExeca: MockExeca = async (
-        command: string,
-        args: string[] = []
-      ) => {
+      const doctorExeca: MockExeca = async (command: string, args: string[] = []) => {
         if (command !== "kubectl") {
           return { exitCode: 0, stderr: "", stdout: "ok" };
         }
         const kubectlArgs = stripKubectlContext(args);
-        if (
-          kubectlArgs.join(" ") ===
-          "auth can-i create workflows.argoproj.io -n configured-ns"
-        ) {
+        if (kubectlArgs.join(" ") === "auth can-i create workflows.argoproj.io -n configured-ns") {
           return { exitCode: 0, stderr: "", stdout: "yes" };
         }
         if (kubectlArgs.includes("-o") && kubectlArgs.includes("json")) {
@@ -2952,18 +2529,9 @@ profiles:
       };
       mockExeca.mockImplementation(doctorExeca);
 
-      await runCli([
-        "node",
-        "/repo/node_modules/.bin/oisin-pipeline",
-        "doctor",
-        "--cluster",
-      ]);
+      await runCli(["node", "/repo/node_modules/.bin/oisin-pipeline", "doctor", "--cluster"]);
 
-      expect(kubectlCalls()).toContainEqual([
-        "get",
-        "namespace",
-        "configured-ns",
-      ]);
+      expect(kubectlCalls()).toContainEqual(["get", "namespace", "configured-ns"]);
       for (const [command, , options] of mockExeca.mock.calls) {
         if (command === "kubectl") {
           expect(options).toMatchObject({
@@ -2993,22 +2561,11 @@ profiles:
       process.env.PIPELINE_MCP_GATEWAY_AUTHORIZATION = "Basic test-token";
       await runCli(["node", "/repo/node_modules/.bin/oisin-pipeline", "init"]);
       mkdirSync(join(dir, ".opencode"), { recursive: true });
-      writeFileSync(
-        join(dir, ".opencode/opencode.json"),
-        JSON.stringify({ mcp: { legacy: { type: "local" } } })
-      );
+      writeFileSync(join(dir, ".opencode/opencode.json"), JSON.stringify({ mcp: { legacy: { type: "local" } } }));
 
-      await runCli([
-        "node",
-        "/repo/node_modules/.bin/oisin-pipeline",
-        "mcp",
-        "gateway",
-        "configure-host",
-      ]);
+      await runCli(["node", "/repo/node_modules/.bin/oisin-pipeline", "mcp", "gateway", "configure-host"]);
 
-      const opencode = parseOpencodeGatewayFile(
-        readFileSync(join(dir, ".opencode/opencode.json"), "utf-8")
-      );
+      const opencode = parseOpencodeGatewayFile(readFileSync(join(dir, ".opencode/opencode.json"), "utf-8"));
       expect(opencode.mcp["pipeline-gateway"]).toMatchObject({
         enabled: true,
         oauth: false,
@@ -3016,9 +2573,7 @@ profiles:
         url: "https://gateway.example/mcp",
       });
       expect(opencode.mcp.legacy).toBeUndefined();
-      const claude = parseClaudeGatewayFile(
-        readFileSync(join(dir, ".mcp.json"), "utf-8")
-      );
+      const claude = parseClaudeGatewayFile(readFileSync(join(dir, ".mcp.json"), "utf-8"));
       expect(claude.mcpServers["pipeline-gateway"]).toMatchObject({
         type: "http",
         url: "https://gateway.example/mcp",
@@ -3029,12 +2584,8 @@ profiles:
       const codex = readFileSync(join(dir, ".codex/config.toml"), "utf-8");
       expect(codex).toContain("[mcp_servers.pipeline-gateway]");
       expect(codex).toContain('url = "https://gateway.example/mcp"');
-      expect(codex).toContain(
-        "[mcp_servers.pipeline-gateway.env_http_headers]"
-      );
-      expect(codex).toContain(
-        'Authorization = "PIPELINE_MCP_GATEWAY_AUTHORIZATION"'
-      );
+      expect(codex).toContain("[mcp_servers.pipeline-gateway.env_http_headers]");
+      expect(codex).toContain('Authorization = "PIPELINE_MCP_GATEWAY_AUTHORIZATION"');
       const output = log.mock.calls.flat().join("\n");
       expect(output).toContain(".opencode/opencode.json");
       expect(output).toContain(".mcp.json");
@@ -3066,15 +2617,10 @@ profiles:
       process.env.PIPELINE_MCP_GATEWAY_AUTHORIZATION = "Basic test-token";
       global.fetch = vi.fn(async () => new Response(null, { status: 200 }));
       await runCli(["node", "/repo/node_modules/.bin/oisin-pipeline", "init"]);
-      writeFileSync(
-        join(dir, ".mcp.json"),
-        JSON.stringify({ mcpServers: { legacy: { command: "uvx" } } })
-      );
+      writeFileSync(join(dir, ".mcp.json"), JSON.stringify({ mcpServers: { legacy: { command: "uvx" } } }));
 
       const gatewayDoctor = runGatewayDoctor(runCli);
-      await expect(gatewayDoctor).rejects.toThrow(
-        "MCP gateway doctor checks failed."
-      );
+      await expect(gatewayDoctor).rejects.toThrow("MCP gateway doctor checks failed.");
 
       const output = log.mock.calls.flat().join("\n");
       expect(output).toContain("legacy-direct-mcp");
@@ -3117,9 +2663,7 @@ profiles:
         });
       });
 
-      await expect(runGatewayDoctor(runCli)).rejects.toThrow(
-        "MCP gateway doctor checks failed."
-      );
+      await expect(runGatewayDoctor(runCli)).rejects.toThrow("MCP gateway doctor checks failed.");
 
       const outputLines = log.mock.calls.flat().map((value) => String(value));
       expect(outputLines.join("\n")).toContain("gateway-required-tools");
@@ -3146,22 +2690,15 @@ profiles:
       process.env.PIPELINE_TARGET_PATH = dir;
       await prepareGatewayWorkspace(runCli, dir);
 
-      await runCli([
-        "node",
-        "/repo/node_modules/.bin/oisin-pipeline",
-        "mcp",
-        "gateway",
-        "reconcile",
-      ]);
+      await runCli(["node", "/repo/node_modules/.bin/oisin-pipeline", "mcp", "gateway", "reconcile"]);
 
       expect(mockExeca).toHaveBeenCalledWith(
         "thv",
         expect.arrayContaining(["vmcp", "validate"]),
-        expect.objectContaining({ cwd: dir })
+        expect.objectContaining({ cwd: dir }),
       );
       const applyCall = mockExeca.mock.calls.find(
-        ([command, args]) =>
-          command === "thv" && Array.isArray(args) && args.includes("validate")
+        ([command, args]) => command === "thv" && Array.isArray(args) && args.includes("validate"),
       );
       expect(applyCall).toBeDefined();
       const args = applyCall?.[1];
@@ -3177,9 +2714,7 @@ profiles:
       expect(rendered).toContain("name: fallow");
       expect(rendered).toContain("name: playwright");
       expect(rendered).toContain("name: qdrant");
-      expect(rendered).toContain(
-        "url: http://127.0.0.1/oisin-pipeline-qdrant/mcp/"
-      );
+      expect(rendered).toContain("url: http://127.0.0.1/oisin-pipeline-qdrant/mcp/");
       expect(rendered).toContain("name: serena");
       expect(rendered).toContain("name: uidotsh");
       expect(rendered).toContain("groupRef: default");
@@ -3205,28 +2740,19 @@ profiles:
       mockToolHiveWorkloads(COMPLETE_TOOLHIVE_WORKLOADS);
       process.env.PIPELINE_TARGET_PATH = dir;
       await prepareGatewayWorkspace(runCli, dir, { init: true });
-      await runCli([
-        "node",
-        "/repo/node_modules/.bin/oisin-pipeline",
-        "mcp",
-        "gateway",
-        "local-start",
-      ]);
+      await runCli(["node", "/repo/node_modules/.bin/oisin-pipeline", "mcp", "gateway", "local-start"]);
 
       expect(mockExeca).toHaveBeenCalledWith(
         "thv",
         expect.arrayContaining(["vmcp", "validate"]),
-        expect.objectContaining({ cwd: dir })
+        expect.objectContaining({ cwd: dir }),
       );
       const validateCall = mockExeca.mock.calls.find(
-        ([command, args]) =>
-          command === "thv" && Array.isArray(args) && args.includes("validate")
+        ([command, args]) => command === "thv" && Array.isArray(args) && args.includes("validate"),
       );
       const validateArgs = validateCall?.[1];
       expect(Array.isArray(validateArgs)).toBe(true);
-      const configPath = Array.isArray(validateArgs)
-        ? validateArgs.at(-1)
-        : undefined;
+      const configPath = Array.isArray(validateArgs) ? validateArgs.at(-1) : undefined;
       expect(configPath).toBe(join(dir, ".pipeline/mcp-gateway/vmcp.yaml"));
 
       expect(mockExeca).toHaveBeenCalledWith(
@@ -3241,7 +2767,7 @@ profiles:
           "--port",
           "4483",
         ],
-        expect.objectContaining({ cwd: dir })
+        expect.objectContaining({ cwd: dir }),
       );
     } finally {
       restoreEnv("PIPELINE_TARGET_PATH", originalTargetPath);
@@ -3252,9 +2778,7 @@ profiles:
 
   it("refuses local gateway startup when required ToolHive workloads are missing", async () => {
     const { runCli } = await import("../src/index");
-    const dir = mkdtempSync(
-      join(tmpdir(), "pipeline-cli-gateway-start-missing-")
-    );
+    const dir = mkdtempSync(join(tmpdir(), "pipeline-cli-gateway-start-missing-"));
     const originalTargetPath = process.env.PIPELINE_TARGET_PATH;
     const savedHostEnv = redirectHostConfig(dir);
 
@@ -3264,20 +2788,13 @@ profiles:
       await prepareGatewayWorkspace(runCli, dir, { init: true });
 
       await expect(
-        runCli([
-          "node",
-          "/repo/node_modules/.bin/oisin-pipeline",
-          "mcp",
-          "gateway",
-          "local-start",
-        ])
+        runCli(["node", "/repo/node_modules/.bin/oisin-pipeline", "mcp", "gateway", "local-start"]),
       ).rejects.toThrow(MISSING_TOOLHIVE_WORKLOAD_RE);
 
       expect(
         mockExeca.mock.calls.some(
-          ([command, args]) =>
-            command === "thv" && Array.isArray(args) && args.includes("serve")
-        )
+          ([command, args]) => command === "thv" && Array.isArray(args) && args.includes("serve"),
+        ),
       ).toBe(false);
     } finally {
       restoreEnv("PIPELINE_TARGET_PATH", originalTargetPath);
@@ -3319,8 +2836,6 @@ profiles:
       },
     });
 
-    await expect(
-      execute("ship it", { pipelineRunner, workflow: "default" })
-    ).rejects.toThrow(FAILURE_DETAILS_RE);
+    await expect(execute("ship it", { pipelineRunner, workflow: "default" })).rejects.toThrow(FAILURE_DETAILS_RE);
   });
 });

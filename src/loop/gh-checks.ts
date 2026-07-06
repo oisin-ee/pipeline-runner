@@ -1,5 +1,8 @@
-import { Effect, Option } from "effect";
-import { z } from "zod";
+import * as Effect from "effect/Effect";
+import * as Option from "effect/Option";
+import * as Schema from "effect/Schema";
+
+import { mutableArray, parseResultWithSchema, positiveInteger, struct } from "../schema-boundary";
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -9,9 +12,7 @@ import { z } from "zod";
 export type CheckClassification = "fixable" | "indeterminate" | "infra-down";
 
 /** Resolved PR identity — discriminated union avoids nullable fields. */
-export type PrResolution =
-  | { found: false }
-  | { found: true; headRefName: string; number: number; url: string };
+export type PrResolution = { found: false } | { found: true; headRefName: string; number: number; url: string };
 
 // ---------------------------------------------------------------------------
 // DI boundary — injected gh runner (tests stub this, prod uses execa/gh)
@@ -35,39 +36,32 @@ export interface GhRunner {
    * its combined stdout text. Mutating commands route through here. Secret
    * values (the admin token) travel via `options.secretEnv`, never `args`.
    */
-  text: (
-    args: string[],
-    options?: GhTextOptions
-  ) => Effect.Effect<string, Error>;
+  text: (args: string[], options?: GhTextOptions) => Effect.Effect<string, Error>;
 }
 
-// ---------------------------------------------------------------------------
-// Zod schemas — boundary validation; no untyped casts
-// ---------------------------------------------------------------------------
-
-const prListItemSchema = z.object({
-  headRefName: z.string(),
-  number: z.number().int().positive(),
-  url: z.string(),
+const prListItemSchema = struct({
+  headRefName: Schema.String,
+  number: positiveInteger,
+  url: Schema.String,
 });
 
-const prListSchema = z.array(prListItemSchema);
+const prListSchema = mutableArray(prListItemSchema);
 
-const checkRunSchema = z.object({
-  conclusion: z.string().nullable(),
-  name: z.string(),
-  required: z.boolean(),
-  status: z.string(),
+const checkRunSchema = struct({
+  conclusion: Schema.NullOr(Schema.String),
+  name: Schema.String,
+  required: Schema.Boolean,
+  status: Schema.String,
 });
 
-const commitStatusSchema = z.object({
-  required: z.boolean(),
-  state: z.string(),
+const commitStatusSchema = struct({
+  required: Schema.Boolean,
+  state: Schema.String,
 });
 
-const checksResponseSchema = z.object({
-  checkRuns: z.array(checkRunSchema),
-  statuses: z.array(commitStatusSchema).default([]),
+const checksResponseSchema = struct({
+  checkRuns: mutableArray(checkRunSchema),
+  statuses: Schema.optional(mutableArray(commitStatusSchema)),
 });
 
 // ---------------------------------------------------------------------------
@@ -88,10 +82,9 @@ const CONCLUSION_CLASS_TABLE: Readonly<Record<string, CheckClassification>> = {
 };
 
 /** Commit-status states that are a positive infra signal. */
-const COMMIT_STATUS_CLASS_TABLE: Readonly<Record<string, CheckClassification>> =
-  {
-    error: "infra-down",
-  };
+const COMMIT_STATUS_CLASS_TABLE: Readonly<Record<string, CheckClassification>> = {
+  error: "infra-down",
+};
 
 /**
  * Priority order: fixable > infra-down > indeterminate.
@@ -103,15 +96,11 @@ const CLASS_PRIORITY: Readonly<Record<CheckClassification, number>> = {
   "infra-down": 1,
 };
 
-const higherPriority = (
-  a: CheckClassification,
-  b: CheckClassification
-): CheckClassification => (CLASS_PRIORITY[a] >= CLASS_PRIORITY[b] ? a : b);
+const higherPriority = (a: CheckClassification, b: CheckClassification): CheckClassification =>
+  CLASS_PRIORITY[a] >= CLASS_PRIORITY[b] ? a : b;
 
 /** Map one required check-run to its classification signal. */
-const checkRunSignal = (
-  run: z.infer<typeof checkRunSchema>
-): Option.Option<CheckClassification> => {
+const checkRunSignal = (run: typeof checkRunSchema.Type): Option.Option<CheckClassification> => {
   if (!run.required || run.conclusion === null) {
     return Option.none();
   }
@@ -119,28 +108,22 @@ const checkRunSignal = (
 };
 
 /** Map one required commit status to its classification signal. */
-const commitStatusSignal = (
-  status: z.infer<typeof commitStatusSchema>
-): Option.Option<CheckClassification> => {
+const commitStatusSignal = (status: typeof commitStatusSchema.Type): Option.Option<CheckClassification> => {
   if (!status.required) {
     return Option.none();
   }
   return Option.fromNullishOr(COMMIT_STATUS_CLASS_TABLE[status.state]);
 };
 
-const parsePrList = (
-  raw: unknown
-): Effect.Effect<z.infer<typeof prListSchema>, Error> => {
-  const result = prListSchema.safeParse(raw);
-  if (!result.success) {
-    return Effect.fail(
-      new Error(`gh pr list response parse failed: ${result.error.message}`)
-    );
+const parsePrList = (raw: unknown): Effect.Effect<typeof prListSchema.Type, Error> => {
+  const result = parseResultWithSchema(prListSchema, raw);
+  if (!result.ok) {
+    return Effect.fail(new Error(`gh pr list response parse failed: ${result.error.message}`));
   }
-  return Effect.succeed(result.data);
+  return Effect.succeed(result.value);
 };
 
-const toPrResolution = (items: z.infer<typeof prListSchema>): PrResolution =>
+const toPrResolution = (items: typeof prListSchema.Type): PrResolution =>
   Option.match(Option.fromNullishOr(items.at(0)), {
     onNone: () => ({ found: false }),
     onSome: (pr) => ({
@@ -159,51 +142,35 @@ const toPrResolution = (items: z.infer<typeof prListSchema>): PrResolution =>
  * Locate the open PR whose head branch is `moka/run/<runId>`.
  * Returns a typed not-found result (never throws on absence).
  */
-export const resolvePrForRun = (
-  runId: string,
-  gh: GhRunner
-): Effect.Effect<PrResolution, Error> => {
+export const resolvePrForRun = (runId: string, gh: GhRunner): Effect.Effect<PrResolution, Error> => {
   const headBranch = `moka/run/${runId}`;
-  const args = [
-    "pr",
-    "list",
-    "--head",
-    headBranch,
-    "--json",
-    "number,headRefName,url",
-  ];
+  const args = ["pr", "list", "--head", headBranch, "--json", "number,headRefName,url"];
 
   return gh.json(args).pipe(
     Effect.flatMap((raw) => parsePrList(raw)),
-    Effect.map((items) => toPrResolution(items))
+    Effect.map((items) => toPrResolution(items)),
   );
 };
 
-const parseChecksResponse = (
-  raw: unknown
-): Effect.Effect<z.infer<typeof checksResponseSchema>, Error> => {
-  const result = checksResponseSchema.safeParse(raw);
-  if (!result.success) {
-    return Effect.fail(
-      new Error(`gh pr checks response parse failed: ${result.error.message}`)
-    );
+const parseChecksResponse = (raw: unknown): Effect.Effect<typeof checksResponseSchema.Type, Error> => {
+  const result = parseResultWithSchema(checksResponseSchema, raw);
+  if (!result.ok) {
+    return Effect.fail(new Error(`gh pr checks response parse failed: ${result.error.message}`));
   }
-  return Effect.succeed(result.data);
+  return Effect.succeed(result.value);
 };
 
-const classifyChecks = (
-  checks: z.infer<typeof checksResponseSchema>
-): CheckClassification => {
+const classifyChecks = (checks: typeof checksResponseSchema.Type): CheckClassification => {
   // Collect signals from both check-runs and commit statuses, filter nulls,
   // then reduce by priority (fixable > infra-down > indeterminate).
   const signals: CheckClassification[] = [
     ...checks.checkRuns.map(checkRunSignal),
-    ...checks.statuses.map(commitStatusSignal),
+    ...(checks.statuses ?? []).map(commitStatusSignal),
   ].flatMap((signal) =>
     Option.match(signal, {
       onNone: () => [],
       onSome: (value) => [value],
-    })
+    }),
   );
 
   return signals.reduce<CheckClassification>(higherPriority, "indeterminate");
@@ -225,18 +192,12 @@ const classifyChecks = (
  */
 export const classifyRequiredChecks = (
   pr: Extract<PrResolution, { found: true }>,
-  gh: GhRunner
+  gh: GhRunner,
 ): Effect.Effect<CheckClassification, Error> => {
-  const args = [
-    "pr",
-    "checks",
-    String(pr.number),
-    "--json",
-    "name,conclusion,status,required,startedAt",
-  ];
+  const args = ["pr", "checks", String(pr.number), "--json", "name,conclusion,status,required,startedAt"];
 
   return gh.json(args).pipe(
     Effect.flatMap((raw) => parseChecksResponse(raw)),
-    Effect.map((checks) => classifyChecks(checks))
+    Effect.map((checks) => classifyChecks(checks)),
   );
 };

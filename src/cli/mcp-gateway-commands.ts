@@ -4,16 +4,9 @@ import type { Command } from "commander";
 import { loadPipelineConfig } from "../config";
 import { renderGatewayConfig } from "../mcp/gateway-config";
 import { runGatewayDoctor } from "../mcp/gateway-doctor";
-import {
-  localGatewayStatus,
-  reconcileGateway,
-  startLocalGateway,
-} from "../mcp/gateway-reconcile";
+import { localGatewayStatus, reconcileGateway, startLocalGateway } from "../mcp/gateway-reconcile";
 import { configureGatewayHosts } from "../mcp/host-config";
-import type {
-  GatewayHostScope,
-  GatewayHostSelection,
-} from "../mcp/host-config";
+import type { GatewayHostScope, GatewayHostSelection } from "../mcp/host-config";
 import { formatDoctorResult } from "./format";
 
 interface GatewayConfigureHostFlags {
@@ -48,9 +41,7 @@ export const registerMcpGatewayCommands = (program: Command): void => {
 
   gatewayCommand
     .command("doctor")
-    .description(
-      "Check MCP gateway configuration and legacy direct MCP entries"
-    )
+    .description("Check MCP gateway configuration and legacy direct MCP entries")
     .action(async () => {
       const cwd = process.env.PIPELINE_TARGET_PATH ?? process.cwd();
       const config = loadPipelineConfig(cwd, {
@@ -81,13 +72,13 @@ export const registerMcpGatewayCommands = (program: Command): void => {
       new Option("--host <host>", "host config to update")
         .choices(["all", "opencode"])
         .default("all")
-        .argParser(parseGatewayHost)
+        .argParser(parseGatewayHost),
     )
     .addOption(
       new Option("--scope <scope>", "config scope to update")
         .choices(["project", "global"])
         .default("project")
-        .argParser(parseGatewayHostScope)
+        .argParser(parseGatewayHostScope),
     )
     .action((flags: GatewayConfigureHostFlags) => {
       const cwd = process.env.PIPELINE_TARGET_PATH ?? process.cwd();
@@ -104,12 +95,10 @@ export const registerMcpGatewayCommands = (program: Command): void => {
           .map((item) =>
             [
               `${item.host}: ${item.path}`,
-              item.backupPath !== undefined && item.backupPath !== ""
-                ? `backup=${item.backupPath}`
-                : "backup=none",
-            ].join(" ")
+              item.backupPath !== undefined && item.backupPath !== "" ? `backup=${item.backupPath}` : "backup=none",
+            ].join(" "),
           )
-          .join("\n")
+          .join("\n"),
       );
     });
 
@@ -130,7 +119,7 @@ export const registerMcpGatewayCommands = (program: Command): void => {
           result.readinessFailures.length > 0
             ? `readiness_failures=${result.readinessFailures.join("; ")}`
             : "readiness_failures=none",
-        ].join("\n")
+        ].join("\n"),
       );
     });
 

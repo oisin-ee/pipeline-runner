@@ -8,7 +8,7 @@ import { postgresDurableRunStore } from "./postgres/postgres-store";
 
 export const resolveDurableStore = (
   dbUrl?: string,
-  runId?: string
+  runId?: string,
 ): Effect.Effect<DurableRunStore, unknown, Scope.Scope> =>
   requireMokaDbUrl(dbUrl).pipe(
     Effect.flatMap((requiredDbUrl) =>
@@ -17,15 +17,13 @@ export const resolveDurableStore = (
       }).pipe(
         Effect.flatMap(() =>
           Effect.acquireRelease(
-            Effect.tryPromise(
-              async () => await postgresDurableRunStore(requiredDbUrl, runId)
-            ),
+            Effect.tryPromise(async () => await postgresDurableRunStore(requiredDbUrl, runId)),
             (store) =>
               Effect.promise(async () => {
                 await store.close();
-              })
-          )
-        )
-      )
-    )
+              }),
+          ),
+        ),
+      ),
+    ),
   );

@@ -1,10 +1,7 @@
 import { Effect, Option } from "effect";
 
 import type { MokaRunManifest } from "./contracts";
-import {
-  ACTIVE_NODE_STATUSES,
-  requireKnownNodeEffect,
-} from "./run-command-domain";
+import { ACTIVE_NODE_STATUSES, requireKnownNodeEffect } from "./run-command-domain";
 import type { RunControlStore } from "./run-control-store";
 import { requireRunEffect } from "./run-query-command";
 
@@ -12,7 +9,7 @@ const stopNodeEffect = (
   store: RunControlStore,
   run: MokaRunManifest,
   requestedNodeId: string,
-  at: string
+  at: string,
 ): Effect.Effect<string, unknown> =>
   Effect.gen(function* effectBody() {
     const nodeId = yield* requireKnownNodeEffect(run, requestedNodeId);
@@ -31,14 +28,9 @@ const activeNodeIds = (run: MokaRunManifest): string[] =>
     .map(([nodeId]) => nodeId);
 
 const isNoSuchProcess = (error: unknown): boolean =>
-  typeof error === "object" &&
-  error !== null &&
-  "code" in error &&
-  error.code === "ESRCH";
+  typeof error === "object" && error !== null && "code" in error && error.code === "ESRCH";
 
-const stopControllerProcessEffect = (
-  pid: Option.Option<number>
-): Effect.Effect<void, unknown> =>
+const stopControllerProcessEffect = (pid: Option.Option<number>): Effect.Effect<void, unknown> =>
   Effect.sync(() => {
     if (Option.isNone(pid) || pid.value === 0) {
       return;
@@ -54,15 +46,9 @@ const stopControllerProcessEffect = (
     }
   });
 
-const stopRunEffect = (
-  store: RunControlStore,
-  run: MokaRunManifest,
-  at: string
-): Effect.Effect<string, unknown> =>
+const stopRunEffect = (store: RunControlStore, run: MokaRunManifest, at: string): Effect.Effect<string, unknown> =>
   Effect.gen(function* effectBody() {
-    yield* stopControllerProcessEffect(
-      Option.fromNullishOr(run.controller?.pid)
-    );
+    yield* stopControllerProcessEffect(Option.fromNullishOr(run.controller?.pid));
     yield* store.updateRunStatus({
       at,
       runId: run.runId,
@@ -74,7 +60,7 @@ const stopRunEffect = (
         nodeId,
         runId: run.runId,
         status: "aborted",
-      })
+      }),
     );
     return `Run ${run.runId} aborted.`;
   });
@@ -88,9 +74,7 @@ export const stopRunOrNodeEffect = (input: {
     const run = yield* requireRunEffect(input.store, input.runId);
     const at = new Date().toISOString();
 
-    const nodeId = Option.fromNullishOr(input.nodeId).pipe(
-      Option.filter((value) => value.length > 0)
-    );
+    const nodeId = Option.fromNullishOr(input.nodeId).pipe(Option.filter((value) => value.length > 0));
     if (Option.isSome(nodeId)) {
       return yield* stopNodeEffect(input.store, run, nodeId.value, at);
     }

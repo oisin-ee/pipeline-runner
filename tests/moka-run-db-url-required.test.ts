@@ -35,8 +35,7 @@ vi.mock("../src/pipeline-runtime", () => ({
 }));
 
 vi.mock("../src/planning/generate", async (importOriginal) => {
-  const actual =
-    await importOriginal<typeof import("../src/planning/generate")>();
+  const actual = await importOriginal<typeof import("../src/planning/generate")>();
 
   return {
     ...actual,

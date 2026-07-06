@@ -1,13 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { z } from "zod";
 
+import { parseResultWithSchema, parseWithSchema } from "../../schema-boundary";
 import type { AcceptanceCriterion, RuntimeNodeResult } from "../contracts";
-import {
-  nextNodeEnvelopeSchema,
-  parseNextNodeEnvelope,
-  parseSubmitResult,
-  submitResultSchema,
-} from "./node-protocol";
+import { nextNodeEnvelopeSchema, parseNextNodeEnvelope, parseSubmitResult, submitResultSchema } from "./node-protocol";
 import type { NextNodeEnvelope, SubmitResult } from "./node-protocol";
 
 // A representative envelope for one node: a prompt, two read-only acceptance
@@ -41,14 +36,10 @@ const sampleSubmit = (): SubmitResult => ({
   runId: "run-123",
 });
 
-// JSON round-trip: serialize, re-parse the raw JSON text, validate via schema.
-const roundTrip = <T>(schema: z.ZodType<T>, value: T): T =>
-  schema.parse(structuredClone(value));
-
 describe("NextNodeEnvelope", () => {
   it("round-trips through JSON including criteria and upstream outputs (AC#1)", () => {
     const envelope = sampleEnvelope();
-    expect(roundTrip(nextNodeEnvelopeSchema, envelope)).toEqual(envelope);
+    expect(parseWithSchema(nextNodeEnvelopeSchema, structuredClone(envelope))).toEqual(envelope);
   });
 
   it("carries prompt, read-only criteria, and upstream outputs for one node (AC#2)", () => {
@@ -58,9 +49,7 @@ describe("NextNodeEnvelope", () => {
     const runId = "run-123";
     const prompt = "Implement the feature.";
     const criteria: AcceptanceCriterion[] = [{ id: "ac-1", text: "compiles" }];
-    const upstream: RuntimeNodeResult[] = [
-      { ...sampleResult(), nodeId: "plan", output: "plan summary" },
-    ];
+    const upstream: RuntimeNodeResult[] = [{ ...sampleResult(), nodeId: "plan", output: "plan summary" }];
     const envelope = parseNextNodeEnvelope({
       criteria,
       nodeId,
@@ -76,9 +65,7 @@ describe("NextNodeEnvelope", () => {
     expect(envelope.runId).toBe(runId);
     expect(envelope.nodeId).toBe(nodeId);
     expect(envelope.criteria).toEqual(criteria);
-    expect(envelope.upstreamOutputs).toEqual([
-      { nodeId: "plan", output: "plan summary" },
-    ]);
+    expect(envelope.upstreamOutputs).toEqual([{ nodeId: "plan", output: "plan summary" }]);
   });
 
   it("freezes criteria so the executing agent cannot mutate them (decision #7)", () => {
@@ -87,18 +74,23 @@ describe("NextNodeEnvelope", () => {
   });
 
   it("rejects an unknown key with a structured error", () => {
-    const result = nextNodeEnvelopeSchema.safeParse({
-      ...sampleEnvelope(),
-      extra: "nope",
-    });
-    expect(result.success).toBe(false);
+    expect(
+      parseResultWithSchema(
+        nextNodeEnvelopeSchema,
+        {
+          ...sampleEnvelope(),
+          extra: "nope",
+        },
+        { onExcessProperty: "error" },
+      ).ok,
+    ).toBe(false);
   });
 });
 
 describe("SubmitResult", () => {
   it("round-trips a RuntimeNodeResult keyed (runId, nodeId) through JSON (AC#1)", () => {
     const submit = sampleSubmit();
-    expect(roundTrip(submitResultSchema, submit)).toEqual(submit);
+    expect(parseWithSchema(submitResultSchema, structuredClone(submit))).toEqual(submit);
   });
 
   it("rejects a result missing required fields with a structured error (AC#3)", () => {
@@ -107,17 +99,15 @@ describe("SubmitResult", () => {
       result: { nodeId: "implement", output: "done", status: "passed" },
       runId: "run-123",
     };
-    const result = submitResultSchema.safeParse(malformed);
+    const result = parseResultWithSchema(submitResultSchema, malformed);
 
-    expect(result.success).toBe(false);
-    if (result.success) {
+    expect(result.ok).toBe(false);
+    if (result.ok) {
       throw new Error("expected malformed submit to be rejected");
     }
-    expect(result.error).toBeInstanceOf(z.ZodError);
-    const missing = result.error.issues.map((issue) => issue.path.join("."));
-    expect(missing).toContain("result.attempts");
-    expect(missing).toContain("result.evidence");
-    expect(missing).toContain("result.exitCode");
+    expect(result.error.message).toContain("result.attempts");
+    expect(result.error.message).toContain("result.evidence");
+    expect(result.error.message).toContain("result.exitCode");
   });
 
   it("rejects a (runId, nodeId) key mismatch with a structured error (AC#3)", () => {
@@ -126,7 +116,7 @@ describe("SubmitResult", () => {
         nodeId: "implement",
         result: { ...sampleResult(), nodeId: "other" },
         runId: "run-123",
-      })
-    ).toThrow(z.ZodError);
+      }),
+    ).toThrow(/result\.nodeId/u);
   });
 });

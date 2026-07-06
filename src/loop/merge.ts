@@ -53,8 +53,7 @@ export interface SecretFileReader {
   readBypassToken: () => Option.Option<SecretToken>;
 }
 
-const mergeSecretsDir = (): string =>
-  process.env.PIPELINE_MERGE_BYPASS_DIR ?? DEFAULT_MERGE_SECRETS_DIR;
+const mergeSecretsDir = (): string => process.env.PIPELINE_MERGE_BYPASS_DIR ?? DEFAULT_MERGE_SECRETS_DIR;
 
 /**
  * Production reader: follows the git-refs secret-from-file pattern —
@@ -91,10 +90,7 @@ export interface Merged {
 }
 
 /** Reason a merge could not proceed — every case is explicit and surfaced. */
-export type BlockedReason =
-  | "merge-conflict"
-  | "missing-token"
-  | "not-mergeable";
+export type BlockedReason = "merge-conflict" | "missing-token" | "not-mergeable";
 
 /** Typed non-merge outcome: surfaced to the caller, never silently swallowed. */
 export interface MergeBlocked {
@@ -112,17 +108,11 @@ type OpenPr = Extract<PrResolution, { found: true }>;
 // Conflict detection — gh surfaces a non-mergeable PR via stderr text.
 // ---------------------------------------------------------------------------
 
-const CONFLICT_MARKERS: readonly string[] = [
-  "not mergeable",
-  "merge conflict",
-  "conflicts with the base branch",
-];
+const CONFLICT_MARKERS: readonly string[] = ["not mergeable", "merge conflict", "conflicts with the base branch"];
 
 const blockedReasonForGhError = (message: string): BlockedReason => {
   const lower = message.toLowerCase();
-  return CONFLICT_MARKERS.some((marker) => lower.includes(marker))
-    ? "merge-conflict"
-    : "not-mergeable";
+  return CONFLICT_MARKERS.some((marker) => lower.includes(marker)) ? "merge-conflict" : "not-mergeable";
 };
 
 const toBlocked = (pr: OpenPr, error: unknown): MergeBlocked => {
@@ -144,14 +134,11 @@ const toBlocked = (pr: OpenPr, error: unknown): MergeBlocked => {
  * PR until required CI is green, so this returns a PENDING status — the merge
  * is not terminal here. A non-mergeable PR (conflict) surfaces as `blocked`.
  */
-export const enableAutoMerge = (
-  pr: OpenPr,
-  gh: GhRunner
-): Effect.Effect<MergePending | MergeBlocked, Error> => {
+export const enableAutoMerge = (pr: OpenPr, gh: GhRunner): Effect.Effect<MergePending | MergeBlocked, Error> => {
   const args = ["pr", "merge", String(pr.number), "--auto", "--squash"];
   return gh.text(args).pipe(
     Effect.map((): MergePending => ({ _tag: "pending", pr: pr.number })),
-    Effect.catch((error) => Effect.succeed(toBlocked(pr, error)))
+    Effect.catch((error) => Effect.succeed(toBlocked(pr, error))),
   );
 };
 
@@ -171,7 +158,7 @@ export const enableAutoMerge = (
 export const adminMerge = (
   pr: OpenPr,
   token: SecretToken,
-  gh: GhRunner
+  gh: GhRunner,
 ): Effect.Effect<Merged | MergeBlocked, Error> => {
   const args = ["pr", "merge", String(pr.number), "--admin", "--squash"];
   // The token is revealed ONCE, here at the auth-injection boundary, and handed
@@ -180,7 +167,7 @@ export const adminMerge = (
   // listing, or an args log.
   return gh.text(args, { secretEnv: { GH_TOKEN: token.reveal() } }).pipe(
     Effect.map((): Merged => ({ _tag: "merged", pr: pr.number })),
-    Effect.catch((error) => Effect.succeed(toBlocked(pr, error)))
+    Effect.catch((error) => Effect.succeed(toBlocked(pr, error))),
   );
 };
 
@@ -196,18 +183,15 @@ export type MergeActionKind = "auto-merge" | "admin-merge" | "none";
  * that decides which classification may admin-merge: only `infra-down`. There
  * is no branch ladder — to change policy you change this one map.
  */
-const ACTION_FOR_CLASSIFICATION: Readonly<
-  Record<CheckClassification, MergeActionKind>
-> = {
+const ACTION_FOR_CLASSIFICATION: Readonly<Record<CheckClassification, MergeActionKind>> = {
   fixable: "none",
   indeterminate: "none",
   "infra-down": "admin-merge",
 };
 
 /** Pure lookup of the action a classification maps to. */
-export const selectMergeAction = (
-  classification: CheckClassification
-): MergeActionKind => ACTION_FOR_CLASSIFICATION[classification];
+export const selectMergeAction = (classification: CheckClassification): MergeActionKind =>
+  ACTION_FOR_CLASSIFICATION[classification];
 
 // ---------------------------------------------------------------------------
 // mergeForClassification — the orchestrated entrypoint.
@@ -245,9 +229,8 @@ export const mergeForClassification = (input: {
           detail: "admin-merge requires a bypass token but none was mounted",
           pr: input.pr.number,
           reason: "missing-token",
-        })
+        }),
       ),
-    onSome: (value) =>
-      adminMerge(input.pr, value, input.gh).pipe(Effect.map(Option.some)),
+    onSome: (value) => adminMerge(input.pr, value, input.gh).pipe(Effect.map(Option.some)),
   });
 };

@@ -5,10 +5,7 @@ import { acquireRunJournal } from "../src/pipeline-runtime";
 import type { RuntimeNodeResult } from "../src/runtime/contracts";
 import type { RunJournal } from "../src/runtime/run-journal";
 import { runWorkflowScheduler } from "../src/runtime/scheduler";
-import type {
-  WorkflowScheduleNode,
-  WorkflowSchedulerInput,
-} from "../src/runtime/scheduler";
+import type { WorkflowScheduleNode, WorkflowSchedulerInput } from "../src/runtime/scheduler";
 import { setupLivePgDurableSuite } from "./live-pg-durable-suite";
 
 // PIPE-91.5: kill/resume integration test for the journal cutover against the
@@ -18,11 +15,12 @@ import { setupLivePgDurableSuite } from "./live-pg-durable-suite";
 const PG_URL = process.env.MOKA_PG_TEST_URL ?? "";
 const describePg = PG_URL ? describe : describe.skip;
 
-const scheduleNode = (
-  id: string,
-  index: number,
-  needs: string[] = []
-): WorkflowScheduleNode => ({ dependents: [], id, index, needs });
+const scheduleNode = (id: string, index: number, needs: string[] = []): WorkflowScheduleNode => ({
+  dependents: [],
+  id,
+  index,
+  needs,
+});
 
 const passedResult = (nodeId: string): RuntimeNodeResult => ({
   attempts: 1,
@@ -34,8 +32,7 @@ const passedResult = (nodeId: string): RuntimeNodeResult => ({
 });
 
 const schedulerInput = (
-  overrides: Partial<WorkflowSchedulerInput> &
-    Pick<WorkflowSchedulerInput, "nodes" | "runNode">
+  overrides: Partial<WorkflowSchedulerInput> & Pick<WorkflowSchedulerInput, "nodes" | "runNode">,
 ): WorkflowSchedulerInput => ({
   failFast: false,
   isCancelled: () => false,
@@ -51,17 +48,15 @@ const schedulerInput = (
 const runWithRunJournal = async (
   runId: string,
   dbUrl: string,
-  run: (journal: RunJournal | undefined) => Promise<unknown>
+  run: (journal: RunJournal | undefined) => Promise<unknown>,
 ): Promise<void> => {
   await Effect.runPromise(
     Effect.scoped(
       Effect.gen(function* effectBody() {
         const journal = yield* acquireRunJournal(runId, dbUrl);
-        yield* Effect.promise(
-          async () => await run(Option.getOrUndefined(journal))
-        );
-      })
-    )
+        yield* Effect.promise(async () => await run(Option.getOrUndefined(journal)));
+      }),
+    ),
   );
 };
 
@@ -72,7 +67,7 @@ type SchedulerResult = Awaited<ReturnType<typeof runWorkflowScheduler>>;
 // the completed-node order) rather than a repeated block of assertions.
 const resumeSummary = (
   resumed: SchedulerResult | undefined,
-  reran: string[]
+  reran: string[],
 ): {
   completed: string[] | undefined;
   outcome: string | undefined;
@@ -85,26 +80,22 @@ const resumeSummary = (
 
 describe("acquireRunJournal selection (no infra)", () => {
   it("resolves no journal when db.url is absent (byte-identical default)", async () => {
-    const journal = await Effect.runPromise(
-      Effect.scoped(acquireRunJournal("run-1"))
-    );
+    const journal = await Effect.runPromise(Effect.scoped(acquireRunJournal("run-1")));
     expect(Option.isNone(journal)).toBe(true);
   });
 
   it("resolves no journal when runId is absent", async () => {
-    const journal = await Effect.runPromise(
-      Effect.scoped(acquireRunJournal(undefined, "postgres://unused"))
-    );
+    const journal = await Effect.runPromise(Effect.scoped(acquireRunJournal(undefined, "postgres://unused")));
     expect(Option.isNone(journal)).toBe(true);
   });
 });
 
 describePg("durable run-journal cutover (live cluster PG)", () => {
   const dbUrl = PG_URL;
-  const { runId } = setupLivePgDurableSuite(dbUrl, "pgcutover");
+  const livePgDurableSuite = setupLivePgDurableSuite(dbUrl, "pgcutover");
 
   it("resumes a killed run from Postgres without re-running the finished node (AC1)", async () => {
-    const id = runId("kill-resume");
+    const id = livePgDurableSuite.runId("kill-resume");
 
     // First pass: "a" completes and is journaled to PG, then the run is "killed"
     // before "b" by cancelling once the first node finishes. Scope exit flushes
@@ -123,8 +114,8 @@ describePg("durable run-journal cutover (live cluster PG)", () => {
               firstRan.push(nodeId);
               return passedResult(nodeId);
             },
-          })
-        )
+          }),
+        ),
     );
     expect(firstRan).toEqual(["a"]);
 
@@ -141,7 +132,7 @@ describePg("durable run-journal cutover (live cluster PG)", () => {
             resumedRan.push(nodeId);
             return passedResult(nodeId);
           },
-        })
+        }),
       );
     });
 
@@ -153,8 +144,8 @@ describePg("durable run-journal cutover (live cluster PG)", () => {
   });
 
   it("isolates resume by runId — concurrent runs each replay only their own records (AC4)", async () => {
-    const idA = runId("iso-A");
-    const idB = runId("iso-B");
+    const idA = livePgDurableSuite.runId("iso-A");
+    const idB = livePgDurableSuite.runId("iso-B");
     const firstA: string[] = [];
     const firstB: string[] = [];
 
@@ -174,8 +165,8 @@ describePg("durable run-journal cutover (live cluster PG)", () => {
                 firstA.push(nodeId);
                 return passedResult(nodeId);
               },
-            })
-          )
+            }),
+          ),
       ),
       runWithRunJournal(
         idB,
@@ -190,8 +181,8 @@ describePg("durable run-journal cutover (live cluster PG)", () => {
                 firstB.push(nodeId);
                 return passedResult(nodeId);
               },
-            })
-          )
+            }),
+          ),
       ),
     ]);
     expect(firstA).toEqual(["a"]);
@@ -210,7 +201,7 @@ describePg("durable run-journal cutover (live cluster PG)", () => {
             resumedA.push(nodeId);
             return passedResult(nodeId);
           },
-        })
+        }),
       );
     });
     expect(resumeSummary(outcomeA, resumedA)).toEqual({
@@ -233,8 +224,8 @@ describePg("durable run-journal cutover (live cluster PG)", () => {
               resumedB.push(nodeId);
               return passedResult(nodeId);
             },
-          })
-        )
+          }),
+        ),
     );
     expect(resumedB).toEqual(["q"]);
   });

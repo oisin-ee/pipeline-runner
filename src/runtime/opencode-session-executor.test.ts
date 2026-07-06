@@ -2,21 +2,20 @@ import type { Event } from "@opencode-ai/sdk/v2";
 import { describe, expect, it } from "vitest";
 
 import type { RunnerExecutionOptions, RunnerLaunchPlan } from "../runner";
-import {
-  createOpencodeExecutor,
-  createOpencodeSessionRegistry,
-} from "./opencode-session-executor";
-import type { OpencodeRuntimeClient } from "./services/opencode-sdk-service";
+import { createOpencodeExecutor, createOpencodeSessionRegistry } from "./opencode-session-executor";
+import type { OpencodePromptSessionData, OpencodeRuntimeClient } from "./services/opencode-sdk-service";
 
 // The v2 session.prompt request is flat (sessionID + the message body fields).
 type RecordedPrompt = Parameters<OpencodeRuntimeClient["session"]["prompt"]>[0];
+type PromptInfoError = NonNullable<NonNullable<OpencodePromptSessionData["info"]>["error"]>;
+type PromptPart = OpencodePromptSessionData["parts"][number];
 
 interface FakeClientOptions {
   createErrors?: unknown[];
   events?: Event[];
   promptErrors?: unknown[];
-  promptInfoError?: { data?: unknown; name: string };
-  promptParts?: Record<string, unknown>[];
+  promptInfoError?: PromptInfoError;
+  promptParts?: PromptPart[];
   recordCreates?: unknown[];
   recordPrompts?: RecordedPrompt[];
   sessionId?: string;
@@ -51,9 +50,9 @@ const fakeClient = (options: FakeClientOptions = {}): OpencodeRuntimeClient => {
         options.recordCreates?.push(true);
         const failure = createErrors.shift();
         if (failure !== undefined) {
-          throw failure;
+          return await Promise.reject(failure);
         }
-        return { data: { id: sessionId }, error: undefined };
+        return await Promise.resolve({ data: { id: sessionId }, error: undefined });
       },
       prompt: async (args: RecordedPrompt) => {
         options.recordPrompts?.push(args);
@@ -66,12 +65,8 @@ const fakeClient = (options: FakeClientOptions = {}): OpencodeRuntimeClient => {
         }
         return {
           data: {
-            info: options.promptInfoError
-              ? { error: options.promptInfoError }
-              : {},
-            parts: options.promptParts ?? [
-              { sessionID: sessionId, text: "final answer", type: "text" },
-            ],
+            info: options.promptInfoError ? { error: options.promptInfoError } : {},
+            parts: options.promptParts ?? [{ sessionID: sessionId, text: "final answer", type: "text" }],
           },
           error: undefined,
         };
@@ -80,9 +75,7 @@ const fakeClient = (options: FakeClientOptions = {}): OpencodeRuntimeClient => {
   };
 };
 
-const opencodePlan = (
-  overrides: Partial<RunnerLaunchPlan> = {}
-): RunnerLaunchPlan => ({
+const opencodePlan = (overrides: Partial<RunnerLaunchPlan> = {}): RunnerLaunchPlan => ({
   args: [
     "run",
     "--format",
@@ -123,18 +116,9 @@ describe("opencode prompt body shaping", () => {
 
     await execute(
       opencodePlan({
-        args: [
-          "run",
-          "--format",
-          "json",
-          "--dir",
-          "/repo",
-          "do the task",
-          "--file",
-          "/repo/ctx.md",
-        ],
+        args: ["run", "--format", "json", "--dir", "/repo", "do the task", "--file", "/repo/ctx.md"],
       }),
-      {}
+      {},
     );
 
     expect(recordPrompts[0].parts?.[0]).toMatchObject({ text: "do the task" });
@@ -154,11 +138,7 @@ describe("opencode prompt body shaping", () => {
 });
 
 type RecordedAbort =
-  NonNullable<OpencodeRuntimeClient["session"]["abort"]> extends (
-    args: infer A
-  ) => unknown
-    ? A
-    : never;
+  NonNullable<OpencodeRuntimeClient["session"]["abort"]> extends (args: infer A) => unknown ? A : never;
 
 const progressEventOf = (sessionID: string, index: number): Event => ({
   id: `evt-${index}`,
@@ -178,7 +158,7 @@ const progressEventOf = (sessionID: string, index: number): Event => ({
 
 const stalledIdleClient = (
   stream: AsyncGenerator<Event>,
-  abort?: OpencodeRuntimeClient["session"]["abort"]
+  abort?: OpencodeRuntimeClient["session"]["abort"],
 ): OpencodeRuntimeClient => ({
   event: { subscribe: async () => ({ stream }) },
   session: {
@@ -190,9 +170,7 @@ const stalledIdleClient = (
 
 // One event, then silence forever: exercises the idle watchdog after a single
 // bump of progress activity.
-const stallingStream = async function* stallingStream(
-  event: Event
-): AsyncGenerator<Event> {
+const stallingStream = async function* stallingStream(event: Event): AsyncGenerator<Event> {
   await Promise.resolve();
   yield event;
   await new Promise<void>(() => {});
@@ -205,19 +183,13 @@ describe("opencode session idle watchdog", () => {
     // One event then silence: the pump bumps activity once, then the gap exceeds
     // the idle budget long before the (much larger) wall-clock would fire.
     const abortCalls: RecordedAbort[] = [];
-    const client = stalledIdleClient(
-      stallingStream(progressEvent),
-      async (args) => {
-        abortCalls.push(args);
-        return true;
-      }
-    );
+    const client = stalledIdleClient(stallingStream(progressEvent), async (args) => {
+      abortCalls.push(args);
+      return true;
+    });
     const execute = createOpencodeExecutor({ client, ...executorDefaults() });
 
-    const result = await execute(
-      opencodePlan({ idleTimeoutMs: 60, timeoutMs: 5000 }),
-      { onOutput: () => {} }
-    );
+    const result = await execute(opencodePlan({ idleTimeoutMs: 60, timeoutMs: 5000 }), { onOutput: () => {} });
 
     expect(result.exitCode).toBe(70);
     expect(result.stderr).toContain("idle");
@@ -260,10 +232,7 @@ describe("opencode session idle watchdog", () => {
 
     // 5 events at 20ms gaps (each well under the 50ms budget) span 100ms total;
     // without per-event resets the 50ms budget would fire mid-stream.
-    const result = await execute(
-      opencodePlan({ idleTimeoutMs: 50, timeoutMs: 5000 }),
-      { onOutput: () => {} }
-    );
+    const result = await execute(opencodePlan({ idleTimeoutMs: 50, timeoutMs: 5000 }), { onOutput: () => {} });
 
     expect(result.exitCode).toBe(0);
   });
@@ -272,10 +241,7 @@ describe("opencode session idle watchdog", () => {
     const client = stalledIdleClient(stallingStream(progressEvent));
     const execute = createOpencodeExecutor({ client, ...executorDefaults() });
 
-    const result = await execute(
-      opencodePlan({ idleTimeoutMs: 40, timeoutMs: 120 }),
-      {}
-    );
+    const result = await execute(opencodePlan({ idleTimeoutMs: 40, timeoutMs: 120 }), {});
 
     expect(result.exitCode).toBe(70);
     expect(result.stderr).toContain("timed out");
@@ -285,10 +251,7 @@ describe("opencode session idle watchdog", () => {
     const client = stalledIdleClient(stallingStream(progressEvent));
     const execute = createOpencodeExecutor({ client, ...executorDefaults() });
 
-    const result = await execute(
-      opencodePlan({ idleTimeoutMs: 5000, timeoutMs: 80 }),
-      { onOutput: () => {} }
-    );
+    const result = await execute(opencodePlan({ idleTimeoutMs: 5000, timeoutMs: 80 }), { onOutput: () => {} });
 
     expect(result.exitCode).toBe(70);
     expect(result.stderr).toContain("timed out");
@@ -300,10 +263,7 @@ describe("opencode session idle watchdog", () => {
     });
     const execute = createOpencodeExecutor({ client, ...executorDefaults() });
 
-    const result = await execute(
-      opencodePlan({ idleTimeoutMs: 60, timeoutMs: 5000 }),
-      { onOutput: () => {} }
-    );
+    const result = await execute(opencodePlan({ idleTimeoutMs: 60, timeoutMs: 5000 }), { onOutput: () => {} });
 
     expect(result.exitCode).toBe(70);
     expect(result.stderr).toContain("idle");
@@ -322,11 +282,10 @@ const emptyStream = async function* emptyStream(): AsyncGenerator<Event> {
 // executor's stop-stream finalizer hangs.
 const hangingStream = async function* hangingStream(): AsyncGenerator<Event> {
   await new Promise<void>(() => {});
+  yield progressEventOf("ses_test", 1);
 };
 
-const stalledSessionClient = (
-  stream: AsyncIterableIterator<Event>
-): OpencodeRuntimeClient => ({
+const stalledSessionClient = (stream: AsyncIterableIterator<Event>): OpencodeRuntimeClient => ({
   event: { subscribe: async () => ({ stream }) },
   session: {
     create: async () => ({ data: { id: "ses_test" }, error: undefined }),
@@ -334,9 +293,7 @@ const stalledSessionClient = (
   },
 });
 
-const returnObservableHangingStream = (
-  onReturn: () => void
-): AsyncIterableIterator<Event> => {
+const returnObservableHangingStream = (onReturn: () => void): AsyncIterableIterator<Event> => {
   let releaseNext: ((value: IteratorResult<Event>) => void) | undefined;
   return {
     next: async () =>
@@ -385,10 +342,7 @@ describe("opencode session executor", () => {
     await execute(opencodePlan(), {});
 
     expect(registry.sessions.get("node-a")).toBe("ses_test");
-    expect(recordPrompts.map((entry) => entry.sessionID)).toEqual([
-      "ses_test",
-      "ses_test",
-    ]);
+    expect(recordPrompts.map((entry) => entry.sessionID)).toEqual(["ses_test", "ses_test"]);
     expect(seen).toHaveLength(2);
     expect(seen.every((entry) => entry.sessionId === "ses_test")).toBe(true);
   });
@@ -473,12 +427,8 @@ describe("opencode session executor", () => {
 
     const stdout = chunks.filter((entry) => entry.stream === "stdout");
     const stderr = chunks.filter((entry) => entry.stream === "stderr");
-    expect(stdout.some((entry) => entry.chunk.includes('"streamed"'))).toBe(
-      true
-    );
-    expect(stderr.some((entry) => entry.chunk.includes("tool bash"))).toBe(
-      true
-    );
+    expect(stdout.some((entry) => entry.chunk.includes('"streamed"'))).toBe(true);
+    expect(stderr.some((entry) => entry.chunk.includes("tool bash"))).toBe(true);
   });
 
   it("classifies provider/infra message errors as retry-eligible exit 70", async () => {
@@ -581,9 +531,7 @@ describe("opencode session executor", () => {
         resolve("returned");
       };
     });
-    const hangingClient = stalledSessionClient(
-      returnObservableHangingStream(streamReturn)
-    );
+    const hangingClient = stalledSessionClient(returnObservableHangingStream(streamReturn));
     const execute = createOpencodeExecutor({
       client: hangingClient,
       ...executorDefaults(),
@@ -597,7 +545,7 @@ describe("opencode session executor", () => {
       new Promise<"not-returned">((resolve) =>
         setTimeout(() => {
           resolve("not-returned");
-        }, 200)
+        }, 200),
       ),
     ]);
 
@@ -672,10 +620,8 @@ describe("opencode session executor", () => {
     const stderr = chunks.filter((entry) => entry.stream === "stderr");
     expect(
       stderr.some(
-        (entry) =>
-          entry.chunk.includes("session.prompt transient failure") &&
-          entry.chunk.includes("retry 1/2")
-      )
+        (entry) => entry.chunk.includes("session.prompt transient failure") && entry.chunk.includes("retry 1/2"),
+      ),
     ).toBe(true);
   });
 
@@ -776,8 +722,6 @@ describe("opencode session executor", () => {
       ...executorDefaults(),
     });
 
-    await expect(
-      execute(opencodePlan({ type: "command" }), {})
-    ).rejects.toThrow("cannot drive runner type 'command'");
+    await expect(execute(opencodePlan({ type: "command" }), {})).rejects.toThrow("cannot drive runner type 'command'");
   });
 });

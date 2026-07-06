@@ -20,8 +20,7 @@ const DEFAULT_GIT_CREDENTIALS_DIR = "/etc/pipeline/git-credentials";
  * back to ambient auth.
  */
 export const githubGitCredentialEnv = (
-  credentialsDir: string = process.env.PIPELINE_GIT_CREDENTIALS_DIR ??
-    DEFAULT_GIT_CREDENTIALS_DIR
+  credentialsDir: string = process.env.PIPELINE_GIT_CREDENTIALS_DIR ?? DEFAULT_GIT_CREDENTIALS_DIR,
 ): Record<string, string> => {
   const usernamePath = resolve(credentialsDir, "username");
   const passwordPath = resolve(credentialsDir, "password");
@@ -30,15 +29,10 @@ export const githubGitCredentialEnv = (
   }
   const username = readFileSync(usernamePath, "utf-8").trim();
   const password = readFileSync(passwordPath, "utf-8").trim();
-  const storePath = join(
-    mkdtempSync(join(tmpdir(), "factory-git-cred-")),
-    ".git-credentials"
-  );
-  writeFileSync(
-    storePath,
-    `https://${encodeURIComponent(username)}:${encodeURIComponent(password)}@github.com\n`,
-    { mode: 0o600 }
-  );
+  const storePath = join(mkdtempSync(join(tmpdir(), "factory-git-cred-")), ".git-credentials");
+  writeFileSync(storePath, `https://${encodeURIComponent(username)}:${encodeURIComponent(password)}@github.com\n`, {
+    mode: 0o600,
+  });
   return {
     GIT_CONFIG_COUNT: "1",
     GIT_CONFIG_KEY_0: "credential.helper",

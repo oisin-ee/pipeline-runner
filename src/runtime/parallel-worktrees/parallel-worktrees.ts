@@ -1,15 +1,15 @@
 import { execFileSync } from "node:child_process";
-import {
-  cpSync,
-  existsSync,
-  mkdirSync,
-  readdirSync,
-  readFileSync,
-  writeFileSync,
-} from "node:fs";
+import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { Option } from "effect";
+import {
+  literalSchema,
+  literalsSchema,
+  optionalSchema,
+  parseWithSchema,
+  stringValue,
+  struct,
+} from "../../schema-boundary";
 
 /**
  * PIPE-83.4: git-worktree isolation for parallel candidate nodes. Each parallel
@@ -31,15 +31,9 @@ const OWNER = "oisin-pipeline";
 // directory — unlike the CLI, which falls back to the default agent. So a
 // candidate worktree must carry these generated resources or every agent prompt
 // in it fails. Copied from the parent repo on worktree creation.
-const GENERATED_WORKTREE_RESOURCES = [
-  join(".opencode", "agents"),
-  join(".opencode", "command"),
-];
+const GENERATED_WORKTREE_RESOURCES = [join(".opencode", "agents"), join(".opencode", "command")];
 
-const provisionGeneratedResources = (
-  repoRoot: string,
-  worktreePath: string
-): void => {
+const provisionGeneratedResources = (repoRoot: string, worktreePath: string): void => {
   for (const relativePath of GENERATED_WORKTREE_RESOURCES) {
     const source = join(repoRoot, relativePath);
     const target = join(worktreePath, relativePath);
@@ -49,11 +43,10 @@ const provisionGeneratedResources = (
   }
 };
 
-export type WorktreeState =
-  | "active"
-  | "removed"
-  | "retained-dirty"
-  | "retained-unpushed";
+const worktreeStateSchema = literalsSchema(["active", "removed", "retained-dirty", "retained-unpushed"]);
+
+export type WorktreeState = typeof worktreeStateSchema.Type;
+type RetentionState = "remove" | "retained-dirty" | "retained-unpushed";
 
 export interface WorktreeLease {
   baseSha: string;
@@ -70,70 +63,49 @@ export interface CreateWorktreeOptions {
   runId?: string;
 }
 
-interface WorktreeManifest {
-  baseSha: string;
-  branch: string;
-  childNodeId: string;
-  leaseId: string;
-  owner: string;
-  parentNodeId: string;
-  path: string;
-  runId?: string;
-  schemaVersion: 1;
-  state: WorktreeState | "creating";
-}
+const worktreeManifestSchema = struct({
+  baseSha: stringValue(),
+  branch: stringValue(),
+  childNodeId: stringValue(),
+  leaseId: stringValue(),
+  owner: stringValue(),
+  parentNodeId: stringValue(),
+  path: stringValue(),
+  runId: optionalSchema(stringValue()),
+  schemaVersion: literalSchema(1),
+  state: literalsSchema(["active", "creating", "removed", "retained-dirty", "retained-unpushed"]),
+});
 
-const git = (cwd: string, args: string[]): string =>
-  execFileSync("git", args, { cwd, encoding: "utf-8" }).trim();
+type WorktreeManifest = typeof worktreeManifestSchema.Type;
 
-const sanitize = (id: string): string =>
-  id.replaceAll(/[^A-Za-z0-9._-]/gu, "-");
+const git = (cwd: string, args: string[]): string => execFileSync("git", args, { cwd, encoding: "utf-8" }).trim();
 
-const childWorktreeRelPath = (
-  parentNodeId: string,
-  childNodeId: string,
-  runId?: string
-): string =>
-  join(
-    WORKTREE_ROOT,
-    "trees",
-    sanitize(runId ?? "local"),
-    sanitize(parentNodeId),
-    sanitize(childNodeId)
-  );
+const sanitize = (id: string): string => id.replaceAll(/[^A-Za-z0-9._-]/gu, "-");
+
+const childWorktreeRelPath = (parentNodeId: string, childNodeId: string, runId?: string): string =>
+  join(WORKTREE_ROOT, "trees", sanitize(runId ?? "local"), sanitize(parentNodeId), sanitize(childNodeId));
 
 const writeManifest = (path: string, manifest: WorktreeManifest): void => {
   writeFileSync(path, `${JSON.stringify(manifest, null, 2)}\n`, "utf-8");
 };
 
 const readManifest = (path: string): WorktreeManifest =>
-  JSON.parse(readFileSync(path, "utf-8")) as WorktreeManifest;
+  parseWithSchema(worktreeManifestSchema, JSON.parse(readFileSync(path, "utf-8")));
 
-/** Returns a retention reason when the worktree must be kept, else undefined. */
-const retentionState = (
-  absPath: string,
-  baseSha: string
-): Option.Option<"retained-dirty" | "retained-unpushed"> => {
-  const dirty = git(absPath, [
-    "status",
-    "--porcelain",
-    "--untracked-files=all",
-  ]);
+const retentionState = (absPath: string, baseSha: string): RetentionState => {
+  const dirty = git(absPath, ["status", "--porcelain", "--untracked-files=all"]);
   if (dirty.length > 0) {
-    return Option.some("retained-dirty");
+    return "retained-dirty";
   }
   const head = git(absPath, ["rev-parse", "HEAD"]);
   if (head !== baseSha) {
-    return Option.some("retained-unpushed");
+    return "retained-unpushed";
   }
-  return Option.none();
+  return "remove";
 };
 
 /** Idempotent, crash-safe teardown. Retains (never deletes) dirty/unpushed work. */
-const releaseWorktree = (
-  repoRoot: string,
-  manifestPath: string
-): WorktreeState => {
+const releaseWorktree = (repoRoot: string, manifestPath: string): WorktreeState => {
   if (!existsSync(manifestPath)) {
     return "removed";
   }
@@ -145,9 +117,9 @@ const releaseWorktree = (
     return "removed";
   }
   const guarded = retentionState(absPath, manifest.baseSha);
-  if (Option.isSome(guarded)) {
-    writeManifest(manifestPath, { ...manifest, state: guarded.value });
-    return guarded.value;
+  if (guarded !== "remove") {
+    writeManifest(manifestPath, { ...manifest, state: guarded });
+    return guarded;
   }
   git(repoRoot, ["worktree", "remove", "--force", absPath]);
   git(repoRoot, ["branch", "-D", manifest.branch]);
@@ -155,18 +127,12 @@ const releaseWorktree = (
   return "removed";
 };
 
-export const createChildWorktree = (
-  opts: CreateWorktreeOptions
-): WorktreeLease => {
+export const createChildWorktree = (opts: CreateWorktreeOptions): WorktreeLease => {
   const runSeg = sanitize(opts.runId ?? "local");
   const parentSeg = sanitize(opts.parentNodeId);
   const childSeg = sanitize(opts.childNodeId);
   const baseSha = git(opts.repoRoot, ["rev-parse", "HEAD"]);
-  const relPath = childWorktreeRelPath(
-    opts.parentNodeId,
-    opts.childNodeId,
-    opts.runId
-  );
+  const relPath = childWorktreeRelPath(opts.parentNodeId, opts.childNodeId, opts.runId);
   const absPath = join(opts.repoRoot, relPath);
   const branch = `pipeline/worktrees/${runSeg}/${parentSeg}/${childSeg}`;
   const leaseId = `${runSeg}__${parentSeg}__${childSeg}`;

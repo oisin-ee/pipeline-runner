@@ -1,5 +1,6 @@
 import * as Option from "effect/Option";
-import { z } from "zod";
+
+import { requiredString, withDefault, struct } from "../schema-boundary";
 
 const DEFAULT_BROKER_URL = "https://cliproxy.momokaya.ee";
 const TRAILING_SLASH_RE = /\/+$/u;
@@ -18,15 +19,13 @@ export interface BrokerCredentials {
  * Submit-time broker auth options: the runner sources BROKER_API_KEY from
  * `secretName[secretKey]` and BROKER_URL from `url`.
  */
-export const brokerAuthOptionSchema = z
-  .object({
-    secretKey: z.string().min(1).default("api-key"),
-    secretName: z.string().min(1),
-    url: z.string().min(1).default(DEFAULT_BROKER_URL),
-  })
-  .strict();
+export const brokerAuthOptionSchema = struct({
+  secretKey: withDefault(requiredString, "api-key"),
+  secretName: requiredString,
+  url: withDefault(requiredString, DEFAULT_BROKER_URL),
+});
 
-export type BrokerAuthOption = z.input<typeof brokerAuthOptionSchema>;
+export type BrokerAuthOption = typeof brokerAuthOptionSchema.Encoded;
 
 /**
  * Trust boundary for local/runner broker credentials. The raw api-key may enter
@@ -38,17 +37,12 @@ const brokerCredentialsOption = (env: NodeJS.ProcessEnv) => {
   if (apiKey === undefined || apiKey === "") {
     return Option.none<BrokerCredentials>();
   }
-  const baseUrl = (env[BROKER_URL_ENV] ?? DEFAULT_BROKER_URL).replace(
-    TRAILING_SLASH_RE,
-    ""
-  );
+  const baseUrl = (env[BROKER_URL_ENV] ?? DEFAULT_BROKER_URL).replace(TRAILING_SLASH_RE, "");
   return Option.some({ apiKey, baseUrl });
 };
 
-export const resolveBrokerCredentials = (
-  env: NodeJS.ProcessEnv = process.env
-) => Option.getOrUndefined(brokerCredentialsOption(env));
+export const resolveBrokerCredentials = (env: NodeJS.ProcessEnv = process.env) =>
+  Option.getOrUndefined(brokerCredentialsOption(env));
 
 /** The broker's OpenAI-compatible endpoint (`<baseUrl>/v1`). */
-export const brokerV1Url = (credentials: BrokerCredentials): string =>
-  `${credentials.baseUrl}/v1`;
+export const brokerV1Url = (credentials: BrokerCredentials): string => `${credentials.baseUrl}/v1`;

@@ -1,10 +1,4 @@
-import {
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -23,15 +17,7 @@ vi.mock("package-manager-detector/detect", () => ({
 
 import { execa } from "execa";
 
-import {
-  artifactExists,
-  runFallow,
-  runJscpd,
-  runLint,
-  runSemgrep,
-  runTests,
-  runTypecheck,
-} from "../src/gates";
+import { artifactExists, runFallow, runJscpd, runLint, runSemgrep, runTests, runTypecheck } from "../src/gates";
 
 const mockExeca = execa as unknown as ReturnType<typeof vi.fn>;
 detectMock = vi.fn();
@@ -75,11 +61,7 @@ describe("runTests", () => {
     expect(result.exitCode).toBe(0);
     expect(result.failingTests).toEqual([]);
     expect(result.output).toContain("All tests passed");
-    expect(mockExeca).toHaveBeenCalledWith(
-      "npm",
-      ["run", "test"],
-      expect.objectContaining({ cwd: worktree })
-    );
+    expect(mockExeca).toHaveBeenCalledWith("npm", ["run", "test"], expect.objectContaining({ cwd: worktree }));
   });
 
   it("returns exitCode 1 and parses failing test names", async () => {
@@ -95,7 +77,7 @@ describe("runTests", () => {
         exitCode: 1,
         stderr: "",
         stdout: fakeOutput,
-      })
+      }),
     );
 
     const result = await runTests(worktree);
@@ -117,11 +99,7 @@ describe("runTests", () => {
     const result = await runTests(worktree);
 
     expect(result.exitCode).toBe(0);
-    expect(mockExeca).toHaveBeenCalledWith(
-      "make test",
-      [],
-      expect.objectContaining({ cwd: worktree, shell: true })
-    );
+    expect(mockExeca).toHaveBeenCalledWith("make test", [], expect.objectContaining({ cwd: worktree, shell: true }));
   });
 
   it("fails when no test command can be found", async () => {
@@ -157,11 +135,7 @@ describe("runTypecheck", () => {
 
     const result = await runTypecheck(worktree);
     expect(result.exitCode).toBe(0);
-    expect(mockExeca).toHaveBeenCalledWith(
-      "npm",
-      ["run", "typecheck"],
-      expect.objectContaining({ cwd: worktree })
-    );
+    expect(mockExeca).toHaveBeenCalledWith("npm", ["run", "typecheck"], expect.objectContaining({ cwd: worktree }));
   });
 
   it("runs pnpm package scripts with the real pnpm command", async () => {
@@ -177,11 +151,7 @@ describe("runTypecheck", () => {
 
     expect(result.exitCode).toBe(0);
     expect(result.command).toBe("pnpm run typecheck");
-    expect(mockExeca).toHaveBeenCalledWith(
-      "pnpm",
-      ["run", "typecheck"],
-      expect.objectContaining({ cwd: worktree })
-    );
+    expect(mockExeca).toHaveBeenCalledWith("pnpm", ["run", "typecheck"], expect.objectContaining({ cwd: worktree }));
   });
 
   it("returns exitCode 1 when typecheck command fails", async () => {
@@ -191,7 +161,7 @@ describe("runTypecheck", () => {
         exitCode: 1,
         stderr: "",
         stdout: "typecheck failed",
-      })
+      }),
     );
 
     const result = await runTypecheck(worktree);
@@ -214,7 +184,7 @@ describe("runTypecheck", () => {
     expect(mockExeca).toHaveBeenCalledWith(
       "make typecheck",
       [],
-      expect.objectContaining({ cwd: worktree, shell: true })
+      expect.objectContaining({ cwd: worktree, shell: true }),
     );
   });
 });
@@ -239,7 +209,7 @@ describe("runSemgrep", () => {
     expect(mockExeca).toHaveBeenCalledWith(
       "uvx",
       ["semgrep", "scan", "--config=p/ci", "--error", "--", "src/app.ts"],
-      expect.objectContaining({ cwd: worktree })
+      expect.objectContaining({ cwd: worktree }),
     );
   });
 
@@ -267,11 +237,7 @@ describe("runSemgrep", () => {
     const result = await runSemgrep(worktree);
 
     expect(result.exitCode).toBe(0);
-    expect(mockExeca).toHaveBeenCalledWith(
-      "make semgrep",
-      [],
-      expect.objectContaining({ cwd: worktree, shell: true })
-    );
+    expect(mockExeca).toHaveBeenCalledWith("make semgrep", [], expect.objectContaining({ cwd: worktree, shell: true }));
   });
 
   it("fails on non-zero semgrep scan", async () => {
@@ -281,7 +247,7 @@ describe("runSemgrep", () => {
         exitCode: 2,
         stderr: "",
         stdout: "finding",
-      })
+      }),
     );
 
     const result = await runSemgrep(worktree);
@@ -306,11 +272,7 @@ describe("runFallow", () => {
 
     expect(result.exitCode).toBe(0);
     expect(result.output).toContain("fallow ok");
-    expect(mockExeca).toHaveBeenCalledWith(
-      "fallow",
-      ["audit"],
-      expect.objectContaining({ cwd: worktree })
-    );
+    expect(mockExeca).toHaveBeenCalledWith("fallow", ["audit"], expect.objectContaining({ cwd: worktree }));
   });
 
   it("uses package-manager exec fallback when a repo has package.json but no fallow script", async () => {
@@ -329,7 +291,7 @@ describe("runFallow", () => {
     expect(mockExeca).toHaveBeenCalledWith(
       "pnpm",
       ["exec", "fallow", "audit"],
-      expect.objectContaining({ cwd: worktree })
+      expect.objectContaining({ cwd: worktree }),
     );
   });
 
@@ -345,11 +307,7 @@ describe("runFallow", () => {
     const result = await runFallow(worktree);
 
     expect(result.exitCode).toBe(0);
-    expect(mockExeca).toHaveBeenCalledWith(
-      "make fallow",
-      [],
-      expect.objectContaining({ cwd: worktree, shell: true })
-    );
+    expect(mockExeca).toHaveBeenCalledWith("make fallow", [], expect.objectContaining({ cwd: worktree, shell: true }));
   });
 });
 
@@ -434,14 +392,8 @@ describe("runJscpd", () => {
 
     expect(mockExeca).toHaveBeenCalledWith(
       "bunx",
-      expect.arrayContaining([
-        "jscpd",
-        "--gitignore",
-        "--ignore",
-        expect.stringContaining("**/node_modules/**"),
-        ".",
-      ]),
-      expect.objectContaining({ cwd: "/fake/worktree" })
+      expect.arrayContaining(["jscpd", "--gitignore", "--ignore", expect.stringContaining("**/node_modules/**"), "."]),
+      expect.objectContaining({ cwd: "/fake/worktree" }),
     );
     const args = mockExeca.mock.calls[0]?.[1] as string[];
     const ignoreArg = args.at(args.indexOf("--ignore") + 1);

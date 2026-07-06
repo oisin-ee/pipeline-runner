@@ -1,14 +1,7 @@
 import type { HookEvent, PipelineConfig } from "../../config";
 import type { HookResult } from "../../hooks";
-import type {
-  PlannedWorkflowNode,
-  WorkflowExecutionPlan,
-} from "../../planning/compile";
-import type {
-  AgentResult,
-  RunnerExecutionOptions,
-  RunnerLaunchPlan,
-} from "../../runner";
+import type { PlannedWorkflowNode, WorkflowExecutionPlan } from "../../planning/compile";
+import type { AgentResult, RunnerExecutionOptions, RunnerLaunchPlan } from "../../runner";
 import type {
   RetryReason,
   RuntimeActorDescriptor,
@@ -26,10 +19,7 @@ export type BuiltinGateSpec = Extract<GateSpec, { kind: "builtin" }>;
 export type ChangedFilesGateSpec = Extract<GateSpec, { kind: "changed_files" }>;
 export type CommandGateSpec = Extract<GateSpec, { kind: "command" }>;
 export type JsonSchemaGateSpec = Extract<GateSpec, { kind: "json_schema" }>;
-export type JsonSourceGateSpec = Extract<
-  GateSpec,
-  { kind: "acceptance" | "json_schema" | "verdict" }
->;
+export type JsonSourceGateSpec = Extract<GateSpec, { kind: "acceptance" | "json_schema" | "verdict" }>;
 export type VerdictGateSpec = Extract<GateSpec, { kind: "verdict" }>;
 export type HookConfig = PipelineConfig["hooks"];
 export type HookFunctionSpec = HookConfig["functions"][string];
@@ -148,15 +138,7 @@ export interface RuntimeStructuredOutput {
   };
 }
 
-export type NodeStatus =
-  | "cancelled"
-  | "failed"
-  | "gating"
-  | "passed"
-  | "pending"
-  | "ready"
-  | "running"
-  | "skipped";
+export type NodeStatus = "cancelled" | "failed" | "gating" | "passed" | "pending" | "ready" | "running" | "skipped";
 
 export interface NodeExecutionState {
   attempts: number;
@@ -367,10 +349,7 @@ export interface PipelineRuntimeOptions {
   availableModels?: ReadonlySet<string>;
   config?: PipelineConfig;
   entrypoint?: string;
-  executor?: (
-    plan: RunnerLaunchPlan,
-    options: RunnerExecutionOptions
-  ) => AgentResult | Promise<AgentResult>;
+  executor?: (plan: RunnerLaunchPlan, options: RunnerExecutionOptions) => AgentResult | Promise<AgentResult>;
   hookPolicy?: HookRuntimePolicy;
   maxParallelNodes?: number;
   reporter?: (event: PipelineRuntimeEvent) => void;
@@ -422,10 +401,7 @@ export interface RuntimeContext {
    */
   availableModels?: ReadonlySet<string>;
   config: PipelineConfig;
-  executor: (
-    plan: RunnerLaunchPlan,
-    options: RunnerExecutionOptions
-  ) => AgentResult | Promise<AgentResult>;
+  executor: (plan: RunnerLaunchPlan, options: RunnerExecutionOptions) => AgentResult | Promise<AgentResult>;
   gates: RuntimeGateResult[];
   hookFailures: RuntimeFailure[];
   hookPolicy: Required<HookRuntimePolicy>;

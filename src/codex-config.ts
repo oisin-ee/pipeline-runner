@@ -28,10 +28,7 @@ const removeTomlSection = (content: string, header: string): string => {
 };
 
 const removePipelineGatewaySections = (content: string): string =>
-  PIPELINE_GATEWAY_SECTION_HEADERS.reduce(
-    (nextContent, header) => removeTomlSection(nextContent, header),
-    content
-  );
+  PIPELINE_GATEWAY_SECTION_HEADERS.reduce((nextContent, header) => removeTomlSection(nextContent, header), content);
 
 const isTomlSectionHeader = (line: string): boolean => {
   const trimmed = line.trim();
@@ -39,33 +36,18 @@ const isTomlSectionHeader = (line: string): boolean => {
 };
 
 const nextTomlSectionIndex = (lines: string[], startIndex: number): number => {
-  const nextIndex = lines.findIndex(
-    (line, index) => index >= startIndex && isTomlSectionHeader(line)
-  );
+  const nextIndex = lines.findIndex((line, index) => index >= startIndex && isTomlSectionHeader(line));
   return nextIndex === -1 ? lines.length : nextIndex;
 };
 
-const tomlKeyPattern = (key: string): RegExp =>
-  new RegExp(`^\\s*${key}\\s*=`, "u");
+const tomlKeyPattern = (key: string): RegExp => new RegExp(`^\\s*${key}\\s*=`, "u");
 
-const setTomlFeature = (
-  content: string,
-  key: string,
-  value: string
-): string => {
+const setTomlFeature = (content: string, key: string, value: string): string => {
   const lines = content.split("\n");
-  const sectionStart = lines.findIndex(
-    (line) => line.trim() === CODEX_FEATURES_SECTION_HEADER
-  );
+  const sectionStart = lines.findIndex((line) => line.trim() === CODEX_FEATURES_SECTION_HEADER);
 
   if (sectionStart === -1) {
-    return [
-      content.trimEnd(),
-      CODEX_FEATURES_SECTION_HEADER,
-      `${key} = ${value}`,
-    ]
-      .filter(Boolean)
-      .join("\n");
+    return [content.trimEnd(), CODEX_FEATURES_SECTION_HEADER, `${key} = ${value}`].filter(Boolean).join("\n");
   }
 
   const sectionEnd = nextTomlSectionIndex(lines, sectionStart + 1);
@@ -73,9 +55,7 @@ const setTomlFeature = (
   const featureLines = lines.slice(sectionStart + 1, sectionEnd);
   const afterSection = lines.slice(sectionEnd);
   const keyPattern = tomlKeyPattern(key);
-  const firstKeyLineIndex = featureLines.findIndex((line) =>
-    keyPattern.test(line)
-  );
+  const firstKeyLineIndex = featureLines.findIndex((line) => keyPattern.test(line));
   const mergedFeatureLines = featureLines.flatMap((line, index) => {
     if (!keyPattern.test(line)) {
       return [line];
@@ -93,20 +73,10 @@ const setTomlFeature = (
   return [...beforeSection, ...mergedFeatureLines, ...afterSection].join("\n");
 };
 
-const enableCodexHooksFeature = (content: string): string =>
-  setTomlFeature(content, CODEX_HOOKS_FEATURE, "true");
+const enableCodexHooksFeature = (content: string): string => setTomlFeature(content, CODEX_HOOKS_FEATURE, "true");
 
-export const mergeCodexConfig = (
-  currentText = "",
-  projection: string
-): string => {
+export const mergeCodexConfig = (currentText = "", projection: string): string => {
   const current = currentText;
-  const currentWithHooks = enableCodexHooksFeature(
-    removePipelineGatewaySections(current).trimEnd()
-  );
-  return ensureTrailingNewline(
-    [currentWithHooks.trimEnd(), projection.trimEnd()]
-      .filter(Boolean)
-      .join("\n\n")
-  );
+  const currentWithHooks = enableCodexHooksFeature(removePipelineGatewaySections(current).trimEnd());
+  return ensureTrailingNewline([currentWithHooks.trimEnd(), projection.trimEnd()].filter(Boolean).join("\n\n"));
 };

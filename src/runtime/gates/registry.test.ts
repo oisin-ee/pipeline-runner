@@ -1,17 +1,10 @@
 import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
 
-import {
-  baseGateRuntimeFields,
-  gateNodeStateStore,
-} from "../../../tests/gate-test-context";
+import { baseGateRuntimeFields, gateNodeStateStore } from "../../../tests/gate-test-context";
 import { parsePipelineConfigParts } from "../../config/load";
 import { compileWorkflowPlan } from "../../planning/compile";
-import type {
-  ChangedFilesGateSpec,
-  GateSpec,
-  RuntimeContext,
-} from "../contracts";
+import type { ChangedFilesGateSpec, GateSpec, RuntimeContext } from "../contracts";
 import type { GateEvaluationInput, GateKind } from "./contract";
 import { evaluateChangedFilesGate } from "./kinds/changed-files/changed-files";
 import { evaluateGate, gateRegistry } from "./registry";
@@ -35,7 +28,7 @@ const runtimeContext = (): RuntimeContext => {
       runners:
         "version: 1\nrunners:\n  local:\n    type: command\n    command: node\n    capabilities: { native_subagents: false }\n",
     },
-    "/tmp/registry-dispatch-test"
+    "/tmp/registry-dispatch-test",
   );
   return {
     ...baseGateRuntimeFields(),
@@ -68,9 +61,7 @@ const denyMarkdownGate: ChangedFilesGateSpec = {
 
 describe("gate registry", () => {
   it("registers exactly one evaluator for every declared gate kind", () => {
-    expect(Object.keys(gateRegistry).toSorted()).toEqual(
-      [...EXPECTED_KINDS].toSorted()
-    );
+    expect(Object.keys(gateRegistry).toSorted()).toEqual([...EXPECTED_KINDS].toSorted());
     for (const kind of EXPECTED_KINDS) {
       expect(typeof gateRegistry[kind]).toBe("function");
     }
@@ -80,12 +71,7 @@ describe("gate registry", () => {
     const input = dispatchInput(denyMarkdownGate);
 
     const dispatched = await evaluateGate(input);
-    const direct = evaluateChangedFilesGate(
-      denyMarkdownGate,
-      input.gateId,
-      input.nodeId,
-      input.context
-    );
+    const direct = evaluateChangedFilesGate(denyMarkdownGate, input.gateId, input.nodeId, input.context);
 
     expect(dispatched).toEqual(direct);
     expect(dispatched).toEqual({
@@ -106,7 +92,7 @@ describe("gate registry", () => {
         continue;
       }
       await expect(gateRegistry[kind](input)).rejects.toThrow(
-        new RegExp(`gate registry mismatch: handler '${kind}'`, "u")
+        new RegExp(`gate registry mismatch: handler '${kind}'`, "u"),
       );
     }
   });

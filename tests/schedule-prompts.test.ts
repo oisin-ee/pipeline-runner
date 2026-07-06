@@ -1,10 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { parsePipelineConfigParts } from "../src/config";
-import type {
-  ScheduleArtifact,
-  SchedulePlanningContext,
-} from "../src/planning/generate";
+import type { ScheduleArtifact, SchedulePlanningContext } from "../src/planning/generate";
 import { plannerPrompt } from "../src/schedule/prompts";
 
 const PIPELINE = `
@@ -75,13 +72,7 @@ describe("plannerPrompt token budget", () => {
       profiles: PROFILES,
       runners: RUNNERS,
     });
-    const prompt = plannerPrompt(
-      "execute",
-      "do it",
-      BASELINE,
-      config,
-      PLANNING_CONTEXT
-    );
+    const prompt = plannerPrompt("execute", "do it", BASELINE, config, PLANNING_CONTEXT);
     expect(prompt).toContain("under 50% of its model's context window");
     expect(prompt).toContain("openai/gpt-5.5=400000");
     expect(prompt).toContain("Default width: 4");

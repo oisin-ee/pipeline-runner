@@ -31,22 +31,11 @@ interface PreScheduleOptions {
 class RunnerCommandService extends Context.Service<
   RunnerCommandService,
   {
-    readonly finalize: (
-      options: RunnerFinalizeOptions
-    ) => Effect.Effect<number, unknown>;
-    readonly lifecycle: (
-      options: RunnerLifecycleOptions
-    ) => Effect.Effect<number, unknown>;
-    readonly preSchedule: (
-      options: PreScheduleOptions
-    ) => Effect.Effect<number, unknown>;
-    readonly run: (
-      options: RunnerCommandOptions
-    ) => Effect.Effect<number, unknown>;
-    readonly selectReadyWave: (options: {
-      outputFile: string;
-      payloadFile: string;
-    }) => Effect.Effect<number, unknown>;
+    readonly finalize: (options: RunnerFinalizeOptions) => Effect.Effect<number, unknown>;
+    readonly lifecycle: (options: RunnerLifecycleOptions) => Effect.Effect<number, unknown>;
+    readonly preSchedule: (options: PreScheduleOptions) => Effect.Effect<number, unknown>;
+    readonly run: (options: RunnerCommandOptions) => Effect.Effect<number, unknown>;
+    readonly selectReadyWave: (options: { outputFile: string; payloadFile: string }) => Effect.Effect<number, unknown>;
   }
 >()("RunnerCommandService") {}
 
@@ -111,19 +100,15 @@ const runPreScheduleEffect = (options: PreScheduleOptions) =>
     yield* setProcessExitCode(exitCode);
   });
 
-const runSelectReadyWaveEffect = (options: {
-  outputFile: string;
-  payloadFile: string;
-}) =>
+const runSelectReadyWaveEffect = (options: { outputFile: string; payloadFile: string }) =>
   Effect.gen(function* runSelectReadyWaveEffect() {
     const service = yield* RunnerCommandService;
     const exitCode = yield* service.selectReadyWave(options);
     yield* setProcessExitCode(exitCode);
   });
 
-const runRunnerProgram = async <A>(
-  program: Effect.Effect<A, unknown, RunnerCommandService>
-) => await Effect.runPromise(Effect.provide(program, RunnerCommandServiceLive));
+const runRunnerProgram = async <A>(program: Effect.Effect<A, unknown, RunnerCommandService>) =>
+  await Effect.runPromise(Effect.provide(program, RunnerCommandServiceLive));
 
 export const registerRunnerCommandCommand = (program: Command): void => {
   program
@@ -142,10 +127,7 @@ export const registerRunnerCommandCommand = (program: Command): void => {
     .description("Run one Argo Workflow lifecycle phase")
     .requiredOption("--phase <phase>", "Lifecycle phase to run")
     .requiredOption("--payload-file <path>", "Path to the runner payload JSON")
-    .requiredOption(
-      "--schedule-file <path>",
-      "Path to the schedule artifact YAML"
-    )
+    .requiredOption("--schedule-file <path>", "Path to the schedule artifact YAML")
     .action(async (options: RunnerLifecycleOptions) => {
       await runRunnerProgram(runRunnerLifecycleEffect(options));
     });
@@ -153,10 +135,7 @@ export const registerRunnerCommandCommand = (program: Command): void => {
   program
     .command("runner-pre-schedule")
     .description("Run one dynamic pre-schedule phase")
-    .requiredOption(
-      "--phase <phase>",
-      "pre-research, pre-planning, or generate-schedule"
-    )
+    .requiredOption("--phase <phase>", "pre-research, pre-planning, or generate-schedule")
     .requiredOption("--payload-file <path>", "Path to the runner payload JSON")
     .action(async (options: PreScheduleOptions) => {
       await runRunnerProgram(runPreScheduleEffect(options));
@@ -178,10 +157,7 @@ export const registerRunnerCommandCommand = (program: Command): void => {
     .command("runner-select-ready-wave")
     .description("Select DB-ready nodes for the next dynamic Argo wave")
     .requiredOption("--payload-file <path>", "Path to the runner payload JSON")
-    .requiredOption(
-      "--output-file <path>",
-      "Path where the ready node id JSON array is written"
-    )
+    .requiredOption("--output-file <path>", "Path where the ready node id JSON array is written")
     .action(async (options: { outputFile: string; payloadFile: string }) => {
       await runRunnerProgram(runSelectReadyWaveEffect(options));
     });

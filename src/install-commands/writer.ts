@@ -15,7 +15,7 @@ interface BlockReplacement {
 
 const blockReplacement = (
   current: string,
-  block: NonNullable<CommandDefinition["block"]>
+  block: NonNullable<CommandDefinition["block"]>,
 ): Option<BlockReplacement> => {
   const startIndex = current.indexOf(block.start);
   const endIndex = current.indexOf(block.end);
@@ -33,7 +33,7 @@ const blockReplacement = (
 const upsertGeneratedBlock = (
   current: string,
   content: string,
-  block: NonNullable<CommandDefinition["block"]>
+  block: NonNullable<CommandDefinition["block"]>,
 ): string => {
   const replacement = blockReplacement(current, block);
   if (isSome(replacement)) {
@@ -43,15 +43,9 @@ const upsertGeneratedBlock = (
   return `${current.trimEnd()}${separator}${content}`;
 };
 
-const shouldSkipInstallWrite = (
-  options: InstallCommandsOptions,
-  write: InstallPlanWrite
-): boolean =>
+const shouldSkipInstallWrite = (options: InstallCommandsOptions, write: InstallPlanWrite): boolean =>
   Boolean(
-    options.check === true ||
-    options.dryRun === true ||
-    write.action === "unchanged" ||
-    write.action === "conflict"
+    options.check === true || options.dryRun === true || write.action === "unchanged" || write.action === "conflict",
   );
 
 const writePlanItem = async (write: InstallPlanWrite): Promise<void> => {
@@ -59,11 +53,7 @@ const writePlanItem = async (write: InstallPlanWrite): Promise<void> => {
   if (write.block && existsSync(write.target)) {
     await writeFile(
       write.target,
-      upsertGeneratedBlock(
-        readFileSync(write.target, "utf-8"),
-        write.content,
-        write.block
-      )
+      upsertGeneratedBlock(readFileSync(write.target, "utf-8"), write.content, write.block),
     );
     return;
   }
@@ -73,10 +63,7 @@ const writePlanItem = async (write: InstallPlanWrite): Promise<void> => {
 const shouldRemoveObsoleteItems = (options: InstallCommandsOptions): boolean =>
   options.check !== true && options.dryRun !== true;
 
-const removeObsoleteItems = async (
-  plan: InstallCommandsPlan,
-  options: InstallCommandsOptions
-): Promise<void> => {
+const removeObsoleteItems = async (plan: InstallCommandsPlan, options: InstallCommandsOptions): Promise<void> => {
   if (!shouldRemoveObsoleteItems(options)) {
     return;
   }
@@ -85,10 +72,7 @@ const removeObsoleteItems = async (
   }
 };
 
-export const writeInstallPlan = async (
-  plan: InstallCommandsPlan,
-  options: InstallCommandsOptions
-): Promise<void> => {
+export const writeInstallPlan = async (plan: InstallCommandsPlan, options: InstallCommandsOptions): Promise<void> => {
   for (const write of plan.writes) {
     if (!shouldSkipInstallWrite(options, write)) {
       await writePlanItem(write);

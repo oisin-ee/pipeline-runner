@@ -30,9 +30,7 @@ vi.mock("../opencode-runtime", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../opencode-runtime")>();
   return {
     ...actual,
-    leaseOpencodeRuntime: async (
-      input: Parameters<typeof actual.leaseOpencodeRuntime>[0]
-    ) => {
+    leaseOpencodeRuntime: async (input: Parameters<typeof actual.leaseOpencodeRuntime>[0]) => {
       opencodeRecords.leases += 1;
       const lease = await actual.leaseOpencodeRuntime({
         ...input,
@@ -64,10 +62,7 @@ const passedNodeResult = (nodeId: string): RuntimeNodeResult => ({
   status: "passed",
 });
 
-const plannedNode = (
-  id: string,
-  kind: PlannedWorkflowNode["kind"]
-): PlannedWorkflowNode => ({
+const plannedNode = (id: string, kind: PlannedWorkflowNode["kind"]): PlannedWorkflowNode => ({
   dependents: [],
   id,
   index: 0,
@@ -119,9 +114,7 @@ const plainConfig = (byCategory: Record<string, number> = {}): PipelineConfig =>
     },
   }) as unknown as PipelineConfig;
 
-const runtimeContext = (
-  executor: RuntimeContext["executor"]
-): Parameters<typeof executeParallelNode>[1] => ({
+const runtimeContext = (executor: RuntimeContext["executor"]): Parameters<typeof executeParallelNode>[1] => ({
   agentInvocations: [],
   config: opencodeConfig(),
   executor,
@@ -151,7 +144,7 @@ const runtimeContext = (
 
 const runtimeContextWith = (
   executor: RuntimeContext["executor"],
-  config: PipelineConfig
+  config: PipelineConfig,
 ): Parameters<typeof executeParallelNode>[1] => ({
   ...runtimeContext(executor),
   config,
@@ -167,17 +160,13 @@ describe("runtime parallel node", () => {
 
     const parentExecutor = vi.fn();
     let childExecutor: unknown;
-    const result = await executeParallelNode(
-      parallelNode(),
-      runtimeContext(parentExecutor),
-      {
-        executeNode: async (_child, context) => {
-          childExecutor = context.executor;
-          return passedNodeResult(_child.id);
-        },
-        markNodeReady: () => {},
-      }
-    );
+    const result = await executeParallelNode(parallelNode(), runtimeContext(parentExecutor), {
+      executeNode: async (_child, context) => {
+        childExecutor = context.executor;
+        return passedNodeResult(_child.id);
+      },
+      markNodeReady: () => {},
+    });
 
     expect(result.exitCode).toBe(0);
     expect(worktreeRecords.creates).toBe(1);
@@ -195,13 +184,11 @@ describe("runtime parallel node", () => {
       {
         executeNode: async (child) => passedNodeResult(child.id),
         markNodeReady: () => {},
-      }
+      },
     );
 
     expect(result.exitCode).toBe(0);
-    expect(result.evidence).toEqual([
-      "parallel node 'green' completed 2 child nodes",
-    ]);
+    expect(result.evidence).toEqual(["parallel node 'green' completed 2 child nodes"]);
   });
 
   it("surfaces failed children in the aggregate evidence", async () => {
@@ -221,13 +208,11 @@ describe("runtime parallel node", () => {
               }
             : passedNodeResult(child.id),
         markNodeReady: () => {},
-      }
+      },
     );
 
     expect(result.exitCode).toBe(1);
-    expect(result.evidence).toContain(
-      "parallel node 'green' failed with 1 failed child nodes"
-    );
+    expect(result.evidence).toContain("parallel node 'green' failed with 1 failed child nodes");
     expect(result.evidence).toContain("green-b failed");
   });
 
@@ -241,7 +226,7 @@ describe("runtime parallel node", () => {
           output: child.id === "left" ? "L" : "R",
         }),
         markNodeReady: () => {},
-      }
+      },
     );
 
     expect(JSON.parse(result.output)).toEqual({
@@ -264,7 +249,7 @@ describe("runtime parallel node", () => {
           return passedNodeResult(child.id);
         },
         markNodeReady: () => {},
-      }
+      },
     );
 
     expect(result.exitCode).toBe(0);
@@ -286,7 +271,7 @@ describe("runtime parallel node", () => {
           return passedNodeResult(child.id);
         },
         markNodeReady: () => {},
-      }
+      },
     );
 
     expect(maxActive).toBe(2);

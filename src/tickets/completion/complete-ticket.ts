@@ -1,10 +1,6 @@
 import { Data, Effect } from "effect";
 
-import type {
-  AcceptanceCriterion,
-  CompletionClaim,
-  UnmetCriterion,
-} from "../../runtime/contracts";
+import type { AcceptanceCriterion, CompletionClaim, UnmetCriterion } from "../../runtime/contracts";
 import type { LlmJudge } from "../../runtime/gates/adjudication/llm-judge";
 import type { DeterministicGate } from "../../runtime/gates/adjudicator";
 import { adjudicate } from "../../runtime/gates/adjudicator";
@@ -19,9 +15,7 @@ import type { BacklogTaskStore } from "../backlog-task-store";
  * an error — it is an explicit {@link TicketCompletionOutcome} the use-case
  * succeeds with, so a refused completion is always surfaced, never swallowed.
  */
-export class TicketCompletionError extends Data.TaggedError(
-  "TicketCompletionError"
-)<{
+export class TicketCompletionError extends Data.TaggedError("TicketCompletionError")<{
   readonly message: string;
 }> {}
 
@@ -42,12 +36,8 @@ export interface TicketCompletionTarget {
  * stub — no RepoIoService/BacklogService, no CLI.
  */
 export interface TicketCompletionStore {
-  readonly loadTarget: (
-    ticketId: string
-  ) => Effect.Effect<TicketCompletionTarget, TicketCompletionError>;
-  readonly markDone: (
-    ticketId: string
-  ) => Effect.Effect<void, TicketCompletionError>;
+  readonly loadTarget: (ticketId: string) => Effect.Effect<TicketCompletionTarget, TicketCompletionError>;
+  readonly markDone: (ticketId: string) => Effect.Effect<void, TicketCompletionError>;
 }
 
 /**
@@ -95,14 +85,14 @@ export const conservativeLayerAJudge: LlmJudge = (input) => ({
 
 const resolveTargetEffect = (
   store: BacklogTaskStore,
-  ticketId: string
+  ticketId: string,
 ): Effect.Effect<TicketCompletionTarget, TicketCompletionError> => {
   const record = store.tasksById.get(ticketId);
   if (!record) {
     return Effect.fail(
       new TicketCompletionError({
         message: `Unknown Backlog ticket '${ticketId}'`,
-      })
+      }),
     );
   }
   return Effect.succeed({
@@ -121,12 +111,8 @@ const resolveTargetEffect = (
  * keeping {@link completeTicket} free of an R requirement.
  */
 export const backlogTicketCompletionStoreEffect = (
-  worktreePath: string
-): Effect.Effect<
-  TicketCompletionStore,
-  never,
-  RepoIoService | BacklogService
-> =>
+  worktreePath: string,
+): Effect.Effect<TicketCompletionStore, never, RepoIoService | BacklogService> =>
   Effect.gen(function* effectBody() {
     const repoIo = yield* RepoIoService;
     const backlog = yield* BacklogService;
@@ -134,31 +120,23 @@ export const backlogTicketCompletionStoreEffect = (
       loadTarget: (ticketId) =>
         loadBacklogTaskStoreEffect(worktreePath).pipe(
           Effect.provideService(RepoIoService, repoIo),
-          Effect.mapError(
-            (error) => new TicketCompletionError({ message: error.message })
-          ),
-          Effect.flatMap((store) => resolveTargetEffect(store, ticketId))
+          Effect.mapError((error) => new TicketCompletionError({ message: error.message })),
+          Effect.flatMap((store) => resolveTargetEffect(store, ticketId)),
         ),
       markDone: (ticketId) =>
-        backlog
-          .run(
-            ["task", "edit", ticketId, "--status", "Done", "--plain"],
-            worktreePath
-          )
-          .pipe(
-            Effect.asVoid,
-            Effect.mapError(
-              (error) =>
-                new TicketCompletionError({
-                  message: `Could not set ticket '${ticketId}' to Done: ${error.message}`,
-                })
-            )
+        backlog.run(["task", "edit", ticketId, "--status", "Done", "--plain"], worktreePath).pipe(
+          Effect.asVoid,
+          Effect.mapError(
+            (error) =>
+              new TicketCompletionError({
+                message: `Could not set ticket '${ticketId}' to Done: ${error.message}`,
+              }),
           ),
+        ),
     };
   });
 
-const errorMessage = (error: unknown): string =>
-  error instanceof Error ? error.message : String(error);
+const errorMessage = (error: unknown): string => (error instanceof Error ? error.message : String(error));
 
 /**
  * The keystone completion use-case (PIPE-90.11): load the ticket's acceptance
@@ -168,7 +146,7 @@ const errorMessage = (error: unknown): string =>
  * the injected store + judge.
  */
 export const completeTicket = (
-  input: CompleteTicketInput
+  input: CompleteTicketInput,
 ): Effect.Effect<TicketCompletionOutcome, TicketCompletionError> =>
   Effect.gen(function* effectBody() {
     const target = yield* input.store.loadTarget(input.ticketId);

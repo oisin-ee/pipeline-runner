@@ -5,9 +5,7 @@ import { Data } from "effect";
  * so MCP command modules and the Effect service can share one error type without
  * forming circular dependencies.
  */
-export class PipelineMcpGatewayError extends Data.TaggedError(
-  "PipelineMcpGatewayError"
-)<{
+export class PipelineMcpGatewayError extends Data.TaggedError("PipelineMcpGatewayError")<{
   readonly message: string;
 }> {
   constructor(message: string) {

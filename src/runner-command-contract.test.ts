@@ -6,6 +6,7 @@ import {
   runnerDeliverySchema,
   runnerRepositoryContextSchema,
 } from "./runner-command-contract";
+import { parseResultWithSchema, parseWithSchema } from "./schema-boundary";
 
 // ---------------------------------------------------------------------------
 // AC1: runner payload parses update-existing-pr delivery + repository.headBranch
@@ -41,7 +42,7 @@ const BASE_PAYLOAD = {
 
 describe("runnerDeliverySchema", () => {
   it("parses update-existing-pr mode", () => {
-    const result = runnerDeliverySchema.parse({
+    const result = parseWithSchema(runnerDeliverySchema, {
       mode: "update-existing-pr",
       pullRequest: true,
     });
@@ -50,14 +51,16 @@ describe("runnerDeliverySchema", () => {
   });
 
   it("defaults mode to create-new-pr when absent", () => {
-    const result = runnerDeliverySchema.parse({ pullRequest: false });
+    const result = parseWithSchema(runnerDeliverySchema, {
+      pullRequest: false,
+    });
     expect(result.mode).toBe("create-new-pr");
   });
 });
 
 describe("runnerRepositoryContextSchema", () => {
   it("parses headBranch when provided", () => {
-    const result = runnerRepositoryContextSchema.parse({
+    const result = parseWithSchema(runnerRepositoryContextSchema, {
       baseBranch: "main",
       headBranch: "moka/run/run-x",
       url: "git@github.com:owner/repo.git",
@@ -66,7 +69,7 @@ describe("runnerRepositoryContextSchema", () => {
   });
 
   it("headBranch is optional", () => {
-    const result = runnerRepositoryContextSchema.parse({
+    const result = parseWithSchema(runnerRepositoryContextSchema, {
       baseBranch: "main",
       url: "git@github.com:owner/repo.git",
     });
@@ -76,14 +79,14 @@ describe("runnerRepositoryContextSchema", () => {
 
 describe("runnerCommandPayloadSchema — AC1", () => {
   it("parses full payload with update-existing-pr delivery and repository.headBranch", () => {
-    const result = runnerCommandPayloadSchema.safeParse(BASE_PAYLOAD);
-    expect(result.success).toBe(true);
-    if (!result.success) {
+    const result = parseResultWithSchema(runnerCommandPayloadSchema, BASE_PAYLOAD);
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
       return;
     }
-    expect(result.data.delivery.mode).toBe("update-existing-pr");
-    expect(result.data.delivery.pullRequest).toBe(true);
-    expect(result.data.repository.headBranch).toBe("moka/run/run-x");
+    expect(result.value.delivery.mode).toBe("update-existing-pr");
+    expect(result.value.delivery.pullRequest).toBe(true);
+    expect(result.value.repository.headBranch).toBe("moka/run/run-x");
   });
 
   it("parseRunnerCommandPayload accepts update-existing-pr payload string", () => {
@@ -98,12 +101,12 @@ describe("runnerCommandPayloadSchema — AC1", () => {
       delivery: { pullRequest: true },
       repository: { baseBranch: "main", url: "git@github.com:owner/repo.git" },
     };
-    const result = runnerCommandPayloadSchema.safeParse(freshPayload);
-    expect(result.success).toBe(true);
-    if (!result.success) {
+    const result = parseResultWithSchema(runnerCommandPayloadSchema, freshPayload);
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
       return;
     }
-    expect(result.data.delivery.mode).toBe("create-new-pr");
-    expect(result.data.repository.headBranch).toBeUndefined();
+    expect(result.value.delivery.mode).toBe("create-new-pr");
+    expect(result.value.repository.headBranch).toBeUndefined();
   });
 });

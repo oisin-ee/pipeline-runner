@@ -1,18 +1,16 @@
+import * as Schema from "effect/Schema";
 import { describe, expect, it } from "vitest";
-import { z } from "zod";
 
 import { parsePipelineConfigParts } from "../src/config";
 import type { PipelineConfigParts } from "../src/config";
-import {
-  gatewayServerForProfile,
-  renderGatewayConfig,
-} from "../src/mcp/gateway-config";
+import { gatewayServerForProfile, renderGatewayConfig } from "../src/mcp/gateway-config";
 import {
   renderClaudeGatewayUserConfig,
   renderCodexGatewayConfig,
   renderOpenCodeGatewayConfig,
 } from "../src/mcp/host-renderers";
 import { parseJson } from "../src/safe-json";
+import { parseWithSchema, struct } from "../src/schema-boundary";
 
 const PARTS: PipelineConfigParts = {
   pipeline: `
@@ -58,49 +56,44 @@ runners:
 const ENV: NodeJS.ProcessEnv = {
   PIPELINE_MCP_GATEWAY_URL: "https://gateway.example/mcp",
 };
-const CLAUDE_GATEWAY_AUTH_HEADER = [
-  "$",
-  "{PIPELINE_MCP_GATEWAY_AUTHORIZATION}",
-].join("");
-const gatewayHeaderConfigSchema = z.object({
-  Authorization: z.string(),
+const CLAUDE_GATEWAY_AUTH_HEADER = ["$", "{PIPELINE_MCP_GATEWAY_AUTHORIZATION}"].join("");
+const gatewayHeaderConfigSchema = struct({
+  Authorization: Schema.String,
 });
-const openCodeGatewayConfigSchema = z.object({
-  mcp: z.record(
-    z.string(),
-    z.object({
-      enabled: z.boolean(),
+const openCodeGatewayConfigSchema = struct({
+  mcp: Schema.Record(
+    Schema.String,
+    struct({
+      enabled: Schema.Boolean,
       headers: gatewayHeaderConfigSchema,
-      oauth: z.boolean(),
-      type: z.string(),
-      url: z.string(),
-    })
+      oauth: Schema.Boolean,
+      type: Schema.String,
+      url: Schema.String,
+    }),
   ),
 });
-const claudeGatewayConfigSchema = z.object({
-  mcpServers: z.record(
-    z.string(),
-    z.object({
+const claudeGatewayConfigSchema = struct({
+  mcpServers: Schema.Record(
+    Schema.String,
+    struct({
       headers: gatewayHeaderConfigSchema,
-      type: z.string(),
-      url: z.string(),
-    })
+      type: Schema.String,
+      url: Schema.String,
+    }),
   ),
 });
 
 const parseOpenCodeGatewayJson = (source: string) =>
-  openCodeGatewayConfigSchema.parse(parseJson(source, "OpenCode gateway JSON"));
+  parseWithSchema(openCodeGatewayConfigSchema, parseJson(source, "OpenCode gateway JSON"));
 
 const parseClaudeGatewayJson = (source: string) =>
-  claudeGatewayConfigSchema.parse(parseJson(source, "Claude gateway JSON"));
+  parseWithSchema(claudeGatewayConfigSchema, parseJson(source, "Claude gateway JSON"));
 
 describe("MCP gateway pure renderers", () => {
   it("renders host gateway configs without filesystem or process IO", () => {
     const config = parsePipelineConfigParts(PARTS);
 
-    const opencode = parseOpenCodeGatewayJson(
-      renderOpenCodeGatewayConfig(config, ENV)
-    );
+    const opencode = parseOpenCodeGatewayJson(renderOpenCodeGatewayConfig(config, ENV));
     expect(opencode.mcp["pipeline-gateway"]).toEqual({
       enabled: true,
       headers: {
@@ -111,9 +104,7 @@ describe("MCP gateway pure renderers", () => {
       url: "https://gateway.example/mcp",
     });
 
-    const claude = parseClaudeGatewayJson(
-      renderClaudeGatewayUserConfig(config, ENV)
-    );
+    const claude = parseClaudeGatewayJson(renderClaudeGatewayUserConfig(config, ENV));
     expect(claude.mcpServers["pipeline-gateway"]).toEqual({
       headers: {
         Authorization: CLAUDE_GATEWAY_AUTH_HEADER,
@@ -122,9 +113,7 @@ describe("MCP gateway pure renderers", () => {
       url: "https://gateway.example/mcp",
     });
 
-    expect(renderCodexGatewayConfig(config, ENV)).toContain(
-      'url = "https://gateway.example/mcp"'
-    );
+    expect(renderCodexGatewayConfig(config, ENV)).toContain('url = "https://gateway.example/mcp"');
   });
 
   it("renders profile gateway grants through the same config resolution", () => {
@@ -139,8 +128,6 @@ describe("MCP gateway pure renderers", () => {
         url: "https://gateway.example/mcp",
       },
     });
-    expect(renderGatewayConfig(config, ENV)).toContain(
-      "resolved_url: https://gateway.example/mcp"
-    );
+    expect(renderGatewayConfig(config, ENV)).toContain("resolved_url: https://gateway.example/mcp");
   });
 });

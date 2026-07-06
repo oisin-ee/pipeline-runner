@@ -8,7 +8,7 @@ const AT = "2026-06-03T00:00:00.000Z";
 const recordStartedAttempt = (
   tracker: NodeStateTracker,
   attempt: number,
-  runner: Extract<NodeExecutionEvent, { type: "RUNNER_FINISHED" }>
+  runner: Extract<NodeExecutionEvent, { type: "RUNNER_FINISHED" }>,
 ): void => {
   tracker.record({ at: AT, type: "READY" });
   tracker.record({ at: AT, attempt, type: "STARTED" });
@@ -22,10 +22,7 @@ const recordStartedAttempt = (
   tracker.record({ at: AT, gates: [], type: "GATES_FINISHED" });
 };
 
-const passedEvent = (
-  nodeId = "worker",
-  attempt = 1
-): Extract<NodeExecutionEvent, { type: "PASSED" }> => ({
+const passedEvent = (nodeId = "worker", attempt = 1): Extract<NodeExecutionEvent, { type: "PASSED" }> => ({
   at: AT,
   result: {
     attempts: attempt,
@@ -38,10 +35,7 @@ const passedEvent = (
   type: "PASSED",
 });
 
-const failedEvent = (
-  nodeId = "worker",
-  attempt = 1
-): Extract<NodeExecutionEvent, { type: "FAILED" }> => ({
+const failedEvent = (nodeId = "worker", attempt = 1): Extract<NodeExecutionEvent, { type: "FAILED" }> => ({
   at: AT,
   failure: {
     evidence: ["exit 1"],
@@ -60,10 +54,7 @@ const failedEvent = (
   type: "FAILED",
 });
 
-const retryingEvent = (
-  nodeId = "worker",
-  attempt = 1
-): Extract<NodeExecutionEvent, { type: "RETRYING" }> => ({
+const retryingEvent = (nodeId = "worker", attempt = 1): Extract<NodeExecutionEvent, { type: "RETRYING" }> => ({
   at: AT,
   attempt,
   evidence: ["exit 1"],
@@ -177,10 +168,8 @@ describe("NodeStateTracker", () => {
 
   it("rejects illegal lifecycle events before mutating state", () => {
     const pendingTracker = new NodeStateTracker("pending-worker");
-    expect(() =>
-      pendingTracker.record({ at: AT, attempt: 1, type: "STARTED" })
-    ).toThrow(
-      "Illegal NodeExecutionEvent STARTED from node status pending; allowed from: ready, running"
+    expect(() => pendingTracker.record({ at: AT, attempt: 1, type: "STARTED" })).toThrow(
+      "Illegal NodeExecutionEvent STARTED from node status pending; allowed from: ready, running",
     );
     expect(pendingTracker.getState()).toMatchObject({
       attempts: 0,
@@ -190,7 +179,7 @@ describe("NodeStateTracker", () => {
     const readyTracker = new NodeStateTracker("ready-worker");
     readyTracker.record({ at: AT, type: "READY" });
     expect(() => readyTracker.record(passedEvent("ready-worker"))).toThrow(
-      "Illegal NodeExecutionEvent PASSED from node status ready; allowed from: running, gating"
+      "Illegal NodeExecutionEvent PASSED from node status ready; allowed from: running, gating",
     );
     expect(readyTracker.getState()).toMatchObject({
       status: "ready",
@@ -199,10 +188,8 @@ describe("NodeStateTracker", () => {
     const runningTracker = new NodeStateTracker("running-worker");
     runningTracker.record({ at: AT, type: "READY" });
     runningTracker.record({ at: AT, attempt: 1, type: "STARTED" });
-    expect(() =>
-      runningTracker.record({ at: AT, gates: [], type: "GATES_FINISHED" })
-    ).toThrow(
-      "Illegal NodeExecutionEvent GATES_FINISHED from node status running; allowed from: gating"
+    expect(() => runningTracker.record({ at: AT, gates: [], type: "GATES_FINISHED" })).toThrow(
+      "Illegal NodeExecutionEvent GATES_FINISHED from node status running; allowed from: gating",
     );
     expect(runningTracker.getState()).toMatchObject({
       gates: [],
@@ -219,7 +206,7 @@ describe("NodeStateTracker", () => {
     });
     terminalTracker.record(passedEvent("terminal-worker"));
     expect(() => terminalTracker.record({ at: AT, type: "READY" })).toThrow(
-      "Illegal NodeExecutionEvent READY from node status passed; allowed from: pending"
+      "Illegal NodeExecutionEvent READY from node status passed; allowed from: pending",
     );
     expect(terminalTracker.getState()).toMatchObject({
       status: "passed",

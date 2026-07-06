@@ -1,77 +1,60 @@
 import { existsSync } from "node:fs";
 
+import * as Arr from "effect/Array";
+import * as HashSet from "effect/HashSet";
+import * as R from "effect/Record";
+
 import { PACKAGE_ASSET_ROOT } from "../package-assets";
 import { resolveFileReference } from "../path-refs";
+import { parseResultWithSchema } from "../schema-boundary";
 import { standardOutputSchemaNameFromPath } from "../standard-output-schemas";
-import {
-  HOOK_EVENTS,
-  ID_RE,
-  PIPELINE_GATEWAY_SERVER_ID,
-} from "./schema/catalog";
-import {
-  configIssuesFromZodError,
-  configSchema,
-  validationError,
-} from "./schemas";
-import type {
-  ConfigGateSpec,
-  PipelineConfig,
-  PipelineConfigIssue,
-  PipelineConfigValidationOptions,
-} from "./schemas";
+import { HOOK_EVENTS, ID_RE, PIPELINE_GATEWAY_SERVER_ID } from "./schema/catalog";
+import { configIssuesFromSchemaIssues, configSchema, validationError } from "./schemas";
+import type { ConfigGateSpec, PipelineConfig, PipelineConfigIssue, PipelineConfigValidationOptions } from "./schemas";
 
-const knownNodeCategories = (config: PipelineConfig): Set<string> => {
-  const categories = new Set<string>();
-  for (const catalog of Object.values(config.scheduler.node_catalogs)) {
-    for (const category of catalog.required_categories) {
-      categories.add(category);
-    }
-    for (const node of Object.values(catalog.nodes)) {
-      categories.add(node.category);
-    }
-  }
-  return categories;
-};
+type WorkflowNode = PipelineConfig["workflows"][string]["nodes"][number];
+type NodeIdSet = HashSet.HashSet<string>;
 
-const validateTokenBudget = (
-  config: PipelineConfig,
-  issues: PipelineConfigIssue[]
-): void => {
+const knownNodeCategories = (config: PipelineConfig): NodeIdSet =>
+  HashSet.fromIterable(
+    Arr.flatMap(R.values(config.scheduler.node_catalogs), (catalog) =>
+      Arr.appendAll(
+        catalog.required_categories,
+        Arr.map(R.values(catalog.nodes), (node) => node.category),
+      ),
+    ),
+  );
+
+const validateTokenBudget = (config: PipelineConfig, issues: PipelineConfigIssue[]): void => {
   const known = knownNodeCategories(config);
-  for (const category of Object.keys(
-    config.token_budget.fan_out_width.by_category
-  )) {
-    if (!known.has(category)) {
+  Arr.forEach(R.keys(config.token_budget.fan_out_width.by_category), (category) => {
+    if (!HashSet.has(known, category)) {
       issues.push({
         message: `fan-out width cap references unknown node category '${category}'`,
         path: `token_budget.fan_out_width.by_category.${category}`,
       });
     }
-  }
+  });
 };
 
-const validateRegistryIds = (
-  name: string,
-  registry: Record<string, unknown>,
-  issues: PipelineConfigIssue[]
-): void => {
-  for (const id of Object.keys(registry)) {
+const validateRegistryIds = (name: string, registry: Record<string, unknown>, issues: PipelineConfigIssue[]): void => {
+  Arr.forEach(R.keys(registry), (id) => {
     if (!ID_RE.test(id)) {
       issues.push({
         message: `registry id '${id}' must match ${ID_RE.source}`,
         path: `${name}.${id}`,
       });
     }
-  }
+  });
 };
 
 const validateWorkflowNodeKind = (
   workflowId: string,
   node: PipelineConfig["workflows"][string]["nodes"][number],
   config: PipelineConfig,
-  issues: PipelineConfigIssue[]
+  issues: PipelineConfigIssue[],
 ): void => {
-  if (node.kind === "agent" && !Object.hasOwn(config.profiles, node.profile)) {
+  if (node.kind === "agent" && !R.has(config.profiles, node.profile)) {
     issues.push({
       message: `node '${node.id}' references missing profile '${node.profile}'`,
       path: `workflows.${workflowId}.nodes.${node.id}.profile`,
@@ -79,87 +62,75 @@ const validateWorkflowNodeKind = (
   }
 };
 
-const workflowNodeValidators = {
-  validateParallelWorkflowNode(
-    workflowId: string,
-    node: Extract<
-      PipelineConfig["workflows"][string]["nodes"][number],
-      { kind: "parallel" }
-    >,
-    config: PipelineConfig,
-    issues: PipelineConfigIssue[]
-  ): void {
-    const childIds = new Set<string>();
-    for (const child of node.nodes) {
-      if (childIds.has(child.id)) {
-        issues.push({
-          message: `parallel node '${node.id}' declares duplicate child node id '${child.id}'`,
-          path: `workflows.${workflowId}.nodes.${node.id}.nodes.${child.id}`,
-        });
-      }
-      childIds.add(child.id);
+const collectNodeIds = (
+  nodes: readonly WorkflowNode[],
+  duplicateIssue: (node: WorkflowNode) => PipelineConfigIssue,
+  issues: PipelineConfigIssue[],
+): NodeIdSet =>
+  Arr.reduce(nodes, HashSet.empty<string>(), (ids, node) => {
+    if (HashSet.has(ids, node.id)) {
+      issues.push(duplicateIssue(node));
     }
-    for (const child of node.nodes) {
-      workflowNodeValidators.validateWorkflowNode(
-        workflowId,
-        child,
-        childIds,
-        config,
-        issues
-      );
-    }
-  },
-  validateWorkflowNode(
-    workflowId: string,
-    node: PipelineConfig["workflows"][string]["nodes"][number],
-    nodeIds: Set<string>,
-    config: PipelineConfig,
-    issues: PipelineConfigIssue[]
-  ): void {
-    if (!ID_RE.test(node.id)) {
-      issues.push({
-        message: `workflow node id '${node.id}' must match ${ID_RE.source}`,
-        path: `workflows.${workflowId}.nodes.${node.id}`,
-      });
-    }
-    for (const need of node.needs ?? []) {
-      if (!nodeIds.has(need)) {
-        issues.push({
-          message: `node '${node.id}' references missing dependency '${need}'`,
-          path: `workflows.${workflowId}.nodes.${node.id}.needs`,
-        });
-      }
-    }
-    validateWorkflowNodeKind(workflowId, node, config, issues);
-    if (node.kind === "parallel") {
-      workflowNodeValidators.validateParallelWorkflowNode(
-        workflowId,
-        node,
-        config,
-        issues
-      );
-    }
-  },
+    return HashSet.add(ids, node.id);
+  });
+
+const validateParallelWorkflowNode = (
+  workflowId: string,
+  node: Extract<WorkflowNode, { kind: "parallel" }>,
+  config: PipelineConfig,
+  issues: PipelineConfigIssue[],
+): void => {
+  const childIds = collectNodeIds(
+    node.nodes,
+    (child) => ({
+      message: `parallel node '${node.id}' declares duplicate child node id '${child.id}'`,
+      path: `workflows.${workflowId}.nodes.${node.id}.nodes.${child.id}`,
+    }),
+    issues,
+  );
+  Arr.forEach(node.nodes, (child) => {
+    validateWorkflowNode(workflowId, child, childIds, config, issues);
+  });
 };
 
-const { validateWorkflowNode } = workflowNodeValidators;
+const validateWorkflowNode = (
+  workflowId: string,
+  node: WorkflowNode,
+  nodeIds: NodeIdSet,
+  config: PipelineConfig,
+  issues: PipelineConfigIssue[],
+): void => {
+  if (!ID_RE.test(node.id)) {
+    issues.push({
+      message: `workflow node id '${node.id}' must match ${ID_RE.source}`,
+      path: `workflows.${workflowId}.nodes.${node.id}`,
+    });
+  }
+  Arr.forEach(node.needs ?? [], (need) => {
+    if (!HashSet.has(nodeIds, need)) {
+      issues.push({
+        message: `node '${node.id}' references missing dependency '${need}'`,
+        path: `workflows.${workflowId}.nodes.${node.id}.needs`,
+      });
+    }
+  });
+  validateWorkflowNodeKind(workflowId, node, config, issues);
+  if (node.kind === "parallel") {
+    validateParallelWorkflowNode(workflowId, node, config, issues);
+  }
+};
 
 const gateMissingFields = (
-  gate: ConfigGateSpec
+  gate: ConfigGateSpec,
 ): {
   field: string;
   message: (nodeId: string) => string;
 }[] => {
-  if (
-    "target" in gate &&
-    gate.target === "artifact" &&
-    gate.path === undefined
-  ) {
+  if ("target" in gate && gate.target === "artifact" && gate.path === undefined) {
     return [
       {
         field: "path",
-        message: (nodeId) =>
-          `${gate.kind} artifact gate on node '${nodeId}' must declare path`,
+        message: (nodeId) => `${gate.kind} artifact gate on node '${nodeId}' must declare path`,
       },
     ];
   }
@@ -170,14 +141,14 @@ const validateGateRequiredFields = (
   gate: ConfigGateSpec,
   path: string,
   nodeId: string,
-  issues: PipelineConfigIssue[]
+  issues: PipelineConfigIssue[],
 ): void => {
-  for (const missing of gateMissingFields(gate)) {
+  Arr.forEach(gateMissingFields(gate), (missing) => {
     issues.push({
       message: missing.message(nodeId),
       path: `${path}.${missing.field}`,
     });
-  }
+  });
 };
 
 const validateReferences = (
@@ -185,16 +156,16 @@ const validateReferences = (
   refs: string[] = [],
   registry: Record<string, unknown>,
   label: string,
-  issues: PipelineConfigIssue[]
+  issues: PipelineConfigIssue[],
 ): void => {
-  for (const ref of refs) {
-    if (!Object.hasOwn(registry, ref)) {
+  Arr.forEach(refs, (ref) => {
+    if (!R.has(registry, ref)) {
       issues.push({
         message: `references missing ${label} '${ref}'`,
         path,
       });
     }
-  }
+  });
 };
 
 const validateBooleanCapability = (
@@ -202,9 +173,9 @@ const validateBooleanCapability = (
   refs: string[] = [],
   capability = false,
   label: string,
-  issues: PipelineConfigIssue[]
+  issues: PipelineConfigIssue[],
 ): void => {
-  if (refs.length > 0 && !capability) {
+  if (Arr.isReadonlyArrayNonEmpty(refs) && !capability) {
     issues.push({
       message: `selected runner does not support ${label}`,
       path,
@@ -217,25 +188,25 @@ const validateListCapability = (
   requested: string[] = [],
   supported: readonly string[] = [],
   label: string,
-  issues: PipelineConfigIssue[]
+  issues: PipelineConfigIssue[],
 ): void => {
-  if (requested.length === 0) {
+  if (!Arr.isReadonlyArrayNonEmpty(requested)) {
     return;
   }
-  const allowed = new Set(supported);
-  for (const item of requested) {
-    if (!allowed.has(item)) {
+  const allowed = HashSet.fromIterable<string>(supported);
+  Arr.forEach(requested, (item) => {
+    if (!HashSet.has(allowed, item)) {
       issues.push({
         message: `selected runner does not support ${label} '${item}'`,
         path,
       });
     }
-  }
+  });
 };
 
 const resolvePathReference = (
   projectRoot: string,
-  ref: { path?: string; source_root?: "package" | "project" }
+  ref: { path?: string; source_root?: "package" | "project" },
 ): string => {
   if (ref.source_root === "package") {
     return new URL(ref.path ?? "", PACKAGE_ASSET_ROOT).pathname;
@@ -248,16 +219,14 @@ const PROFILES_INSTRUCTIONS_REGEX = /^profiles\.[^.]+\.instructions\.path$/u;
 const PROFILES_OUTPUT_REGEX = /^profiles\.[^.]+\.output\.schema_path$/u;
 
 const isLintableMissingFileReferencePath = (path: string): boolean =>
-  SKILLS_REGEX.test(path) ||
-  PROFILES_INSTRUCTIONS_REGEX.test(path) ||
-  PROFILES_OUTPUT_REGEX.test(path);
+  SKILLS_REGEX.test(path) || PROFILES_INSTRUCTIONS_REGEX.test(path) || PROFILES_OUTPUT_REGEX.test(path);
 
 const validatePath = (
   path: string,
   ref: { path?: string; source_root?: "package" | "project" },
   projectRoot = "",
   issues: PipelineConfigIssue[],
-  options: PipelineConfigValidationOptions = {}
+  options: PipelineConfigValidationOptions = {},
 ): void => {
   const value = ref.path;
   if (value === undefined || value === "" || projectRoot === "") {
@@ -267,10 +236,7 @@ const validatePath = (
     return;
   }
   if (!existsSync(resolvePathReference(projectRoot, ref))) {
-    if (
-      options.allowMissingLintFileReferences === true &&
-      isLintableMissingFileReferencePath(path)
-    ) {
+    if (options.allowMissingLintFileReferences === true && isLintableMissingFileReferencePath(path)) {
       return;
     }
     issues.push({
@@ -284,43 +250,41 @@ const validateHookConfig = (
   config: PipelineConfig,
   issues: PipelineConfigIssue[],
   projectRoot = "",
-  options: PipelineConfigValidationOptions = {}
+  options: PipelineConfigValidationOptions = {},
 ): void => {
-  const allowedEvents = new Set<string>(HOOK_EVENTS);
-  for (const [functionId, hookFunction] of Object.entries(
-    config.hooks.functions
-  )) {
+  const allowedEvents = HashSet.fromIterable<string>(HOOK_EVENTS);
+  Arr.forEach(R.toEntries(config.hooks.functions), ([functionId, hookFunction]) => {
     validatePath(
       `hooks.functions.${functionId}.returns.schema`,
       { path: hookFunction.returns?.schema },
       projectRoot,
       issues,
-      options
+      options,
     );
-  }
-  for (const [event, bindings] of Object.entries(config.hooks.on)) {
-    if (!allowedEvents.has(event)) {
+  });
+  Arr.forEach(R.toEntries(config.hooks.on), ([event, bindings]) => {
+    if (!HashSet.has(allowedEvents, event)) {
       issues.push({
         message: `unsupported hook event '${event}'`,
         path: `hooks.on.${event}`,
       });
-      continue;
+      return;
     }
-    for (const [index, binding] of bindings.entries()) {
+    Arr.forEach(bindings, (binding, index) => {
       if (!ID_RE.test(binding.id)) {
         issues.push({
           message: `hook binding id '${binding.id}' must match ${ID_RE.source}`,
           path: `hooks.on.${event}.${index}.id`,
         });
       }
-      if (!Object.hasOwn(config.hooks.functions, binding.function)) {
+      if (!R.has(config.hooks.functions, binding.function)) {
         issues.push({
           message: `hook binding '${binding.id}' references missing function '${binding.function}'`,
           path: `hooks.on.${event}.${index}.function`,
         });
       }
-    }
-  }
+    });
+  });
 };
 
 const validateActor = (
@@ -331,100 +295,60 @@ const validateActor = (
   config: PipelineConfig,
   issues: PipelineConfigIssue[],
   projectRoot = "",
-  options: PipelineConfigValidationOptions = {}
+  options: PipelineConfigValidationOptions = {},
 ): void => {
-  if (
-    actor.instructions.path === undefined &&
-    actor.instructions.inline === undefined
-  ) {
+  if (actor.instructions.path === undefined && actor.instructions.inline === undefined) {
     issues.push({
       message: `${label} must declare instructions.path or instructions.inline`,
       path: `${path}.instructions`,
     });
   }
-  validatePath(
-    `${path}.instructions.path`,
-    { path: actor.instructions.path },
-    projectRoot,
-    issues,
-    options
-  );
+  validatePath(`${path}.instructions.path`, { path: actor.instructions.path }, projectRoot, issues, options);
 
-  validateReferences(
-    `${path}.rules`,
-    actor.rules,
-    config.rules,
-    "rule",
-    issues
-  );
-  validateReferences(
-    `${path}.skills`,
-    actor.skills,
-    config.skills,
-    "skill",
-    issues
-  );
+  validateReferences(`${path}.rules`, actor.rules, config.rules, "rule", issues);
+  validateReferences(`${path}.skills`, actor.skills, config.skills, "skill", issues);
   validateReferences(
     `${path}.mcp_servers`,
     actor.mcp_servers,
-    config.mcp_gateway === undefined
-      ? config.mcp_servers
-      : { [PIPELINE_GATEWAY_SERVER_ID]: {} },
+    config.mcp_gateway === undefined ? config.mcp_servers : { [PIPELINE_GATEWAY_SERVER_ID]: {} },
     "MCP server",
-    issues
+    issues,
   );
   if (config.mcp_gateway !== undefined) {
-    for (const serverId of actor.mcp_servers ?? []) {
+    Arr.forEach(actor.mcp_servers ?? [], (serverId) => {
       if (serverId !== PIPELINE_GATEWAY_SERVER_ID) {
         issues.push({
-          message: `${path}.mcp_servers must only reference ${PIPELINE_GATEWAY_SERVER_ID} when mcp_gateway is configured`,
+          message:
+            `${path}.mcp_servers must only reference ` + `${PIPELINE_GATEWAY_SERVER_ID} when mcp_gateway is configured`,
           path: `${path}.mcp_servers`,
         });
       }
-    }
+    });
   }
 
-  validateBooleanCapability(
-    `${path}.rules`,
-    actor.rules,
-    runner.capabilities.rules,
-    "rules",
-    issues
-  );
-  validateBooleanCapability(
-    `${path}.skills`,
-    actor.skills,
-    runner.capabilities.skills,
-    "skills",
-    issues
-  );
+  validateBooleanCapability(`${path}.rules`, actor.rules, runner.capabilities.rules, "rules", issues);
+  validateBooleanCapability(`${path}.skills`, actor.skills, runner.capabilities.skills, "skills", issues);
   validateBooleanCapability(
     `${path}.mcp_servers`,
     actor.mcp_servers,
     runner.capabilities.mcp_servers,
     "MCP servers",
-    issues
+    issues,
   );
-  validateListCapability(
-    `${path}.tools`,
-    actor.tools,
-    runner.capabilities.tools,
-    "tool",
-    issues
-  );
+  validateListCapability(`${path}.tools`, actor.tools, runner.capabilities.tools, "tool", issues);
   validateListCapability(
     `${path}.filesystem.mode`,
     actor.filesystem?.mode === undefined ? [] : [actor.filesystem.mode],
     runner.capabilities.filesystem,
     "filesystem mode",
-    issues
+    issues,
   );
   validateListCapability(
     `${path}.network.mode`,
     actor.network?.mode === undefined ? [] : [actor.network.mode],
     runner.capabilities.network,
     "network mode",
-    issues
+    issues,
   );
 };
 
@@ -435,7 +359,7 @@ const validateProfile = (
   config: PipelineConfig,
   issues: PipelineConfigIssue[],
   projectRoot = "",
-  options: PipelineConfigValidationOptions = {}
+  options: PipelineConfigValidationOptions = {},
 ): void => {
   validateActor(
     `profile '${profileId}'`,
@@ -445,47 +369,36 @@ const validateProfile = (
     config,
     issues,
     projectRoot,
-    options
+    options,
   );
   validateListCapability(
     `profiles.${profileId}.output.format`,
     profile.output?.format === undefined ? [] : [profile.output.format],
     runner.capabilities.output_formats,
     "output format",
-    issues
+    issues,
   );
 
-  if (
-    profile.output?.format === "json_schema" &&
-    profile.output.schema_path === undefined
-  ) {
+  if (profile.output?.format === "json_schema" && profile.output.schema_path === undefined) {
     issues.push({
       message: `profile '${profileId}' must declare output.schema_path for json_schema output`,
       path: `profiles.${profileId}.output.schema_path`,
     });
   }
   const repairRunnerId = profile.output?.repair?.runner;
-  if (
-    repairRunnerId !== undefined &&
-    repairRunnerId !== "" &&
-    !Object.hasOwn(config.runners, repairRunnerId)
-  ) {
+  if (repairRunnerId !== undefined && repairRunnerId !== "" && !R.has(config.runners, repairRunnerId)) {
     issues.push({
       message: `profile '${profileId}' references missing repair runner '${repairRunnerId}'`,
       path: `profiles.${profileId}.output.repair.runner`,
     });
   }
-  if (
-    repairRunnerId !== undefined &&
-    repairRunnerId !== "" &&
-    Object.hasOwn(config.runners, repairRunnerId)
-  ) {
+  if (repairRunnerId !== undefined && repairRunnerId !== "" && R.has(config.runners, repairRunnerId)) {
     validateListCapability(
       `profiles.${profileId}.output.repair.runner`,
       ["text"],
       config.runners[repairRunnerId].capabilities.output_formats,
       "repair output format",
-      issues
+      issues,
     );
   }
   validatePath(
@@ -493,7 +406,7 @@ const validateProfile = (
     { path: profile.output?.schema_path },
     projectRoot,
     issues,
-    options
+    options,
   );
 };
 
@@ -502,21 +415,15 @@ const validateNodeGates = (
   node: PipelineConfig["workflows"][string]["nodes"][number],
   issues: PipelineConfigIssue[],
   projectRoot = "",
-  options: PipelineConfigValidationOptions = {}
+  options: PipelineConfigValidationOptions = {},
 ): void => {
-  for (const [index, gate] of (node.gates ?? []).entries()) {
+  Arr.forEach(node.gates ?? [], (gate, index) => {
     const path = `workflows.${workflowId}.nodes.${node.id}.gates.${index}`;
     validateGateRequiredFields(gate, path, node.id, issues);
     if (gate.kind === "json_schema") {
-      validatePath(
-        `${path}.schema_path`,
-        { path: gate.schema_path },
-        projectRoot,
-        issues,
-        options
-      );
+      validatePath(`${path}.schema_path`, { path: gate.schema_path }, projectRoot, issues, options);
     }
-  }
+  });
 };
 
 const validateWorkflow = (
@@ -525,36 +432,71 @@ const validateWorkflow = (
   config: PipelineConfig,
   issues: PipelineConfigIssue[],
   projectRoot = "",
-  options: PipelineConfigValidationOptions = {}
+  options: PipelineConfigValidationOptions = {},
 ): void => {
-  const nodeIds = new Set<string>();
-  for (const node of workflow.nodes) {
-    if (nodeIds.has(node.id)) {
-      issues.push({
-        message: `workflow '${workflowId}' declares duplicate node id '${node.id}'`,
-        path: `workflows.${workflowId}.nodes.${node.id}`,
-      });
-    }
-    nodeIds.add(node.id);
-  }
+  const nodeIds = collectNodeIds(
+    workflow.nodes,
+    (node) => ({
+      message: `workflow '${workflowId}' declares duplicate node id '${node.id}'`,
+      path: `workflows.${workflowId}.nodes.${node.id}`,
+    }),
+    issues,
+  );
 
-  for (const node of workflow.nodes) {
+  Arr.forEach(workflow.nodes, (node) => {
     validateWorkflowNode(workflowId, node, nodeIds, config, issues);
     validateNodeGates(workflowId, node, issues, projectRoot, options);
+  });
+};
+
+const validateEntrypointReferences = (config: PipelineConfig, issues: PipelineConfigIssue[]): void => {
+  if (!R.has(config.workflows, config.default_workflow)) {
+    issues.push({
+      message: `default workflow references missing workflow '${config.default_workflow}'`,
+      path: "default_workflow",
+    });
   }
+
+  Arr.forEach(R.toEntries(config.entrypoints), ([entrypointId, entrypoint]) => {
+    if ("workflow" in entrypoint && !R.has(config.workflows, entrypoint.workflow)) {
+      issues.push({
+        message: `entrypoint '${entrypointId}' references missing workflow '${entrypoint.workflow}'`,
+        path: `entrypoints.${entrypointId}.workflow`,
+      });
+    }
+    if ("schedule" in entrypoint && !R.has(config.schedules, entrypoint.schedule)) {
+      issues.push({
+        message: `entrypoint '${entrypointId}' references missing schedule '${entrypoint.schedule}'`,
+        path: `entrypoints.${entrypointId}.schedule`,
+      });
+    }
+  });
+};
+
+const validateScheduleReferences = (config: PipelineConfig, issues: PipelineConfigIssue[]): void => {
+  Arr.forEach(R.toEntries(config.schedules), ([scheduleId, schedule]) => {
+    if (schedule.planner_profile !== undefined && !R.has(config.profiles, schedule.planner_profile)) {
+      issues.push({
+        message: `schedule '${scheduleId}' references missing planner profile '${schedule.planner_profile}'`,
+        path: `schedules.${scheduleId}.planner_profile`,
+      });
+    }
+  });
 };
 
 export const validatePipelineConfig = (
   rawConfig: PipelineConfig,
   projectRoot = "",
-  options: PipelineConfigValidationOptions = {}
+  options: PipelineConfigValidationOptions = {},
 ): PipelineConfig => {
-  const parsed = configSchema.safeParse(rawConfig);
-  if (!parsed.success) {
-    throw validationError(configIssuesFromZodError(parsed.error));
+  const parsed = parseResultWithSchema(configSchema, rawConfig, {
+    onExcessProperty: "error",
+  });
+  if (!parsed.ok) {
+    throw validationError(configIssuesFromSchemaIssues(parsed.issues));
   }
 
-  const config = parsed.data;
+  const config = parsed.value;
   const issues: PipelineConfigIssue[] = [];
 
   validateRegistryIds("runners", config.runners, issues);
@@ -567,7 +509,7 @@ export const validatePipelineConfig = (
   validateRegistryIds("entrypoints", config.entrypoints, issues);
 
   if (config.orchestrator !== undefined) {
-    if (!Object.hasOwn(config.profiles, config.orchestrator.profile)) {
+    if (!R.has(config.profiles, config.orchestrator.profile)) {
       issues.push({
         message: `orchestrator references missing profile '${config.orchestrator.profile}'`,
         path: "orchestrator.profile",
@@ -575,32 +517,26 @@ export const validatePipelineConfig = (
     }
   }
 
-  for (const [profileId, profile] of Object.entries(config.profiles)) {
-    if (!Object.hasOwn(config.runners, profile.runner)) {
+  Arr.forEach(R.toEntries(config.profiles), ([profileId, profile]) => {
+    if (!R.has(config.runners, profile.runner)) {
       issues.push({
         message: `profile '${profileId}' references missing runner '${profile.runner}'`,
         path: `profiles.${profileId}.runner`,
       });
-      continue;
+      return;
     }
     const runner = config.runners[profile.runner];
-    validateProfile(
-      profileId,
-      profile,
-      runner,
-      config,
-      issues,
-      projectRoot,
-      options
-    );
-  }
+    validateProfile(profileId, profile, runner, config, issues, projectRoot, options);
+  });
 
   validateHookConfig(config, issues, projectRoot, options);
   validateTokenBudget(config, issues);
+  validateEntrypointReferences(config, issues);
+  validateScheduleReferences(config, issues);
 
-  for (const [ruleId, rule] of Object.entries(config.rules)) {
+  Arr.forEach(R.toEntries(config.rules), ([ruleId, rule]) => {
     validatePath(`rules.${ruleId}.path`, rule, projectRoot, issues, options);
-  }
+  });
 
   // Skill bodies are shared harness assets installed from oisin-ee/agent into
   // per-machine host dirs, so their on-disk presence is not a config-load
@@ -608,16 +544,9 @@ export const validatePipelineConfig = (
   // (validateRegistryIds) and profile references are checked separately; only
   // body existence is intentionally not asserted here.
 
-  for (const [workflowId, workflow] of Object.entries(config.workflows)) {
-    validateWorkflow(
-      workflowId,
-      workflow,
-      config,
-      issues,
-      projectRoot,
-      options
-    );
-  }
+  Arr.forEach(R.toEntries(config.workflows), ([workflowId, workflow]) => {
+    validateWorkflow(workflowId, workflow, config, issues, projectRoot, options);
+  });
 
   if (issues.length > 0) {
     throw validationError(issues);

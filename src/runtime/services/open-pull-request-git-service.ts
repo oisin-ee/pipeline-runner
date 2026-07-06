@@ -9,9 +9,7 @@ export interface OpenPullRequestGitClient {
 export class OpenPullRequestGitService extends Context.Service<
   OpenPullRequestGitService,
   {
-    readonly create: (
-      baseDir: string
-    ) => Effect.Effect<OpenPullRequestGitClient>;
+    readonly create: (baseDir: string) => Effect.Effect<OpenPullRequestGitClient>;
   }
 >()("OpenPullRequestGitService") {}
 
@@ -25,13 +23,9 @@ export class OpenPullRequestGitService extends Context.Service<
  * while keeping this service as the test-injection seam.
  */
 const authenticatedGitClient = (baseDir: string): OpenPullRequestGitClient => ({
-  raw: (args) =>
-    Effect.tryPromise(async () => await runAuthenticatedGit(baseDir, args)),
+  raw: (args) => Effect.tryPromise(async () => await runAuthenticatedGit(baseDir, args)),
 });
 
-export const OpenPullRequestGitServiceLive = Layer.succeed(
-  OpenPullRequestGitService,
-  {
-    create: (baseDir) => Effect.sync(() => authenticatedGitClient(baseDir)),
-  }
-);
+export const OpenPullRequestGitServiceLive = Layer.succeed(OpenPullRequestGitService, {
+  create: (baseDir) => Effect.sync(() => authenticatedGitClient(baseDir)),
+});

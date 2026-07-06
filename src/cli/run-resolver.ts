@@ -37,10 +37,7 @@ export interface RunResolution {
   target: MokaRunTarget;
 }
 
-const assertFlagTargetCompatibility = (
-  flags: RunResolverFlags,
-  target: MokaRunTarget
-): void => {
+const assertFlagTargetCompatibility = (flags: RunResolverFlags, target: MokaRunTarget): void => {
   if (flags.command === true && target !== "remote") {
     throw new Error("--command requires --target remote");
   }
@@ -49,10 +46,7 @@ const assertFlagTargetCompatibility = (
   }
 };
 
-const resolveRemoteSubmit = (
-  flags: RunResolverFlags,
-  effort: MokaRunEffort
-): RemoteSubmitExecution => ({
+const resolveRemoteSubmit = (flags: RunResolverFlags, effort: MokaRunEffort): RemoteSubmitExecution => ({
   command: flags.command === true,
   kind: "remote-submit",
   mode: effort === "quick" ? "quick" : "full",
@@ -62,10 +56,7 @@ const resolveRemoteSubmit = (
 // Precedence-ordered resolvers: the first that applies wins. Expressing the
 // selection as a table keeps each branch trivial (and the whole resolver under
 // the complexity gate) instead of a long if/else chain.
-type LocalRuntimeResolver = (
-  flags: RunResolverFlags,
-  effort: MokaRunEffort
-) => LocalRuntimeExecution | void;
+type LocalRuntimeResolver = (flags: RunResolverFlags, effort: MokaRunEffort) => LocalRuntimeExecution | void;
 
 const LOCAL_RUNTIME_RESOLVERS: LocalRuntimeResolver[] = [
   (flags) =>
@@ -76,28 +67,16 @@ const LOCAL_RUNTIME_RESOLVERS: LocalRuntimeResolver[] = [
     flags.workflow !== undefined && flags.workflow !== ""
       ? { kind: "local-runtime", workflow: flags.workflow }
       : undefined,
-  (flags) =>
-    flags.readOnly === true
-      ? { kind: "local-runtime", workflow: "inspect" }
-      : undefined,
+  (flags) => (flags.readOnly === true ? { kind: "local-runtime", workflow: "inspect" } : undefined),
   (flags) =>
     flags.entrypoint !== undefined && flags.entrypoint !== ""
       ? { entrypoint: flags.entrypoint, kind: "local-runtime" }
       : undefined,
-  (_flags, effort) =>
-    effort === "quick"
-      ? { entrypoint: "quick", kind: "local-runtime" }
-      : undefined,
-  (_flags, effort) =>
-    effort === "thorough"
-      ? { entrypoint: "execute", kind: "local-runtime" }
-      : undefined,
+  (_flags, effort) => (effort === "quick" ? { entrypoint: "quick", kind: "local-runtime" } : undefined),
+  (_flags, effort) => (effort === "thorough" ? { entrypoint: "execute", kind: "local-runtime" } : undefined),
 ];
 
-const resolveLocalRuntime = (
-  flags: RunResolverFlags,
-  effort: MokaRunEffort
-): LocalRuntimeExecution => {
+const resolveLocalRuntime = (flags: RunResolverFlags, effort: MokaRunEffort): LocalRuntimeExecution => {
   for (const resolve of LOCAL_RUNTIME_RESOLVERS) {
     const resolved = resolve(flags, effort);
     if (resolved !== undefined) {
@@ -107,10 +86,7 @@ const resolveLocalRuntime = (
   return { kind: "local-runtime" };
 };
 
-export const resolveMokaRun = (input: {
-  flags?: RunResolverFlags;
-  task: string;
-}): RunResolution => {
+export const resolveMokaRun = (input: { flags?: RunResolverFlags; task: string }): RunResolution => {
   const flags = input.flags ?? {};
   const effort = flags.effort ?? "normal";
   const target = flags.target ?? "local";
@@ -120,10 +96,7 @@ export const resolveMokaRun = (input: {
 
   return {
     effort,
-    execution:
-      target === "remote"
-        ? resolveRemoteSubmit(flags, effort)
-        : resolveLocalRuntime(flags, effort),
+    execution: target === "remote" ? resolveRemoteSubmit(flags, effort) : resolveLocalRuntime(flags, effort),
     mode,
     target,
   };

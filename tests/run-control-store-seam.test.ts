@@ -5,15 +5,9 @@ import { isAbsolute, join, relative, sep } from "node:path";
 import { Effect } from "effect";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import type {
-  MokaRunController,
-  MokaRunEvent,
-} from "../src/run-control/contracts";
+import type { MokaRunController, MokaRunEvent } from "../src/run-control/contracts";
 import { fileRunControlStore } from "../src/run-control/run-control-store";
-import type {
-  CreateRunRequest,
-  RunControlStore,
-} from "../src/run-control/run-control-store";
+import type { CreateRunRequest, RunControlStore } from "../src/run-control/run-control-store";
 
 const relativeToWorkspace = (workspaceRoot: string, path: string): string => {
   const absolutePath = isAbsolute(path) ? path : join(workspaceRoot, path);
@@ -67,9 +61,7 @@ describe("RunControlStore filesystem seam", () => {
     // A fresh store instance proves replay reads from the on-disk event log,
     // not in-memory state.
     const reopened = fileRunControlStore(workspaceRoot);
-    const replayed = await Effect.runPromise(
-      reopened.readRun({ runId: "run-seam" })
-    );
+    const replayed = await Effect.runPromise(reopened.readRun({ runId: "run-seam" }));
 
     expect(replayed).toMatchObject({
       effort: "thorough",
@@ -90,7 +82,7 @@ describe("RunControlStore filesystem seam", () => {
         nodeIds: ["writer"],
         runId: "run-status",
         target: "local",
-      })
+      }),
     );
 
     await Effect.runPromise(
@@ -98,7 +90,7 @@ describe("RunControlStore filesystem seam", () => {
         at: "2026-06-26T11:00:00.000Z",
         runId: "run-status",
         status: "running",
-      })
+      }),
     );
     await Effect.runPromise(
       store.updateNodeStatus({
@@ -106,14 +98,14 @@ describe("RunControlStore filesystem seam", () => {
         nodeId: "writer",
         runId: "run-status",
         status: "passed",
-      })
+      }),
     );
     await Effect.runPromise(
       store.updateNodeSession({
         nodeId: "writer",
         runId: "run-status",
         sessionId: "session-123",
-      })
+      }),
     );
 
     const run = await Effect.runPromise(store.readRun({ runId: "run-status" }));
@@ -128,9 +120,7 @@ describe("RunControlStore filesystem seam", () => {
       manifest: ".pipeline/runs/run-status/manifest.json",
       status: ".pipeline/runs/run-status/status.json",
     });
-    const statusFile: unknown = JSON.parse(
-      readFileSync(join(workspaceRoot, paths.status), "utf-8")
-    );
+    const statusFile: unknown = JSON.parse(readFileSync(join(workspaceRoot, paths.status), "utf-8"));
     expect(statusFile).toMatchObject({
       nodes: { writer: { sessionId: "session-123" } },
     });
@@ -144,7 +134,7 @@ describe("RunControlStore filesystem seam", () => {
         nodeIds: ["writer"],
         runId: "run-b",
         target: "local",
-      })
+      }),
     );
     await Effect.runPromise(
       store.createRun({
@@ -153,7 +143,7 @@ describe("RunControlStore filesystem seam", () => {
         nodeIds: ["writer"],
         runId: "run-a",
         target: "local",
-      })
+      }),
     );
 
     const controller: MokaRunController = {
@@ -163,9 +153,7 @@ describe("RunControlStore filesystem seam", () => {
       pid: 4242,
       startedAt: "2026-06-26T12:00:00.000Z",
     };
-    const withController = await Effect.runPromise(
-      store.updateRunController({ controller, runId: "run-a" })
-    );
+    const withController = await Effect.runPromise(store.updateRunController({ controller, runId: "run-a" }));
     expect(withController.controller).toEqual(controller);
 
     const artifact = await Effect.runPromise(
@@ -174,14 +162,10 @@ describe("RunControlStore filesystem seam", () => {
         name: "summary.json",
         nodeId: "writer",
         runId: "run-a",
-      })
+      }),
     );
-    expect(relativeToWorkspace(workspaceRoot, artifact.path)).toBe(
-      ".pipeline/runs/run-a/nodes/writer/summary.json"
-    );
-    expect(readFileSync(join(workspaceRoot, artifact.path), "utf-8")).toBe(
-      '{"result":"ok"}\n'
-    );
+    expect(relativeToWorkspace(workspaceRoot, artifact.path)).toBe(".pipeline/runs/run-a/nodes/writer/summary.json");
+    expect(readFileSync(join(workspaceRoot, artifact.path), "utf-8")).toBe('{"result":"ok"}\n');
 
     const runs = await Effect.runPromise(store.listRuns());
     expect(runs.map((run) => run.runId)).toEqual(["run-a", "run-b"]);

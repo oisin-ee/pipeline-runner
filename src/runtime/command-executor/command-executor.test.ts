@@ -16,7 +16,7 @@ const spawnResponse = (
     cwd?: string;
     env?: Record<string, string>;
     maxBuffer?: number;
-  }
+  },
 ) => {
   const result = spawnSync(command, args, {
     cwd: options?.cwd,
@@ -40,14 +40,14 @@ const mockExecaWithSpawnSync = (): void => {
         cwd?: string;
         env?: Record<string, string>;
         maxBuffer?: number;
-      }
+      },
     ) => {
       const response = spawnResponse(command, args, options);
       if (response.exitCode !== 0) {
         throw response;
       }
       return response;
-    }
+    },
   );
 };
 
@@ -57,10 +57,7 @@ beforeEach(() => {
 
 describe("executeCommand", () => {
   it("returns command output and evidence for successful commands", async () => {
-    const result = await executeCommand(
-      ["node", "-e", "console.log('hello')"],
-      { worktreePath: process.cwd() }
-    );
+    const result = await executeCommand(["node", "-e", "console.log('hello')"], { worktreePath: process.cwd() });
 
     expect(result).toMatchObject({
       evidence: ["command exited 0: node -e console.log('hello')"],
@@ -70,19 +67,14 @@ describe("executeCommand", () => {
   });
 
   it("reports failed commands and preserves stdout/stderr output", async () => {
-    const result = await executeCommand(
-      [
-        "node",
-        "-e",
-        "console.log('out'); console.error('err'); process.exit(7)",
-      ],
-      { worktreePath: process.cwd() }
-    );
+    const result = await executeCommand(["node", "-e", "console.log('out'); console.error('err'); process.exit(7)"], {
+      worktreePath: process.cwd(),
+    });
 
     expect(result.exitCode).toBe(7);
     expect(result.output).toBe("out\nerr");
     expect(result.evidence).toContain(
-      "command exited 7: node -e console.log('out'); console.error('err'); process.exit(7)"
+      "command exited 7: node -e console.log('out'); console.error('err'); process.exit(7)",
     );
     expect(result.evidence).toContain("out\nerr");
   });
@@ -91,13 +83,11 @@ describe("executeCommand", () => {
     const result = await executeCommand(
       ["node", "-e", "console.log('abcdef')"],
       { worktreePath: process.cwd() },
-      { outputLimitBytes: 3 }
+      { outputLimitBytes: 3 },
     );
 
     expect(result.output).toBe("abc");
-    expect(result.evidence[0]).toBe(
-      "command exited 0: node -e console.log('abcdef')"
-    );
+    expect(result.evidence[0]).toBe("command exited 0: node -e console.log('abcdef')");
     expect(Buffer.byteLength(result.output, "utf-8")).toBeLessThanOrEqual(3);
   });
 });

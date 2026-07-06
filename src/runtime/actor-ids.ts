@@ -1,12 +1,6 @@
 import type { RuntimeNodeResult } from "./contracts";
 
-const runtimeActorKinds = [
-  "pipeline",
-  "workflow",
-  "node",
-  "gate",
-  "hook",
-] as const;
+const runtimeActorKinds = ["pipeline", "workflow", "node", "gate", "hook"] as const;
 
 export type RuntimeActorKind = (typeof runtimeActorKinds)[number];
 
@@ -27,17 +21,8 @@ export interface RuntimeActorIdParts {
   workflowId?: string;
 }
 
-export const runtimeActorId = (
-  kind: RuntimeActorKind,
-  parts: RuntimeActorIdParts
-): string => {
-  const scoped = [
-    parts.runId,
-    parts.workflowId,
-    parts.nodeId,
-    parts.gateId,
-    parts.hookId,
-  ]
+export const runtimeActorId = (kind: RuntimeActorKind, parts: RuntimeActorIdParts): string => {
+  const scoped = [parts.runId, parts.workflowId, parts.nodeId, parts.gateId, parts.hookId]
     .filter((part): part is string => Boolean(part))
     .join(".");
   return scoped ? `pipeline.${kind}.${scoped}` : `pipeline.${kind}`;
@@ -182,6 +167,4 @@ export type RuntimeObservabilityEvent =
       type: "runtime.retry.exhausted";
     };
 
-export type RuntimeObservabilityEmitter = (
-  event: RuntimeObservabilityEvent
-) => void;
+export type RuntimeObservabilityEmitter = (event: RuntimeObservabilityEvent) => void;

@@ -34,9 +34,7 @@ const node = (models: string[]): PlannedWorkflowNode => ({
 
 describe("selectNodeModelCandidates", () => {
   it("returns the full ordered fallback set, preferred first", () => {
-    const candidates = selectNodeModelCandidates(
-      node(["openai/gpt-5.5", "kimi-for-coding/k2p6"])
-    );
+    const candidates = selectNodeModelCandidates(node(["openai/gpt-5.5", "kimi-for-coding/k2p6"]));
 
     expect(candidates).toEqual({
       models: ["openai/gpt-5.5", "kimi-for-coding/k2p6"],
@@ -48,9 +46,7 @@ describe("selectNodeModelCandidates", () => {
   it("drops disabled models from the set", () => {
     process.env.PIPELINE_DISABLED_MODELS = "openai/gpt-5.5";
 
-    const candidates = selectNodeModelCandidates(
-      node(["openai/gpt-5.5", "kimi-for-coding/k2p6"])
-    );
+    const candidates = selectNodeModelCandidates(node(["openai/gpt-5.5", "kimi-for-coding/k2p6"]));
 
     expect(candidates).toMatchObject({
       models: ["kimi-for-coding/k2p6"],
@@ -59,10 +55,9 @@ describe("selectNodeModelCandidates", () => {
   });
 
   it("drops an unavailable preferred model but keeps the available fallback", () => {
-    const candidates = selectNodeModelCandidates(
-      node(["opencode-go/qwen3.7-max", "openai/gpt-5.5-high"]),
-      { available: new Set(["openai/gpt-5.5-high"]) }
-    );
+    const candidates = selectNodeModelCandidates(node(["opencode-go/qwen3.7-max", "openai/gpt-5.5-high"]), {
+      available: new Set(["openai/gpt-5.5-high"]),
+    });
 
     expect(candidates).toMatchObject({
       models: ["openai/gpt-5.5-high"],
@@ -71,45 +66,30 @@ describe("selectNodeModelCandidates", () => {
   });
 
   it("keeps every available model so a failed session can fall back", () => {
-    const candidates = selectNodeModelCandidates(
-      node(["opencode-go/qwen3.7-max", "openai/gpt-5.5-high"]),
-      {
-        available: new Set(["opencode-go/qwen3.7-max", "openai/gpt-5.5-high"]),
-      }
-    );
+    const candidates = selectNodeModelCandidates(node(["opencode-go/qwen3.7-max", "openai/gpt-5.5-high"]), {
+      available: new Set(["opencode-go/qwen3.7-max", "openai/gpt-5.5-high"]),
+    });
 
-    expect(candidates.models).toEqual([
-      "opencode-go/qwen3.7-max",
-      "openai/gpt-5.5-high",
-    ]);
+    expect(candidates.models).toEqual(["opencode-go/qwen3.7-max", "openai/gpt-5.5-high"]);
     expect(candidates.skipped).toEqual([]);
   });
 
   it("returns an empty set when no candidate is available", () => {
-    const candidates = selectNodeModelCandidates(
-      node(["opencode-go/qwen3.7-max"]),
-      {
-        available: new Set(["openai/gpt-5.5-high"]),
-      }
-    );
+    const candidates = selectNodeModelCandidates(node(["opencode-go/qwen3.7-max"]), {
+      available: new Set(["openai/gpt-5.5-high"]),
+    });
 
     expect(candidates.models).toEqual([]);
     expect(candidates.skipped).toEqual(["opencode-go/qwen3.7-max"]);
   });
 
   it("does not filter by availability when no set is provided", () => {
-    const candidates = selectNodeModelCandidates(
-      node(["opencode-go/qwen3.7-max"])
-    );
+    const candidates = selectNodeModelCandidates(node(["opencode-go/qwen3.7-max"]));
     expect(candidates.models).toEqual(["opencode-go/qwen3.7-max"]);
   });
 });
 
-const budget = (overrides: {
-  windows?: Record<string, number>;
-  maxPct?: number;
-  defaultWindow?: number;
-}) => ({
+const budget = (overrides: { windows?: Record<string, number>; maxPct?: number; defaultWindow?: number }) => ({
   default_context_window: overrides.defaultWindow ?? 200_000,
   fan_out_width: { by_category: {}, default: 4 },
   max_context_pct: overrides.maxPct ?? 50,

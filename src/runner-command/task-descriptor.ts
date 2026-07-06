@@ -1,30 +1,25 @@
-import { Effect } from "effect";
-import { z } from "zod";
+import * as Effect from "effect/Effect";
 
 import { RunnerCommandIoService } from "../runtime/services/runner-command-io-service";
 import { parseJson } from "../safe-json";
+import { parseStrictWithSchema, requiredString, struct } from "../schema-boundary";
 
 export const DEFAULT_RUNNER_TASK_DESCRIPTOR_PATH = "/etc/pipeline/task.json";
 
-const runnerTaskDescriptorSchema = z
-  .object({
-    nodeId: z.string().min(1),
-  })
-  .strict();
+const runnerTaskDescriptorSchema = struct({
+  nodeId: requiredString,
+});
 
-export type RunnerTaskDescriptor = z.infer<typeof runnerTaskDescriptorSchema>;
+export type RunnerTaskDescriptor = typeof runnerTaskDescriptorSchema.Type;
 
-export const buildRunnerTaskDescriptor = (
-  nodeId: string
-): RunnerTaskDescriptor => runnerTaskDescriptorSchema.parse({ nodeId });
+export const buildRunnerTaskDescriptor = (nodeId: string): RunnerTaskDescriptor =>
+  parseStrictWithSchema(runnerTaskDescriptorSchema, { nodeId });
 
 const parseRunnerTaskDescriptor = (raw: string): RunnerTaskDescriptor =>
-  runnerTaskDescriptorSchema.parse(
-    parseJson(raw, "runner task descriptor JSON")
-  );
+  parseStrictWithSchema(runnerTaskDescriptorSchema, parseJson(raw, "runner task descriptor JSON"));
 
 export const readRunnerTaskDescriptorEffect = (
-  path = DEFAULT_RUNNER_TASK_DESCRIPTOR_PATH
+  path = DEFAULT_RUNNER_TASK_DESCRIPTOR_PATH,
 ): Effect.Effect<RunnerTaskDescriptor, unknown, RunnerCommandIoService> =>
   Effect.gen(function* effectBody() {
     const io = yield* RunnerCommandIoService;

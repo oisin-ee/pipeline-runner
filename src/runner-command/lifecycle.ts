@@ -1,32 +1,25 @@
-import { Effect, Option } from "effect";
-import { z } from "zod";
+import * as Effect from "effect/Effect";
+import * as Option from "effect/Option";
+import * as Schema from "effect/Schema";
 
 import { loadMokaDbUrl } from "../moka-global-config";
 import { resolveRunControlStore } from "../run-control/run-control-store";
 import type { CreateRunRequest } from "../run-control/run-control-store";
 import { buildRemoteRunCreateRequest } from "../run-control/run-record";
 import type { RemoteRunRecordOptions } from "../run-control/run-record";
-import {
-  emitWorkflowPlanned,
-  emitWorkflowStarted,
-} from "../runtime/events/events";
+import { emitWorkflowPlanned, emitWorkflowStarted } from "../runtime/events/events";
 import { dispatchHooks } from "../runtime/hooks";
 import {
   flushAndReport,
   isOutputStream,
   runValidatedRunnerCommand,
 } from "../runtime/services/runner-command-io-service";
-import type {
-  OutputStream,
-  RunnerCommandIoService,
-} from "../runtime/services/runner-command-io-service";
+import type { OutputStream, RunnerCommandIoService } from "../runtime/services/runner-command-io-service";
 import { runWorkflowStartLifecycle } from "../runtime/workflow-lifecycle";
+import { requiredString, struct } from "../schema-boundary";
 import { createRunnerLifecycleContextEffect } from "./lifecycle-context";
 
-type FetchLike = (
-  input: RequestInfo | URL,
-  init?: RequestInit
-) => Promise<Response>;
+type FetchLike = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
 
 /**
  * PIPE-94.5: injectable override for the in-pod createRun upsert. Receives the
@@ -36,34 +29,30 @@ type FetchLike = (
  */
 type LifecycleUpsertRunRecord = (request: CreateRunRequest) => Promise<void>;
 
-const runnerLifecycleOptionsSchema = z
-  .object({
-    cwd: z.string().min(1).optional(),
-    fetch: z
-      .custom<FetchLike>((value) => typeof value === "function")
-      .optional(),
-    payloadFile: z.string().min(1),
-    phase: z.literal("workflow.start"),
-    scheduleFile: z.string().min(1),
-    stderr: z.custom<OutputStream>((value) => isOutputStream(value)).optional(),
-    upsertRunRecord: z
-      .custom<LifecycleUpsertRunRecord>((value) => typeof value === "function")
-      .optional(),
-  })
-  .strict();
+const fetchLike = Schema.declare<FetchLike>((value): value is FetchLike => typeof value === "function");
+const outputStream = Schema.declare<OutputStream>(isOutputStream);
+const upsertRunRecord = Schema.declare<LifecycleUpsertRunRecord>(
+  (value): value is LifecycleUpsertRunRecord => typeof value === "function",
+);
 
-export type RunnerLifecycleOptions = z.input<
-  typeof runnerLifecycleOptionsSchema
->;
+const runnerLifecycleOptionsSchema = struct({
+  cwd: Schema.optional(requiredString),
+  fetch: Schema.optional(fetchLike),
+  payloadFile: requiredString,
+  phase: Schema.Literal("workflow.start"),
+  scheduleFile: requiredString,
+  stderr: Schema.optional(outputStream),
+  upsertRunRecord: Schema.optional(upsertRunRecord),
+});
+
+export type RunnerLifecycleOptions = typeof runnerLifecycleOptionsSchema.Encoded;
 
 const EXIT_PASS = 0;
 const EXIT_FAIL = 1;
 const EXIT_VALIDATION = 64;
 const EXIT_STARTUP = 70;
 
-type LifecycleRunRecordWriter = (
-  request: CreateRunRequest
-) => Effect.Effect<unknown, unknown>;
+type LifecycleRunRecordWriter = (request: CreateRunRequest) => Effect.Effect<unknown, unknown>;
 
 /**
  * Select the createRun write target: the injected override (test/custom seam),
@@ -74,7 +63,7 @@ type LifecycleRunRecordWriter = (
 const resolveLifecycleRunRecordWriter = (
   options: RemoteRunRecordOptions,
   upsertOverride: Option.Option<LifecycleUpsertRunRecord>,
-  stderr: OutputStream
+  stderr: OutputStream,
 ): Effect.Effect<Option.Option<LifecycleRunRecordWriter>> =>
   Effect.sync(() => {
     if (Option.isSome(upsertOverride)) {
@@ -84,34 +73,26 @@ const resolveLifecycleRunRecordWriter = (
           try: async () => {
             await upsertOverride.value(request);
           },
-        })
+        }),
       );
     }
     const dbUrl = loadMokaDbUrl();
     if (dbUrl === undefined) {
-      stderr.write(
-        `runner-lifecycle: db.url not configured — skipping createRun for run ${options.runId}\n`
-      );
+      stderr.write(`runner-lifecycle: db.url not configured — skipping createRun for run ${options.runId}\n`);
       return Option.none();
     }
     return Option.some((request: CreateRunRequest) =>
       Effect.scoped(
         resolveRunControlStore(dbUrl, options.worktreePath ?? "").pipe(
-          Effect.flatMap((store) => store.createRun(request))
-        )
-      )
+          Effect.flatMap((store) => store.createRun(request)),
+        ),
+      ),
     );
   });
 
-const logUpsertError = (
-  stderr: OutputStream,
-  runId: string,
-  error: unknown
-): void => {
+const logUpsertError = (stderr: OutputStream, runId: string, error: unknown): void => {
   const message = error instanceof Error ? error.message : String(error);
-  stderr.write(
-    `runner-lifecycle: createRun failed — run ${runId} will still execute: ${message}\n`
-  );
+  stderr.write(`runner-lifecycle: createRun failed — run ${runId} will still execute: ${message}\n`);
 };
 
 /**
@@ -127,14 +108,10 @@ const logUpsertError = (
 const upsertLifecycleRunRecordEffect = (
   options: RemoteRunRecordOptions,
   upsertOverride: Option.Option<LifecycleUpsertRunRecord>,
-  stderr: OutputStream
+  stderr: OutputStream,
 ): Effect.Effect<void> =>
   Effect.gen(function* effectBody() {
-    const write = yield* resolveLifecycleRunRecordWriter(
-      options,
-      upsertOverride,
-      stderr
-    );
+    const write = yield* resolveLifecycleRunRecordWriter(options, upsertOverride, stderr);
     if (Option.isNone(write)) {
       return;
     }
@@ -149,19 +126,19 @@ const upsertLifecycleRunRecordEffect = (
     Effect.catch((error) =>
       Effect.sync(() => {
         logUpsertError(stderr, options.runId, error);
-      })
-    )
+      }),
+    ),
   );
 
 const lifecycleErrorExitCode = (error: unknown, stderr: OutputStream) => {
   const message = error instanceof Error ? error.message : String(error);
   stderr.write(`${message}\n`);
-  return error instanceof z.ZodError ? EXIT_VALIDATION : EXIT_STARTUP;
+  return error instanceof Schema.SchemaError ? EXIT_VALIDATION : EXIT_STARTUP;
 };
 
 const runRunnerLifecycleEffect = (
   options: RunnerLifecycleOptions,
-  stderr: OutputStream
+  stderr: OutputStream,
 ): Effect.Effect<number, never, RunnerCommandIoService> =>
   Effect.gen(function* effectBody() {
     const { compiled, context, payload, scheduleYaml, sink, worktreePath } =
@@ -179,7 +156,7 @@ const runRunnerLifecycleEffect = (
         worktreePath,
       },
       Option.fromNullishOr(options.upsertRunRecord),
-      stderr
+      stderr,
     );
 
     const failure = yield* Effect.tryPromise({
@@ -192,23 +169,12 @@ const runRunnerLifecycleEffect = (
           emitWorkflowStarted: () => {
             emitWorkflowStarted(context);
           },
-          runWorkflowHook: async (event) =>
-            Option.fromNullishOr(await dispatchHooks(context, event)),
+          runWorkflowHook: async (event) => Option.fromNullishOr(await dispatchHooks(context, event)),
         }),
     });
     yield* flushAndReport(sink, stderr);
     return Option.isSome(failure) ? EXIT_FAIL : EXIT_PASS;
-  }).pipe(
-    Effect.catch((error) =>
-      Effect.sync(() => lifecycleErrorExitCode(error, stderr))
-    )
-  );
+  }).pipe(Effect.catch((error) => Effect.sync(() => lifecycleErrorExitCode(error, stderr))));
 
-export const runRunnerLifecycle = async (
-  rawOptions: Partial<RunnerLifecycleOptions> = {}
-): Promise<number> =>
-  await runValidatedRunnerCommand(
-    runnerLifecycleOptionsSchema,
-    rawOptions,
-    runRunnerLifecycleEffect
-  );
+export const runRunnerLifecycle = async (rawOptions: Partial<RunnerLifecycleOptions> = {}): Promise<number> =>
+  await runValidatedRunnerCommand(runnerLifecycleOptionsSchema, rawOptions, runRunnerLifecycleEffect);

@@ -1,12 +1,7 @@
 import type { HookEvent } from "../../config";
 import type { HookResult } from "../../hooks";
 import type { PlannedWorkflowNode } from "../../planning/compile";
-import type {
-  HookBinding,
-  HookFunctionSpec,
-  RuntimeContext,
-  RuntimeFailure,
-} from "../contracts";
+import type { HookBinding, HookFunctionSpec, RuntimeContext, RuntimeFailure } from "../contracts";
 
 export interface RuntimeHookInvocationResult {
   failure?: RuntimeFailure;
@@ -32,5 +27,5 @@ export interface HookExecutionInput {
 export type HookFunctionKind = HookFunctionSpec["kind"];
 
 export type HookFunctionExecutor = (
-  input: HookExecutionInput
+  input: HookExecutionInput,
 ) => Promise<RuntimeHookInvocationResult> | RuntimeHookInvocationResult;

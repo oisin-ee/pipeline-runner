@@ -23,9 +23,7 @@ const agentOutputRecorder =
       format: "text",
       nodeId: node.id,
       output: event.chunk,
-      ...(node.profile === undefined || node.profile.length === 0
-        ? {}
-        : { profile: node.profile }),
+      ...(node.profile === undefined || node.profile.length === 0 ? {} : { profile: node.profile }),
       type: "node.output.recorded",
     });
   };

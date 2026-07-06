@@ -10,10 +10,7 @@ export const parseLogicalSegment = (label: string, value: string): string => {
   return value;
 };
 
-export const logicalSegmentEffect = (
-  label: string,
-  value: string
-): Effect.Effect<string, unknown> =>
+export const logicalSegmentEffect = (label: string, value: string): Effect.Effect<string, unknown> =>
   Effect.try({
     catch: (error) => error,
     try: () => parseLogicalSegment(label, value),

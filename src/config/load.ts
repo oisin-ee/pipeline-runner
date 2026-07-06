@@ -1,11 +1,7 @@
-import { Effect } from "effect";
-import type { z } from "zod";
+import * as Effect from "effect/Effect";
 
-import {
-  ConfigIoService,
-  parseConfigYamlAs,
-  runConfigIoSync,
-} from "../runtime/services/config-io-service";
+import { ConfigIoService, parseConfigYamlAs, runConfigIoSync } from "../runtime/services/config-io-service";
+import { parseResultWithSchema } from "../schema-boundary";
 import {
   PACKAGE_DEFAULT_PIPELINE_YAML,
   PACKAGE_DEFAULT_PROFILES_YAML,
@@ -15,17 +11,13 @@ import {
   RUNNERS_CONFIG_PATH,
 } from "./defaults";
 import {
-  configIssuesFromZodError,
+  configIssuesFromSchemaIssues,
   pipelineFileSchema,
   profilesFileSchema,
   runnersFileSchema,
   validationError,
 } from "./schemas";
-import type {
-  PipelineConfig,
-  PipelineConfigParts,
-  PipelineConfigValidationOptions,
-} from "./schemas";
+import type { PipelineConfig, PipelineConfigParts, PipelineConfigValidationOptions } from "./schemas";
 import { validatePipelineConfig } from "./validate";
 
 // PIPE-91.3: structured deprecation diagnostic surfaced when a pipeline.yaml
@@ -42,9 +34,7 @@ const isPlainObject = (value: unknown): value is PlainObject =>
 
 // Returns a diagnostic for each pipeline.yaml key that has been removed.
 // Must run against the raw parsed YAML object BEFORE strict schema validation.
-const detectLegacyPipelineFields = (
-  raw: unknown
-): PipelineDeprecationDiagnostic[] => {
+const detectLegacyPipelineFields = (raw: unknown): PipelineDeprecationDiagnostic[] => {
   if (!isPlainObject(raw)) {
     return [];
   }
@@ -52,18 +42,14 @@ const detectLegacyPipelineFields = (
   if ("durability" in raw) {
     diagnostics.push({
       field: "durability",
-      guidance:
-        "Set momokaya.db.url in ~/.config/moka/config.yaml to enable the durable Postgres substrate.",
+      guidance: "Set momokaya.db.url in ~/.config/moka/config.yaml to enable the durable Postgres substrate.",
     });
   }
   return diagnostics;
 };
 
 // Strips legacy fields from the raw YAML object so the strict schema parse succeeds.
-const stripLegacyPipelineFields = (
-  raw: unknown,
-  deprecations: PipelineDeprecationDiagnostic[]
-): unknown => {
+const stripLegacyPipelineFields = (raw: unknown, deprecations: PipelineDeprecationDiagnostic[]): unknown => {
   if (deprecations.length === 0 || !isPlainObject(raw)) {
     return raw;
   }
@@ -74,48 +60,42 @@ const stripLegacyPipelineFields = (
   return stripped;
 };
 
-type PipelineFile = z.infer<typeof pipelineFileSchema>;
-type ProfilesFile = z.infer<typeof profilesFileSchema>;
-type RunnersFile = z.infer<typeof runnersFileSchema>;
+type PipelineFile = typeof pipelineFileSchema.Type;
+type ProfilesFile = typeof profilesFileSchema.Type;
+type RunnersFile = typeof runnersFileSchema.Type;
 
-const warnPipelineDeprecations = (
-  deprecations: PipelineDeprecationDiagnostic[]
-): void => {
+const warnPipelineDeprecations = (deprecations: PipelineDeprecationDiagnostic[]): void => {
   for (const diag of deprecations) {
-    console.warn(
-      `[pipeline] '${diag.field}' is no longer supported and has been ignored. ${diag.guidance}`
-    );
+    console.warn(`[pipeline] '${diag.field}' is no longer supported and has been ignored. ${diag.guidance}`);
   }
 };
 
 const parsePipelineFileEffect = (
   source: string,
-  sourcePath: string
+  sourcePath: string,
 ): Effect.Effect<PipelineFile, unknown, ConfigIoService> =>
   Effect.gen(function* effectBody() {
     const configIo = yield* ConfigIoService;
     const rawPipelineObj = yield* configIo.parseYaml(source, sourcePath);
     const pipelineDeprecations = detectLegacyPipelineFields(rawPipelineObj);
     warnPipelineDeprecations(pipelineDeprecations);
-    const pipelineParsed = pipelineFileSchema.safeParse(
-      stripLegacyPipelineFields(rawPipelineObj, pipelineDeprecations)
+    const pipelineParsed = parseResultWithSchema(
+      pipelineFileSchema,
+      stripLegacyPipelineFields(rawPipelineObj, pipelineDeprecations),
+      { onExcessProperty: "error" },
     );
-    if (!pipelineParsed.success) {
-      return yield* Effect.fail(
-        validationError(configIssuesFromZodError(pipelineParsed.error))
-      );
+    if (!pipelineParsed.ok) {
+      return yield* Effect.fail(validationError(configIssuesFromSchemaIssues(pipelineParsed.issues)));
     }
-    return pipelineParsed.data;
+    return pipelineParsed.value;
   });
 
 const assembledPipelineConfig = (
   pipeline: PipelineFile,
   profiles: ProfilesFile,
-  runners: RunnersFile
+  runners: RunnersFile,
 ): PipelineConfig => ({
-  ...(pipeline.context_handoff
-    ? { context_handoff: pipeline.context_handoff }
-    : {}),
+  ...(pipeline.context_handoff ? { context_handoff: pipeline.context_handoff } : {}),
   default_workflow: pipeline.default_workflow,
   ...(pipeline.delivery ? { delivery: pipeline.delivery } : {}),
   entrypoints: pipeline.entrypoints,
@@ -123,9 +103,7 @@ const assembledPipelineConfig = (
   ...(profiles.mcp_gateway ? { mcp_gateway: profiles.mcp_gateway } : {}),
   mcp_servers: profiles.mcp_servers,
   ...(pipeline.orchestrator ? { orchestrator: pipeline.orchestrator } : {}),
-  ...(pipeline.parallel_worktrees
-    ? { parallel_worktrees: pipeline.parallel_worktrees }
-    : {}),
+  ...(pipeline.parallel_worktrees ? { parallel_worktrees: pipeline.parallel_worktrees } : {}),
   profiles: profiles.profiles,
   ...(pipeline.repo_map ? { repo_map: pipeline.repo_map } : {}),
   rules: profiles.rules,
@@ -144,33 +122,18 @@ const parsePipelineConfigPartsEffect = (
   sources: PipelineConfigParts,
   projectRoot = "",
   sourcePaths: PipelineConfigParts,
-  options: PipelineConfigValidationOptions
+  options: PipelineConfigValidationOptions,
 ) =>
   Effect.gen(function* effectBody() {
-    const runners = yield* parseConfigYamlAs(
-      sources.runners,
-      sourcePaths.runners,
-      runnersFileSchema
-    );
-    const profiles = yield* parseConfigYamlAs(
-      sources.profiles,
-      sourcePaths.profiles,
-      profilesFileSchema
-    );
-    const pipeline = yield* parsePipelineFileEffect(
-      sources.pipeline,
-      sourcePaths.pipeline
-    );
-    return validatePipelineConfig(
-      assembledPipelineConfig(pipeline, profiles, runners),
-      projectRoot,
-      options
-    );
+    const runners = yield* parseConfigYamlAs(sources.runners, sourcePaths.runners, runnersFileSchema);
+    const profiles = yield* parseConfigYamlAs(sources.profiles, sourcePaths.profiles, profilesFileSchema);
+    const pipeline = yield* parsePipelineFileEffect(sources.pipeline, sourcePaths.pipeline);
+    return validatePipelineConfig(assembledPipelineConfig(pipeline, profiles, runners), projectRoot, options);
   });
 
 export const loadPackagePipelineConfig = (
   projectRoot: string,
-  options: PipelineConfigValidationOptions = {}
+  options: PipelineConfigValidationOptions = {},
 ): PipelineConfig => {
   const program = parsePipelineConfigPartsEffect(
     {
@@ -184,14 +147,14 @@ export const loadPackagePipelineConfig = (
       profiles: "@oisincoveney/pipeline/defaults/profiles.yaml",
       runners: "@oisincoveney/pipeline/defaults/runners.yaml",
     },
-    options
+    options,
   );
   return runConfigIoSync(program);
 };
 
 export const loadPipelineConfig = (
   projectRoot: string,
-  options: PipelineConfigValidationOptions = {}
+  options: PipelineConfigValidationOptions = {},
 ): PipelineConfig => loadPackagePipelineConfig(projectRoot, options);
 
 export const parsePipelineConfigParts = (
@@ -202,21 +165,16 @@ export const parsePipelineConfigParts = (
     profiles: PROFILES_CONFIG_PATH,
     runners: RUNNERS_CONFIG_PATH,
   },
-  options: PipelineConfigValidationOptions = {}
+  options: PipelineConfigValidationOptions = {},
 ): PipelineConfig => {
-  const program = parsePipelineConfigPartsEffect(
-    sources,
-    projectRoot,
-    sourcePaths,
-    options
-  );
+  const program = parsePipelineConfigPartsEffect(sources, projectRoot, sourcePaths, options);
   return runConfigIoSync(program);
 };
 
 export const parsePipelineConfigYaml = (
   source: string,
   sourcePath = PIPELINE_CONFIG_PATH,
-  projectRoot?: string
+  projectRoot?: string,
 ): PipelineConfig =>
   parsePipelineConfigParts(
     {
@@ -229,5 +187,5 @@ export const parsePipelineConfigYaml = (
       pipeline: sourcePath,
       profiles: PROFILES_CONFIG_PATH,
       runners: RUNNERS_CONFIG_PATH,
-    }
+    },
   );

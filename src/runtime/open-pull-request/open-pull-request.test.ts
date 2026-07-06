@@ -3,11 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import { parsePipelineConfigParts } from "../../config";
 import { compileWorkflowPlan } from "../../planning/compile";
-import type {
-  NodeAttemptResult,
-  PipelineRuntimeEvent,
-  RuntimeContext,
-} from "../contracts";
+import type { NodeAttemptResult, PipelineRuntimeEvent, RuntimeContext } from "../contracts";
 import { NodeStateStore } from "../node-state-store";
 import { CommandExecutor } from "../services/command-executor-service";
 import type { OpenPullRequestGitClient } from "../services/open-pull-request-git-service";
@@ -26,18 +22,14 @@ interface FakeGitOptions {
 
 type GitEffect = Effect.Effect<string, unknown>;
 
-const fakeSymbolicRef = (
-  opts: FakeGitOptions,
-  defaultBranch: string
-): GitEffect => {
+const fakeSymbolicRef = (opts: FakeGitOptions, defaultBranch: string): GitEffect => {
   if (opts.symbolicRefFails === true) {
     return Effect.fail(new Error("no symbolic ref"));
   }
   return Effect.succeed(`origin/${defaultBranch}`);
 };
 
-const fakeStatusPorcelain = (cleanTree: boolean): GitEffect =>
-  Effect.succeed(cleanTree ? "" : "M file.ts");
+const fakeStatusPorcelain = (cleanTree: boolean): GitEffect => Effect.succeed(cleanTree ? "" : "M file.ts");
 
 const fakeGitRawSimple = (args: string[], cmd: string): GitEffect => {
   if (args[0] === "checkout" && args[1] === "-B") {
@@ -52,12 +44,7 @@ const fakeGitRawSimple = (args: string[], cmd: string): GitEffect => {
   return Effect.fail(new Error(`unexpected git command: ${cmd}`));
 };
 
-const fakeGitRaw = (
-  args: string[],
-  opts: FakeGitOptions,
-  defaultBranch: string,
-  cleanTree: boolean
-): GitEffect => {
+const fakeGitRaw = (args: string[], opts: FakeGitOptions, defaultBranch: string, cleanTree: boolean): GitEffect => {
   const cmd = args.join(" ");
   if (cmd === "symbolic-ref --short refs/remotes/origin/HEAD") {
     return fakeSymbolicRef(opts, defaultBranch);
@@ -71,9 +58,7 @@ const fakeGitRaw = (
   return fakeGitRawSimple(args, cmd);
 };
 
-const buildFakeGitClient = (
-  opts: FakeGitOptions = {}
-): OpenPullRequestGitClient => {
+const buildFakeGitClient = (opts: FakeGitOptions = {}): OpenPullRequestGitClient => {
   const defaultBranch = opts.defaultBranch ?? "main";
   const cleanTree = opts.cleanTree ?? true;
   return {
@@ -92,7 +77,7 @@ interface RecordedCall {
 const buildRecordingCommandExecutor = (
   exitCode = 0,
   output = "https://github.com/owner/repo/pull/1",
-  existingPrOutput = ""
+  existingPrOutput = "",
 ): {
   layer: Layer.Layer<CommandExecutor>;
   calls: RecordedCall[];
@@ -142,7 +127,7 @@ const contextForOpenPr = (
   task = "Fix bug\n\nMore detail",
   headBranch?: string,
   mode?: "create-new-pr" | "update-existing-pr",
-  reporter?: RuntimeContext["reporter"]
+  reporter?: RuntimeContext["reporter"],
 ): RuntimeContext => {
   const config = parsePipelineConfigParts({
     pipeline: `
@@ -218,9 +203,7 @@ runners:
 // Helpers
 // ---------------------------------------------------------------------------
 
-const buildFakeGitLayer = (
-  opts: FakeGitOptions = {}
-): Layer.Layer<OpenPullRequestGitService> => {
+const buildFakeGitLayer = (opts: FakeGitOptions = {}): Layer.Layer<OpenPullRequestGitService> => {
   const client = buildFakeGitClient(opts);
   return Layer.succeed(OpenPullRequestGitService, {
     create: (_baseDir) => Effect.succeed(client),
@@ -230,12 +213,10 @@ const buildFakeGitLayer = (
 const runWithLayers = async (
   context: RuntimeContext,
   gitLayer: Layer.Layer<OpenPullRequestGitService>,
-  executorLayer: Layer.Layer<CommandExecutor>
+  executorLayer: Layer.Layer<CommandExecutor>,
 ): Promise<NodeAttemptResult> => {
   const merged = Layer.merge(gitLayer, executorLayer);
-  return await Effect.runPromise(
-    Effect.provide(openPullRequestProgram(context), merged)
-  );
+  return await Effect.runPromise(Effect.provide(openPullRequestProgram(context), merged));
 };
 
 // ---------------------------------------------------------------------------
@@ -252,9 +233,7 @@ describe("open-pull-request builtin", () => {
 
     expect(result.exitCode).toBe(0);
 
-    const createCall = calls.find(
-      (c) => c.args.includes("create") && c.args.includes("pr")
-    );
+    const createCall = calls.find((c) => c.args.includes("create") && c.args.includes("pr"));
     expect(createCall).toBeDefined();
     expect(createCall?.args).toContain("--base");
     expect(createCall?.args).toContain("main");
@@ -263,9 +242,7 @@ describe("open-pull-request builtin", () => {
     expect(createCall?.args).not.toContain("--label");
     expect(result.evidence[0]).toContain("opened");
 
-    const editCall = calls.find(
-      (c) => c.args.includes("edit") && c.args.includes("pr")
-    );
+    const editCall = calls.find((c) => c.args.includes("edit") && c.args.includes("pr"));
     expect(editCall).toBeDefined();
     expect(editCall?.args).toContain("--add-label");
     expect(editCall?.args).toContain("preview");
@@ -273,9 +250,7 @@ describe("open-pull-request builtin", () => {
 
   it("emits a typed delivery event when a PR is opened", async () => {
     const events: PipelineRuntimeEvent[] = [];
-    const context = contextForOpenPr("Fix bug", undefined, undefined, (event) =>
-      events.push(event)
-    );
+    const context = contextForOpenPr("Fix bug", undefined, undefined, (event) => events.push(event));
     const { layer: executorLayer } = buildRecordingCommandExecutor();
     const gitLayer = buildFakeGitLayer();
 
@@ -293,12 +268,7 @@ describe("open-pull-request builtin", () => {
 
   it("emits a typed delivery event when an existing PR is updated", async () => {
     const events: PipelineRuntimeEvent[] = [];
-    const context = contextForOpenPr(
-      "Fix bug",
-      undefined,
-      "update-existing-pr",
-      (event) => events.push(event)
-    );
+    const context = contextForOpenPr("Fix bug", undefined, "update-existing-pr", (event) => events.push(event));
     const { layer: executorLayer } = buildRecordingCommandExecutor();
     const gitLayer = buildFakeGitLayer();
 
@@ -340,26 +310,18 @@ describe("open-pull-request builtin", () => {
 
     expect(result.exitCode).toBe(0);
     expect(result.evidence[0]).toContain("opened");
-    expect(result.evidence.some((line) => line.includes("not applied"))).toBe(
-      true
-    );
+    expect(result.evidence.some((line) => line.includes("not applied"))).toBe(true);
   });
 
   it("falls back to gh pr edit when the PR already exists", async () => {
     const context = contextForOpenPr();
-    const { calls, layer: executorLayer } = buildRecordingCommandExecutor(
-      1,
-      "",
-      "already exists"
-    );
+    const { calls, layer: executorLayer } = buildRecordingCommandExecutor(1, "", "already exists");
     const gitLayer = buildFakeGitLayer();
 
     const result = await runWithLayers(context, gitLayer, executorLayer);
 
     expect(result.exitCode).toBe(0);
-    const editCall = calls.find(
-      (c) => c.args.includes("edit") && c.args.includes("pr")
-    );
+    const editCall = calls.find((c) => c.args.includes("edit") && c.args.includes("pr"));
     expect(editCall).toBeDefined();
     expect(editCall?.args).toContain("--add-label");
     expect(editCall?.args).toContain("preview");
@@ -385,9 +347,7 @@ describe("open-pull-request builtin", () => {
     const result = await runWithLayers(context, gitLayer, executorLayer);
 
     expect(result.exitCode).toBe(0);
-    const createCall = calls.find(
-      (c) => c.args.includes("create") && c.args.includes("pr")
-    );
+    const createCall = calls.find((c) => c.args.includes("create") && c.args.includes("pr"));
     expect(createCall).toBeDefined();
     expect(createCall?.args).toContain("--base");
   });
@@ -399,9 +359,7 @@ describe("open-pull-request builtin", () => {
 
     await runWithLayers(context, gitLayer, executorLayer);
 
-    const createCall = calls.find(
-      (c) => c.args.includes("create") && c.args.includes("pr")
-    );
+    const createCall = calls.find((c) => c.args.includes("create") && c.args.includes("pr"));
     const titleIdx = createCall?.args.indexOf("--title") ?? -1;
     expect(createCall?.args[titleIdx + 1]).toBe("Add feature X");
   });
@@ -411,8 +369,7 @@ describe("open-pull-request builtin", () => {
     const failGitLayer = Layer.succeed(OpenPullRequestGitService, {
       create: (_baseDir) =>
         Effect.succeed({
-          raw: (_args: string[]) =>
-            Effect.fail(new Error("git: repository not found")),
+          raw: (_args: string[]) => Effect.fail(new Error("git: repository not found")),
         }),
     });
     const { layer: executorLayer } = buildRecordingCommandExecutor();
@@ -426,11 +383,7 @@ describe("open-pull-request builtin", () => {
   // AC2: update-existing-pr mode — appends fix-commits to the provided PR branch
   // (workspace is already that branch) and updates the existing PR, no gh pr create
   it("update-existing-pr mode: pushes to provided head branch and skips pr create", async () => {
-    const context = contextForOpenPr(
-      "Fix CI",
-      "moka/run/run-x",
-      "update-existing-pr"
-    );
+    const context = contextForOpenPr("Fix CI", "moka/run/run-x", "update-existing-pr");
     const { calls, layer: executorLayer } = buildRecordingCommandExecutor();
 
     const gitCalls: string[][] = [];
@@ -446,12 +399,7 @@ describe("open-pull-request builtin", () => {
             if (cmd === "status --porcelain") {
               return Effect.succeed("");
             }
-            if (
-              args[0] === "fetch" ||
-              args[0] === "checkout" ||
-              args[0] === "config" ||
-              args[0] === "push"
-            ) {
+            if (args[0] === "fetch" || args[0] === "checkout" || args[0] === "config" || args[0] === "push") {
               return Effect.succeed("");
             }
             if (cmd === "add -A") {
@@ -470,23 +418,17 @@ describe("open-pull-request builtin", () => {
     const fetchCall = gitCalls.find((args) => args[0] === "fetch");
     expect(fetchCall).toBeUndefined();
     // checkout uses the provided head branch
-    const checkoutCall = gitCalls.find(
-      (args) => args[0] === "checkout" && args[1] === "-B"
-    );
+    const checkoutCall = gitCalls.find((args) => args[0] === "checkout" && args[1] === "-B");
     expect(checkoutCall).toContain("moka/run/run-x");
     // push targets the provided PR branch (append fix-commits)
     const pushCall = gitCalls.find((args) => args[0] === "push");
     expect(pushCall).toBeDefined();
     expect(pushCall?.join(" ")).toContain("moka/run/run-x");
     // no gh pr create
-    const createCall = calls.find(
-      (c) => c.args.includes("create") && c.args.includes("pr")
-    );
+    const createCall = calls.find((c) => c.args.includes("create") && c.args.includes("pr"));
     expect(createCall).toBeUndefined();
     // gh pr edit called directly
-    const editCall = calls.find(
-      (c) => c.args.includes("edit") && c.args.includes("pr")
-    );
+    const editCall = calls.find((c) => c.args.includes("edit") && c.args.includes("pr"));
     expect(editCall).toBeDefined();
     expect(result.evidence[0]).toContain("updated");
   });
@@ -501,9 +443,7 @@ describe("open-pull-request builtin", () => {
     const result = await runWithLayers(context, gitLayer, executorLayer);
 
     expect(result.exitCode).toBe(0);
-    const createCall = calls.find(
-      (c) => c.args.includes("create") && c.args.includes("pr")
-    );
+    const createCall = calls.find((c) => c.args.includes("create") && c.args.includes("pr"));
     expect(createCall).toBeDefined();
     expect(result.evidence[0]).toContain("opened");
   });

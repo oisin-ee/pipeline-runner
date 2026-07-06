@@ -8,11 +8,7 @@ const execGit = promisify(execFile);
 export class GitPorcelainService extends Context.Service<
   GitPorcelainService,
   {
-    readonly run: (
-      cwd: string,
-      args: string[],
-      env: NodeJS.ProcessEnv
-    ) => Effect.Effect<string, unknown>;
+    readonly run: (cwd: string, args: string[], env: NodeJS.ProcessEnv) => Effect.Effect<string, unknown>;
     readonly statusPorcelain: (cwd: string) => Effect.Effect<string, unknown>;
   }
 >()("GitPorcelainService") {}
@@ -34,14 +30,10 @@ export const GitPorcelainServiceLive = Layer.succeed(GitPorcelainService, {
     Effect.try({
       catch: (error) => error,
       try: () =>
-        execFileSync(
-          "git",
-          ["status", "--porcelain=v1", "--untracked-files=all", "-z"],
-          {
-            cwd,
-            encoding: "utf-8",
-            stdio: ["ignore", "pipe", "ignore"],
-          }
-        ),
+        execFileSync("git", ["status", "--porcelain=v1", "--untracked-files=all", "-z"], {
+          cwd,
+          encoding: "utf-8",
+          stdio: ["ignore", "pipe", "ignore"],
+        }),
     }),
 });

@@ -1,14 +1,7 @@
 import { Context, Effect, Layer } from "effect";
 
-import {
-  createChildWorktree,
-  gcParallelWorktrees,
-} from "../parallel-worktrees/parallel-worktrees";
-import type {
-  CreateWorktreeOptions,
-  WorktreeLease,
-  WorktreeState,
-} from "../parallel-worktrees/parallel-worktrees";
+import { createChildWorktree, gcParallelWorktrees } from "../parallel-worktrees/parallel-worktrees";
+import type { CreateWorktreeOptions, WorktreeLease, WorktreeState } from "../parallel-worktrees/parallel-worktrees";
 
 /**
  * Effect service over the git-worktree lifecycle (PIPE-83 follow-up). The Live
@@ -21,9 +14,7 @@ import type {
 export class WorktreeService extends Context.Service<
   WorktreeService,
   {
-    readonly createChild: (
-      opts: CreateWorktreeOptions
-    ) => Effect.Effect<WorktreeLease>;
+    readonly createChild: (opts: CreateWorktreeOptions) => Effect.Effect<WorktreeLease>;
     readonly gc: (repoRoot: string) => Effect.Effect<WorktreeState[]>;
   }
 >()("WorktreeService") {}

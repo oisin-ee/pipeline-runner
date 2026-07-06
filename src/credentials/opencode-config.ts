@@ -1,10 +1,4 @@
-import {
-  applyJsonEdit,
-  ensureTrailingNewline,
-  formatJson,
-  isRecord,
-  parseJsonRecord,
-} from "../json-config-merge";
+import { applyJsonEdit, ensureTrailingNewline, formatJson, isRecord, parseJsonRecord } from "../json-config-merge";
 import { brokerV1Url } from "./broker";
 import type { BrokerCredentials } from "./broker";
 
@@ -16,16 +10,12 @@ const OC_CODEX_MULTI_AUTH_PLUGIN_NAME = "oc-codex-multi-auth";
  * existing store are intentionally not preserved: in broker mode the runner
  * owns this credential file outright.
  */
-export const renderOpencodeBrokerAuthJson = (
-  credentials: BrokerCredentials
-): string =>
+export const renderOpencodeBrokerAuthJson = (credentials: BrokerCredentials): string =>
   formatJson({
     [OPENCODE_OPENAI_PROVIDER_ID]: { key: credentials.apiKey, type: "api" },
   });
 
-const currentOpenaiOptions = (
-  parsed: Record<string, unknown>
-): Record<string, unknown> => {
+const currentOpenaiOptions = (parsed: Record<string, unknown>): Record<string, unknown> => {
   const { provider } = parsed;
   if (!isRecord(provider)) {
     return {};
@@ -39,7 +29,7 @@ const currentOpenaiOptions = (
 
 const mergeOpenaiOptions = (
   parsed: Record<string, unknown>,
-  options: Record<string, unknown>
+  options: Record<string, unknown>,
 ): Record<string, unknown> => ({ ...currentOpenaiOptions(parsed), ...options });
 
 const isMultiAuthPlugin = (entry: unknown): boolean => {
@@ -47,9 +37,7 @@ const isMultiAuthPlugin = (entry: unknown): boolean => {
   if (typeof specifier !== "string") {
     return false;
   }
-  const name = specifier.includes("@", 1)
-    ? specifier.slice(0, specifier.indexOf("@", 1))
-    : specifier;
+  const name = specifier.includes("@", 1) ? specifier.slice(0, specifier.indexOf("@", 1)) : specifier;
   return name === OC_CODEX_MULTI_AUTH_PLUGIN_NAME;
 };
 
@@ -67,7 +55,7 @@ const pluginsWithoutMultiAuth = (plugin: unknown): unknown[] | void => {
  */
 export const applyOpencodeBrokerProvider = (
   currentText = "",
-  credentials: BrokerCredentials
+  credentials: BrokerCredentials,
 ): { content: string } | { error: string } => {
   const options = {
     baseURL: brokerV1Url(credentials),
@@ -91,12 +79,9 @@ export const applyOpencodeBrokerProvider = (
   const withProvider = applyJsonEdit(
     currentText,
     ["provider", OPENCODE_OPENAI_PROVIDER_ID, "options"],
-    mergeOpenaiOptions(parsed.value, options)
+    mergeOpenaiOptions(parsed.value, options),
   );
   const nextPlugins = pluginsWithoutMultiAuth(parsed.value.plugin);
-  const withPlugins =
-    nextPlugins === undefined
-      ? withProvider
-      : applyJsonEdit(withProvider, ["plugin"], nextPlugins);
+  const withPlugins = nextPlugins === undefined ? withProvider : applyJsonEdit(withProvider, ["plugin"], nextPlugins);
   return { content: ensureTrailingNewline(withPlugins) };
 };

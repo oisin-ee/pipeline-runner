@@ -4,11 +4,7 @@ import { Effect } from "effect";
 
 import { BUILTIN_PIPE_COMMANDS } from "../commands/pipeline-command";
 import { resolvePackageAssetPath } from "../package-assets";
-import {
-  FileSystemService,
-  FileSystemServiceLive,
-  runFileSystemSync,
-} from "../runtime/services/file-system-service";
+import { FileSystemService, FileSystemServiceLive, runFileSystemSync } from "../runtime/services/file-system-service";
 import { standardOutputSchemaNameFromPath } from "../standard-output-schemas";
 import type { PipelineConfig } from "./schemas";
 
@@ -30,7 +26,7 @@ const lintShadowedEntrypoints = (config: PipelineConfig): ConfigLintWarning[] =>
 const pushLintPathRef = (
   refs: ReturnType<typeof lintFileReferences>,
   path: string,
-  ref: { path?: string; source_root?: "package" | "project" }
+  ref: { path?: string; source_root?: "package" | "project" },
 ): void => {
   if (ref.path !== undefined && ref.path !== "") {
     refs.push({ path, ref: { ...ref, path: ref.path } });
@@ -38,7 +34,7 @@ const pushLintPathRef = (
 };
 
 const lintFileReferences = (
-  config: PipelineConfig
+  config: PipelineConfig,
 ): {
   path: string;
   ref: { path: string; source_root?: "package" | "project" };
@@ -67,17 +63,14 @@ const missingFileReferenceMessage = (path: string, value: string): string => {
   return base;
 };
 
-const missingFileReferenceWarning = (
-  path: string,
-  value: string
-): ConfigLintWarning => ({
+const missingFileReferenceWarning = (path: string, value: string): ConfigLintWarning => ({
   message: missingFileReferenceMessage(path, value),
   ruleId: "missing-file-reference",
 });
 
 const resolveLintPathReference = (
   projectRoot: string,
-  ref: { path: string; source_root?: "package" | "project" }
+  ref: { path: string; source_root?: "package" | "project" },
 ): string => {
   if (ref.source_root === "package") {
     return resolvePackageAssetPath(ref.path);
@@ -88,7 +81,7 @@ const resolveLintPathReference = (
 const lintFileReferenceExists = (
   projectRoot: string,
   ref: ReturnType<typeof lintFileReferences>[number],
-  exists: (path: string) => Effect.Effect<boolean>
+  exists: (path: string) => Effect.Effect<boolean>,
 ): Effect.Effect<boolean> => {
   if (standardOutputSchemaNameFromPath(ref.ref.path)) {
     return Effect.succeed(true);
@@ -98,17 +91,13 @@ const lintFileReferenceExists = (
 
 const lintMissingFileReferencesEffect = (
   config: PipelineConfig,
-  projectRoot: string
+  projectRoot: string,
 ): Effect.Effect<ConfigLintWarning[], unknown, FileSystemService> =>
   Effect.gen(function* effectBody() {
     const fileSystem = yield* FileSystemService;
     const warnings: ConfigLintWarning[] = [];
     for (const ref of lintFileReferences(config)) {
-      const exists = yield* lintFileReferenceExists(
-        projectRoot,
-        ref,
-        fileSystem.exists
-      );
+      const exists = yield* lintFileReferenceExists(projectRoot, ref, fileSystem.exists);
       if (!exists) {
         warnings.push(missingFileReferenceWarning(ref.path, ref.ref.path));
       }
@@ -116,10 +105,7 @@ const lintMissingFileReferencesEffect = (
     return warnings;
   });
 
-const lintWorkflowNode = (
-  warnings: ConfigLintWarning[],
-  node: ConfigWorkflowNode
-): void => {
+const lintWorkflowNode = (warnings: ConfigLintWarning[], node: ConfigWorkflowNode): void => {
   if (node.kind === "parallel") {
     if (node.nodes.length === 1) {
       warnings.push({
@@ -145,28 +131,15 @@ const lintWorkflowNodes = (config: PipelineConfig): ConfigLintWarning[] => {
 
 const lintPipelineConfigEffect = (
   config: PipelineConfig,
-  projectRoot: string
+  projectRoot: string,
 ): Effect.Effect<ConfigLintWarning[], unknown, FileSystemService> =>
   Effect.gen(function* effectBody() {
-    const missingFiles = yield* lintMissingFileReferencesEffect(
-      config,
-      projectRoot
-    );
-    return [
-      ...lintShadowedEntrypoints(config),
-      ...missingFiles,
-      ...lintWorkflowNodes(config),
-    ];
+    const missingFiles = yield* lintMissingFileReferencesEffect(config, projectRoot);
+    return [...lintShadowedEntrypoints(config), ...missingFiles, ...lintWorkflowNodes(config)];
   });
 
-export const lintPipelineConfig = (
-  config: PipelineConfig,
-  projectRoot: string
-): ConfigLintWarning[] =>
-  runFileSystemSync(
-    lintPipelineConfigEffect(config, projectRoot),
-    FileSystemServiceLive
-  );
+export const lintPipelineConfig = (config: PipelineConfig, projectRoot: string): ConfigLintWarning[] =>
+  runFileSystemSync(lintPipelineConfigEffect(config, projectRoot), FileSystemServiceLive);
 
 export const formatConfigLintWarning = (warning: ConfigLintWarning): string =>
   `WARN ${warning.ruleId}: ${warning.message}`;

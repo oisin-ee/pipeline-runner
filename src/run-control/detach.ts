@@ -26,8 +26,7 @@ const optionalOption = (name: string, value: Option.Option<string>): string[] =>
     onSome: (definedValue) => [name, definedValue],
   });
 
-const pathExistsEffect = (path: string): Effect.Effect<boolean, unknown> =>
-  Effect.sync(() => existsSync(path));
+const pathExistsEffect = (path: string): Effect.Effect<boolean, unknown> => Effect.sync(() => existsSync(path));
 
 const cliEntrypointPathEffect = (): Effect.Effect<string, unknown> =>
   Effect.gen(function* effectBody() {
@@ -50,9 +49,7 @@ const cliEntrypointPathEffect = (): Effect.Effect<string, unknown> =>
     return process.argv[1] ?? compiledEntrypoint;
   });
 
-const controllerArgsEffect = (
-  input: StartDetachedRunControllerInput
-): Effect.Effect<string[], unknown> =>
+const controllerArgsEffect = (input: StartDetachedRunControllerInput): Effect.Effect<string[], unknown> =>
   Effect.gen(function* effectBody() {
     const entrypoint = yield* cliEntrypointPathEffect();
     return [
@@ -68,9 +65,7 @@ const controllerArgsEffect = (
     ];
   });
 
-const waitForControllerSpawnEffect = (
-  child: ReturnType<typeof spawn>
-): Effect.Effect<void, unknown> =>
+const waitForControllerSpawnEffect = (child: ReturnType<typeof spawn>): Effect.Effect<void, unknown> =>
   Effect.callback<void, unknown>((resume) => {
     const onSpawn = (): void => {
       resume(Effect.void);
@@ -88,7 +83,7 @@ const waitForControllerSpawnEffect = (
   });
 
 export const startDetachedRunControllerEffect = (
-  input: StartDetachedRunControllerInput
+  input: StartDetachedRunControllerInput,
 ): Effect.Effect<DetachedRunControllerLaunch, unknown> =>
   Effect.gen(function* effectBody() {
     const command = process.execPath;
@@ -102,13 +97,11 @@ export const startDetachedRunControllerEffect = (
           PIPELINE_TARGET_PATH: input.workspaceRoot,
         },
         stdio: "ignore",
-      })
+      }),
     );
 
     if (child.pid === undefined || child.pid === 0) {
-      return yield* Effect.fail(
-        new Error("Detached run controller did not expose a process id.")
-      );
+      return yield* Effect.fail(new Error("Detached run controller did not expose a process id."));
     }
 
     yield* waitForControllerSpawnEffect(child);
@@ -124,6 +117,5 @@ export const startDetachedRunControllerEffect = (
   });
 
 export const startDetachedRunController = async (
-  input: StartDetachedRunControllerInput
-): Promise<DetachedRunControllerLaunch> =>
-  await Effect.runPromise(startDetachedRunControllerEffect(input));
+  input: StartDetachedRunControllerInput,
+): Promise<DetachedRunControllerLaunch> => await Effect.runPromise(startDetachedRunControllerEffect(input));

@@ -1,19 +1,13 @@
-import {
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
+import * as R from "effect/Record";
 import { describe, expect, it } from "vitest";
 import { stringify } from "yaml";
 
 import { parsePipelineConfigParts } from "../src/config";
-import type { SchedulingRole } from "../src/config";
+import type { PipelineConfig, SchedulingRole } from "../src/config";
 import {
   compileScheduleArtifact,
   generateScheduleArtifact,
@@ -24,11 +18,9 @@ import {
 } from "../src/planning/generate";
 import type { ScheduleArtifact } from "../src/planning/generate";
 
-const MISSING_WORK_UNIT_RE =
-  /missing assigned backlog work units.*PIPE-41\.8/su;
+const MISSING_WORK_UNIT_RE = /missing assigned backlog work units.*PIPE-41\.8/su;
 const DOWNSTREAM_COVERAGE_RE = /without downstream verification or review/iu;
-const WORK_UNIT_DEPENDENCY_RE =
-  /work unit dependency edge.*PC-37\.2.*PC-37\.1/su;
+const WORK_UNIT_DEPENDENCY_RE = /work unit dependency edge.*PC-37\.2.*PC-37\.1/su;
 const PLANNER_OUTPUT_RE = /Planner output:\s+version: 1/su;
 const PLANNER_FAILURE_WITH_DETAILS_RE =
   /schedule planner 'moka-schedule-planner' failed with exit 1.*planner auth missing.*partial planner output/su;
@@ -36,8 +28,7 @@ const PLANNER_TIMEOUT_FAILURE_RE =
   /schedule planner 'moka-schedule-planner' failed with exit 1.*timed out waiting for scheduler subprocess/su;
 const REPAIR_NODE_SCHEMA_RE =
   /Agent nodes must not contain instructions.*Command nodes must use command as a YAML sequence/su;
-const GREEN_AFTER_RED_RE =
-  /id: green-implementation[\s\S]*needs:\s+- red-tests/u;
+const GREEN_AFTER_RED_RE = /id: green-implementation[\s\S]*needs:\s+- red-tests/u;
 
 const RUNNERS = `
 version: 1
@@ -175,10 +166,55 @@ const config = () =>
     runners: RUNNERS,
   });
 
-const compileScheduleArtifactOrThrow = (
-  artifact: ScheduleArtifact,
-  worktreePath: string
-): void => {
+const withProfilePatch = (
+  parsed: PipelineConfig,
+  profileId: string,
+  patch: Partial<PipelineConfig["profiles"][string]>,
+): PipelineConfig => ({
+  ...parsed,
+  profiles: {
+    ...parsed.profiles,
+    [profileId]: {
+      ...parsed.profiles[profileId],
+      ...patch,
+    },
+  },
+});
+
+const withSchedulePatch = (
+  parsed: PipelineConfig,
+  scheduleId: string,
+  patch: Partial<PipelineConfig["schedules"][string]>,
+): PipelineConfig => ({
+  ...parsed,
+  schedules: {
+    ...parsed.schedules,
+    [scheduleId]: {
+      ...parsed.schedules[scheduleId],
+      ...patch,
+    },
+  },
+});
+
+const withNodeCatalogPatch = (
+  parsed: PipelineConfig,
+  catalogId: string,
+  patch: Partial<PipelineConfig["scheduler"]["node_catalogs"][string]>,
+): PipelineConfig => ({
+  ...parsed,
+  scheduler: {
+    ...parsed.scheduler,
+    node_catalogs: {
+      ...parsed.scheduler.node_catalogs,
+      [catalogId]: {
+        ...parsed.scheduler.node_catalogs[catalogId],
+        ...patch,
+      },
+    },
+  },
+});
+
+const compileScheduleArtifactOrThrow = (artifact: ScheduleArtifact, worktreePath: string): void => {
   compileScheduleArtifact(config(), artifact, worktreePath);
 };
 
@@ -187,47 +223,42 @@ const configWithSchedulingRoles = (
     baseProfileId: keyof ReturnType<typeof config>["profiles"];
     profileId: string;
     roles: SchedulingRole[];
-  }[]
-): ReturnType<typeof config> => {
-  const parsed = config();
-  for (const { baseProfileId, profileId, roles } of roleProfiles) {
-    parsed.profiles[profileId] = {
-      ...parsed.profiles[baseProfileId],
-      instructions: {
-        inline: `${profileId} test profile`,
-      },
-      scheduling_roles: roles,
-    };
-  }
-  return parsed;
-};
+  }[],
+): ReturnType<typeof config> =>
+  roleProfiles.reduce(
+    (parsed, { baseProfileId, profileId, roles }) =>
+      withProfilePatch(parsed, profileId, {
+        ...parsed.profiles[baseProfileId],
+        instructions: {
+          inline: `${profileId} test profile`,
+        },
+        scheduling_roles: roles,
+      }),
+    config(),
+  );
 
-const removeCoverageSchedulingRoles = (
-  parsed: ReturnType<typeof config>
-): ReturnType<typeof config> => {
-  for (const profile of Object.values(parsed.profiles)) {
-    const roles = profile.scheduling_roles?.filter(
-      (role) => role !== "coverage"
-    );
-    if (roles?.length) {
-      profile.scheduling_roles = roles;
-    } else {
-      profile.scheduling_roles = [];
-    }
-  }
-  return parsed;
-};
+const removeCoverageSchedulingRoles = (parsed: ReturnType<typeof config>): ReturnType<typeof config> => ({
+  ...parsed,
+  profiles: R.fromEntries(
+    R.toEntries(parsed.profiles).map(([profileId, profile]) => [
+      profileId,
+      {
+        ...profile,
+        scheduling_roles: profile.scheduling_roles?.filter((role) => role !== "coverage") ?? [],
+      },
+    ]),
+  ),
+});
 
 const writeBacklogTask = (
   root: string,
   id: string,
   title: string,
   body: string,
-  options: { dependencies?: string[]; parentTaskId?: string } = {}
+  options: { dependencies?: string[]; parentTaskId?: string } = {},
 ): void => {
   const path = join(root, "backlog", "tasks", `${id.toLowerCase()} - task.md`);
-  const parentTaskId =
-    options.parentTaskId ?? (id.includes(".") ? "PIPE-41" : "");
+  const parentTaskId = options.parentTaskId ?? (id.includes(".") ? "PIPE-41" : "");
   const dependencies =
     options.dependencies && options.dependencies.length > 0
       ? `dependencies:\n${options.dependencies.map((dep) => `  - ${dep}`).join("\n")}\n`
@@ -236,32 +267,19 @@ const writeBacklogTask = (
   writeFileSync(
     path,
     `---\nid: ${id}\ntitle: ${title}\nparent_task_id: ${parentTaskId}\n${dependencies}---\n\n${body}`,
-    "utf-8"
+    "utf-8",
   );
 };
 
 const writePc37CoreTasks = (root: string): void => {
-  writeBacklogTask(
-    root,
-    "PC-37",
-    "Pipeline console rollout",
-    "## Description\n\nParent epic.",
-    { parentTaskId: "" }
-  );
-  writeBacklogTask(
-    root,
-    "PC-37.1",
-    "Define runner contract",
-    "## Description\n\nDefine contract.",
-    { parentTaskId: "PC-37" }
-  );
-  writeBacklogTask(
-    root,
-    "PC-37.2",
-    "Build API endpoint",
-    "## Description\n\nBuild endpoint.",
-    { dependencies: ["PC-37.1"], parentTaskId: "PC-37" }
-  );
+  writeBacklogTask(root, "PC-37", "Pipeline console rollout", "## Description\n\nParent epic.", { parentTaskId: "" });
+  writeBacklogTask(root, "PC-37.1", "Define runner contract", "## Description\n\nDefine contract.", {
+    parentTaskId: "PC-37",
+  });
+  writeBacklogTask(root, "PC-37.2", "Build API endpoint", "## Description\n\nBuild endpoint.", {
+    dependencies: ["PC-37.1"],
+    parentTaskId: "PC-37",
+  });
 };
 
 const buildScheduleYaml = (options: {
@@ -389,8 +407,7 @@ describe("schedule artifacts", () => {
           return {
             exitCode: 1,
             stderr: "",
-            stdout:
-              '{"type":"error","error":{"name":"UnknownError","data":{"message":"Unexpected server error"}}}',
+            stdout: '{"type":"error","error":{"name":"UnknownError","data":{"message":"Unexpected server error"}}}',
           };
         },
         generatedAt: new Date("2026-06-03T12:00:00.000Z"),
@@ -398,9 +415,7 @@ describe("schedule artifacts", () => {
           ticketPlan: {
             tickets: [
               {
-                acceptance_criteria: [
-                  { evidence: "unit test", text: "A works" },
-                ],
+                acceptance_criteria: [{ evidence: "unit test", text: "A works" }],
                 depends_on: [],
                 description: "Implement A",
                 key: "build-a",
@@ -410,9 +425,7 @@ describe("schedule artifacts", () => {
                 title: "Build A",
               },
               {
-                acceptance_criteria: [
-                  { evidence: "unit test", text: "B works" },
-                ],
+                acceptance_criteria: [{ evidence: "unit test", text: "B works" }],
                 depends_on: ["build-a"],
                 description: "Implement B",
                 key: "build-b",
@@ -448,9 +461,7 @@ describe("schedule artifacts", () => {
           profile: "moka-verifier",
         }),
       ]);
-      expect(() =>
-        compileScheduleArtifact(config(), result.artifact, dir)
-      ).not.toThrow();
+      expect(() => compileScheduleArtifact(config(), result.artifact, dir)).not.toThrow();
       expect(existsSync(join(dir, ".pipeline"))).toBe(false);
     } finally {
       rmSync(dir, { force: true, recursive: true });
@@ -488,11 +499,7 @@ describe("schedule artifacts", () => {
       expect(result.yaml).toBe(stringify(result.artifact));
       expect(existsSync(join(dir, ".pipeline"))).toBe(false);
       expect(() =>
-        compileScheduleArtifact(
-          config(),
-          parseScheduleArtifact(result.yaml, "schedule.yaml"),
-          dir
-        )
+        compileScheduleArtifact(config(), parseScheduleArtifact(result.yaml, "schedule.yaml"), dir),
       ).not.toThrow();
     } finally {
       rmSync(dir, { force: true, recursive: true });
@@ -500,31 +507,30 @@ describe("schedule artifacts", () => {
   });
 
   it("runs repair, task context hydration, and model fallback before returning in-memory YAML", async () => {
-    const dir = mkdtempSync(
-      join(tmpdir(), "pipeline-schedule-in-memory-passes-")
-    );
+    const dir = mkdtempSync(join(tmpdir(), "pipeline-schedule-in-memory-passes-"));
     writeBacklogTask(
       dir,
       "PIPE-41.7",
       "Propagate node context",
       "## Description\n\nCarry context.\n\n## Acceptance Criteria\n<!-- AC:BEGIN -->\n- [ ] #1 Prompts include task context.\n<!-- AC:END -->",
-      { parentTaskId: "" }
+      { parentTaskId: "" },
     );
-    const parsedConfig = config();
-    parsedConfig.schedules["execute-schedule"] = {
-      ...parsedConfig.schedules["execute-schedule"],
-      node_catalog: "execute",
-    };
-    parsedConfig.scheduler.node_catalogs.execute = {
-      nodes: {
-        "pipe-41-7-green": {
-          category: "green",
-          models: ["openai/gpt-5.1", "openai/gpt-5.1-mini"],
-          profile: "moka-code-writer",
+    const parsedConfig = withNodeCatalogPatch(
+      withSchedulePatch(config(), "execute-schedule", {
+        node_catalog: "execute",
+      }),
+      "execute",
+      {
+        nodes: {
+          "pipe-41-7-green": {
+            category: "green",
+            models: ["openai/gpt-5.1", "openai/gpt-5.1-mini"],
+            profile: "moka-code-writer",
+          },
         },
+        required_categories: [],
       },
-      required_categories: [],
-    };
+    );
     const invalidSchedule = `
 version: 1
 kind: pipeline-schedule
@@ -571,10 +577,7 @@ workflows:
           nodeIds.push(plan.nodeId);
           return {
             exitCode: 0,
-            stdout:
-              plan.nodeId === "schedule-plan-repair"
-                ? repairedSchedule
-                : invalidSchedule,
+            stdout: plan.nodeId === "schedule-plan-repair" ? repairedSchedule : invalidSchedule,
           };
         },
         generatedAt: new Date("2026-06-03T12:00:00.000Z"),
@@ -589,17 +592,13 @@ workflows:
         id: "pipe-41-7-green",
         models: ["openai/gpt-5.1", "openai/gpt-5.1-mini"],
         task_context: {
-          acceptance_criteria: [
-            { id: "1", text: "Prompts include task context." },
-          ],
+          acceptance_criteria: [{ id: "1", text: "Prompts include task context." }],
           description: "Carry context.",
           id: "PIPE-41.7",
           title: "Propagate node context",
         },
       });
-      expect(() =>
-        compileScheduleArtifact(parsedConfig, parsed, dir)
-      ).not.toThrow();
+      expect(() => compileScheduleArtifact(parsedConfig, parsed, dir)).not.toThrow();
       expect(existsSync(join(dir, ".pipeline"))).toBe(false);
     } finally {
       rmSync(dir, { force: true, recursive: true });
@@ -640,23 +639,23 @@ workflows:
         parsed.profiles["moka-code-writer"] as unknown as {
           scheduling_roles: string[];
         }
-      ).scheduling_roles
+      ).scheduling_roles,
     ).toEqual(["implementation"]);
     expect(
       (
         parsed.profiles["moka-verifier"] as unknown as {
           scheduling_roles: string[];
         }
-      ).scheduling_roles
+      ).scheduling_roles,
     ).toEqual(["coverage"]);
   });
 
   it("does not infer scheduling roles from default profile ids", async () => {
     const dir = mkdtempSync(join(tmpdir(), "pipeline-schedule-role-contract-"));
-    const profilesWithoutRoles = PROFILES.replaceAll(
-      "    scheduling_roles: [implementation]\n",
-      ""
-    ).replaceAll("    scheduling_roles: [coverage]\n", "");
+    const profilesWithoutRoles = PROFILES.replaceAll("    scheduling_roles: [implementation]\n", "").replaceAll(
+      "    scheduling_roles: [coverage]\n",
+      "",
+    );
     const roleConfig = parsePipelineConfigParts({
       pipeline: PIPELINE,
       profiles: profilesWithoutRoles,
@@ -688,7 +687,7 @@ workflows:
           runId: "run-role-contract",
           task: "Role contract",
           worktreePath: dir,
-        })
+        }),
       ).resolves.toMatchObject({
         artifact: {
           schedule_id: "run-role-contract",
@@ -739,9 +738,7 @@ workflows:
       });
 
       const { nodes } = artifact.workflows.root;
-      const drainMerge = nodes.find(
-        (node) => node.kind === "builtin" && node.builtin === "drain-merge"
-      );
+      const drainMerge = nodes.find((node) => node.kind === "builtin" && node.builtin === "drain-merge");
       expect(drainMerge?.needs).toContain("specialists");
       // The downstream verifier now depends on the integrated result.
       const verify = nodes.find((node) => node.id === "verify");
@@ -768,7 +765,7 @@ workflows:
           runId: "run-planner-fail",
           task: "Expose planner failure",
           worktreePath: dir,
-        })
+        }),
       ).rejects.toThrow(PLANNER_FAILURE_WITH_DETAILS_RE);
     } finally {
       rmSync(dir, { force: true, recursive: true });
@@ -793,7 +790,7 @@ workflows:
           runId: "run-planner-timeout",
           task: "Expose planner timeout",
           worktreePath: dir,
-        })
+        }),
       ).rejects.toThrow(PLANNER_TIMEOUT_FAILURE_RE);
     } finally {
       rmSync(dir, { force: true, recursive: true });
@@ -801,9 +798,7 @@ workflows:
   });
 
   it("falls back to the policy baseline when invalid planner output cannot be repaired", async () => {
-    const dir = mkdtempSync(
-      join(tmpdir(), "moka-schedule-planner-baseline-fallback-")
-    );
+    const dir = mkdtempSync(join(tmpdir(), "moka-schedule-planner-baseline-fallback-"));
     const nodeIds: string[] = [];
 
     try {
@@ -821,8 +816,7 @@ workflows:
               }
             : {
                 exitCode: 0,
-                stdout:
-                  "YAML output above matches `kind: pipeline-schedule` with a linear DAG.",
+                stdout: "YAML output above matches `kind: pipeline-schedule` with a linear DAG.",
               };
         },
         generatedAt: new Date("2026-06-03T12:00:00.000Z"),
@@ -833,9 +827,7 @@ workflows:
 
       expect(nodeIds).toEqual(["schedule-plan", "schedule-plan-repair"]);
       expect(result.artifact.schedule_id).toBe("run-baseline-fallback");
-      expect(
-        result.artifact.workflows.root.nodes.map((node) => node.id)
-      ).toEqual([
+      expect(result.artifact.workflows.root.nodes.map((node) => node.id)).toEqual([
         "backlog-intake",
         "research",
         "red-tests",
@@ -885,22 +877,14 @@ workflows:
             id: "learn",
             needs: ["acceptance-review", "verification", "code-quality-review"],
           }),
-        ])
+        ]),
       );
       expect(
-        compileScheduleArtifact(
-          config(),
-          result.artifact,
-          dir
-        ).plan.parallelBatches.map((batch) => batch.map((node) => node.id))
-      ).toContainEqual([
-        "acceptance-review",
-        "verification",
-        "code-quality-review",
-      ]);
-      expect(result.path).toBe(
-        ".pipeline/runs/run-baseline-fallback/schedule.yaml"
-      );
+        compileScheduleArtifact(config(), result.artifact, dir).plan.parallelBatches.map((batch) =>
+          batch.map((node) => node.id),
+        ),
+      ).toContainEqual(["acceptance-review", "verification", "code-quality-review"]);
+      expect(result.path).toBe(".pipeline/runs/run-baseline-fallback/schedule.yaml");
       expect(existsSync(join(dir, result.path))).toBe(true);
       compileScheduleArtifactOrThrow(result.artifact, dir);
     } finally {
@@ -963,7 +947,7 @@ workflows:
           expect.objectContaining({ id: "mechanical-red-typecheck" }),
           expect.objectContaining({ id: "mechanical-red-lint" }),
           expect.objectContaining({ id: "mechanical-red-fallow" }),
-        ])
+        ]),
       );
     } finally {
       rmSync(dir, { force: true, recursive: true });
@@ -972,13 +956,13 @@ workflows:
 
   it("shows runner, model, grants, and output metadata for allowed planner profiles", async () => {
     const dir = mkdtempSync(join(tmpdir(), "pipeline-schedule-profile-fit-"));
-    const richConfig = config();
-    richConfig.profiles["moka-opencode-code-writer"] = {
-      ...richConfig.profiles["moka-code-writer"],
+    const baseRichConfig = config();
+    const richConfig = withProfilePatch(baseRichConfig, "moka-opencode-code-writer", {
+      ...baseRichConfig.profiles["moka-code-writer"],
       description: "Implement production code with OpenCode.",
       model: "openai/gpt-5.4-mini",
       runner: "opencode",
-    };
+    });
     let prompt = "";
     const schedule = `
 version: 1
@@ -1029,9 +1013,7 @@ workflows:
 
   // AC #7: Schedule artifact round-trip golden tests
   it("round-trips a quick baseline schedule through generate -> parse -> compile", async () => {
-    const dir = mkdtempSync(
-      join(tmpdir(), "pipeline-schedule-quick-roundtrip-")
-    );
+    const dir = mkdtempSync(join(tmpdir(), "pipeline-schedule-quick-roundtrip-"));
     const quickYaml = `
 version: 1
 kind: pipeline-schedule
@@ -1087,24 +1069,16 @@ workflows:
 
       const compiled = compileScheduleArtifact(config(), parsed, dir);
       expect(compiled.workflowId).toBe("schedule-roundtrip-quick-root");
-      expect(compiled.plan.topologicalOrder.map((node) => node.id)).toContain(
-        "red-tests"
-      );
-      expect(compiled.plan.topologicalOrder.map((node) => node.id)).toContain(
-        "implement"
-      );
-      expect(
-        compiled.config.workflows["schedule-roundtrip-quick-root"]
-      ).toBeDefined();
+      expect(compiled.plan.topologicalOrder.map((node) => node.id)).toContain("red-tests");
+      expect(compiled.plan.topologicalOrder.map((node) => node.id)).toContain("implement");
+      expect(compiled.config.workflows["schedule-roundtrip-quick-root"]).toBeDefined();
     } finally {
       rmSync(dir, { force: true, recursive: true });
     }
   });
 
   it("round-trips an execute baseline schedule through generate -> parse -> compile", async () => {
-    const dir = mkdtempSync(
-      join(tmpdir(), "pipeline-schedule-execute-roundtrip-")
-    );
+    const dir = mkdtempSync(join(tmpdir(), "pipeline-schedule-execute-roundtrip-"));
     const executeYaml = `
 version: 1
 kind: pipeline-schedule
@@ -1181,15 +1155,9 @@ workflows:
 
       const compiled = compileScheduleArtifact(config(), parsed, dir);
       expect(compiled.workflowId).toBe("schedule-roundtrip-execute-root");
-      expect(compiled.plan.topologicalOrder.map((node) => node.id)).toContain(
-        "green-implementation"
-      );
-      expect(compiled.plan.topologicalOrder.map((node) => node.id)).toContain(
-        "verification"
-      );
-      expect(
-        compiled.config.workflows["schedule-roundtrip-execute-root"]
-      ).toBeDefined();
+      expect(compiled.plan.topologicalOrder.map((node) => node.id)).toContain("green-implementation");
+      expect(compiled.plan.topologicalOrder.map((node) => node.id)).toContain("verification");
+      expect(compiled.config.workflows["schedule-roundtrip-execute-root"]).toBeDefined();
     } finally {
       rmSync(dir, { force: true, recursive: true });
     }
@@ -1223,11 +1191,7 @@ workflows:
     const compiled = compileScheduleArtifact(config(), artifact);
 
     expect(compiled.workflowId).toBe("schedule-run-a-root");
-    expect(compiled.plan.topologicalOrder.map((node) => node.id)).toEqual([
-      "research",
-      "implement",
-      "verify",
-    ]);
+    expect(compiled.plan.topologicalOrder.map((node) => node.id)).toEqual(["research", "implement", "verify"]);
     expect(compiled.config.workflows["schedule-run-a-root"]).toBeDefined();
   });
 
@@ -1268,9 +1232,7 @@ workflows:
         worktreePath: dir,
       });
 
-      expect(
-        result.artifact.workflows.root.nodes.map((node) => node.id)
-      ).toEqual([
+      expect(result.artifact.workflows.root.nodes.map((node) => node.id)).toEqual([
         "research-role-contract",
         "green-scheduler-roles",
         "verify-real-schedule-flows",
@@ -1333,9 +1295,11 @@ workflows:
 
       expect(nodeIds).toEqual(["schedule-plan"]);
       expect(result.artifact.schedule_id).toBe(scheduleId);
-      expect(
-        result.artifact.workflows.root.nodes.map((node) => node.id)
-      ).toEqual(["research", "implement", "generated-coverage"]);
+      expect(result.artifact.workflows.root.nodes.map((node) => node.id)).toEqual([
+        "research",
+        "implement",
+        "generated-coverage",
+      ]);
       expect(result.path).toBe(`.pipeline/runs/${scheduleId}/schedule.yaml`);
     } finally {
       rmSync(dir, { force: true, recursive: true });
@@ -1343,14 +1307,12 @@ workflows:
   });
 
   it("repairs OpenCode-style scalar command and node instructions before execution", async () => {
-    const dir = mkdtempSync(
-      join(tmpdir(), "pipeline-schedule-opencode-repair-")
-    );
-    const opencodeConfig = config();
-    opencodeConfig.profiles["moka-schedule-planner"] = {
-      ...opencodeConfig.profiles["moka-schedule-planner"],
+    const dir = mkdtempSync(join(tmpdir(), "pipeline-schedule-opencode-repair-"));
+    const baseOpencodeConfig = config();
+    const opencodeConfig = withProfilePatch(baseOpencodeConfig, "moka-schedule-planner", {
+      ...baseOpencodeConfig.profiles["moka-schedule-planner"],
       runner: "opencode",
-    };
+    });
     const invalidSchedule = `
 version: 1
 kind: pipeline-schedule
@@ -1423,14 +1385,10 @@ workflows:
       });
 
       expect(nodeIds).toEqual(["schedule-plan", "schedule-plan-repair"]);
-      expect(prompts[0]).toContain(
-        "command must be a YAML sequence of strings"
-      );
+      expect(prompts[0]).toContain("command must be a YAML sequence of strings");
       expect(prompts[0]).toContain("Do not emit instructions");
       expect(prompts[1]).toMatch(REPAIR_NODE_SCHEMA_RE);
-      expect(prompts[1]).toContain(
-        "workflows.root.nodes.0.command: Invalid input: expected array, received string"
-      );
+      expect(prompts[1]).toContain("workflows.root.nodes.0.command: Invalid input: expected array, received string");
       expect(prompts[1]).toContain('Unrecognized key: "instructions"');
       expect(result.artifact.workflows.root.nodes[0]).toMatchObject({
         command: ["backlog", "task", "dev-k8s-01", "--plain"],
@@ -1443,18 +1401,14 @@ workflows:
         needs: ["inspect-devspace"],
         profile: "moka-code-writer",
       });
-      expect(() =>
-        compileScheduleArtifact(opencodeConfig, result.artifact, dir)
-      ).not.toThrow();
+      expect(() => compileScheduleArtifact(opencodeConfig, result.artifact, dir)).not.toThrow();
     } finally {
       rmSync(dir, { force: true, recursive: true });
     }
   });
 
   it("repairs generated schedules that invent unsupported builtin ids", async () => {
-    const dir = mkdtempSync(
-      join(tmpdir(), "pipeline-schedule-builtin-repair-")
-    );
+    const dir = mkdtempSync(join(tmpdir(), "pipeline-schedule-builtin-repair-"));
     const invalidSchedule = `
 version: 1
 kind: pipeline-schedule
@@ -1497,10 +1451,7 @@ workflows:
           nodeIds.push(plan.nodeId);
           return {
             exitCode: 0,
-            stdout:
-              plan.nodeId === "schedule-plan-repair"
-                ? repairedSchedule
-                : invalidSchedule,
+            stdout: plan.nodeId === "schedule-plan-repair" ? repairedSchedule : invalidSchedule,
           };
         },
         generatedAt: new Date("2026-06-03T12:00:00.000Z"),
@@ -1511,7 +1462,7 @@ workflows:
 
       expect(nodeIds).toEqual(["schedule-plan", "schedule-plan-repair"]);
       expect(prompts[0]).toContain(
-        "Allowed builtin values: drain-merge, duplication, fallow, lint, open-pull-request, semgrep, test, typecheck"
+        "Allowed builtin values: drain-merge, duplication, fallow, lint, open-pull-request, semgrep, test, typecheck",
       );
       expect(prompts[1]).toContain("unsupported generated builtin");
       expect(result.artifact.workflows.root.nodes).toContainEqual({
@@ -1525,9 +1476,7 @@ workflows:
   });
 
   it("adds generated coverage fan-in for uncovered implementation nodes", async () => {
-    const dir = mkdtempSync(
-      join(tmpdir(), "pipeline-schedule-coverage-fan-in-")
-    );
+    const dir = mkdtempSync(join(tmpdir(), "pipeline-schedule-coverage-fan-in-"));
     const uncoveredSchedule = `
 version: 1
 kind: pipeline-schedule
@@ -1571,9 +1520,7 @@ workflows:
   });
 
   it("covers a parallel implementation node after the parallel, not inside it", async () => {
-    const dir = mkdtempSync(
-      join(tmpdir(), "pipeline-schedule-parallel-coverage-fan-in-")
-    );
+    const dir = mkdtempSync(join(tmpdir(), "pipeline-schedule-parallel-coverage-fan-in-"));
     const uncoveredSchedule = `
 version: 1
 kind: pipeline-schedule
@@ -1620,18 +1567,12 @@ workflows:
       const rootNodes = result.artifact.workflows.root.nodes;
       const parallel = rootNodes.find((node) => node.id === "current-club");
       expect(parallel?.kind).toBe("parallel");
-      expect(
-        parallel?.kind === "parallel"
-          ? parallel.nodes.map((child) => child.id)
-          : []
-      ).toEqual([
+      expect(parallel?.kind === "parallel" ? parallel.nodes.map((child) => child.id) : []).toEqual([
         "implement-current-club-state",
         "implement-club-picker-header",
         "implement-signout-reset",
       ]);
-      expect(
-        rootNodes.find((node) => node.id === "generated-coverage")
-      ).toMatchObject({
+      expect(rootNodes.find((node) => node.id === "generated-coverage")).toMatchObject({
         kind: "agent",
         needs: ["current-club"],
         profile: "moka-verifier",
@@ -1662,7 +1603,7 @@ task: Bad: compact scalar
           runId: "run-invalid",
           task: "Bad compact scalar",
           worktreePath: dir,
-        })
+        }),
       ).rejects.toThrow(PLANNER_OUTPUT_RE);
 
       expect(existsSync(join(dir, ".pipeline"))).toBe(false);
@@ -1673,23 +1614,18 @@ task: Bad: compact scalar
 
   it("gives agent_graph planners backlog work units and allowed primitives", async () => {
     const dir = mkdtempSync(join(tmpdir(), "pipeline-schedule-agent-graph-"));
-    writeBacklogTask(
-      dir,
-      "PIPE-41",
-      "Agent-driven workflow scheduling",
-      "## Description\n\nParent epic."
-    );
+    writeBacklogTask(dir, "PIPE-41", "Agent-driven workflow scheduling", "## Description\n\nParent epic.");
     writeBacklogTask(
       dir,
       "PIPE-41.7",
       "Propagate node context",
-      "## Description\n\nCarry context.\n\n## Acceptance Criteria\n<!-- AC:BEGIN -->\n- [ ] #1 Prompts include task context.\n<!-- AC:END -->"
+      "## Description\n\nCarry context.\n\n## Acceptance Criteria\n<!-- AC:BEGIN -->\n- [ ] #1 Prompts include task context.\n<!-- AC:END -->",
     );
     writeBacklogTask(
       dir,
       "PIPE-41.8",
       "Resolve backlog children",
-      "## Description\n\nLoad child tickets.\n\n## Acceptance Criteria\n<!-- AC:BEGIN -->\n- [ ] #1 Work units come from Backlog.\n<!-- AC:END -->"
+      "## Description\n\nLoad child tickets.\n\n## Acceptance Criteria\n<!-- AC:BEGIN -->\n- [ ] #1 Work units come from Backlog.\n<!-- AC:END -->",
     );
     const schedule = buildScheduleYaml({
       nodes: [
@@ -1752,16 +1688,14 @@ task: Bad: compact scalar
       expect(prompt).not.toContain("Allowed workflows:");
       expect(prompt).toContain("root_workflow: root");
       expect(prompt).toContain("Shape the graph by intent");
-      expect(prompt).toContain(
-        "Do not create a full RED/GREEN/ACCEPTANCE/VERIFY chain for each backlog ticket"
-      );
+      expect(prompt).toContain("Do not create a full RED/GREEN/ACCEPTANCE/VERIFY chain for each backlog ticket");
       expect(prompt).toContain("red-test-file-policy");
       expect(prompt).toContain("changed_files:");
       expect(prompt).toContain("require_any:");
       expect(prompt).toContain(
-        "Do not add blocking builtin test, lint, typecheck, or fallow nodes between RED test-writing nodes and GREEN implementation nodes."
+        "Do not add blocking builtin test, lint, typecheck, or fallow nodes between RED test-writing nodes and GREEN implementation nodes.",
       );
-      expect(Object.keys(result.artifact.workflows)).toEqual(["root"]);
+      expect(R.keys(result.artifact.workflows)).toEqual(["root"]);
       expect(result.artifact.workflows.root.nodes).toEqual(
         expect.arrayContaining([
           expect.objectContaining({
@@ -1774,9 +1708,7 @@ task: Bad: compact scalar
             kind: "agent",
             profile: "moka-code-writer",
             task_context: expect.objectContaining({
-              acceptance_criteria: [
-                { id: "1", text: "Prompts include task context." },
-              ],
+              acceptance_criteria: [{ id: "1", text: "Prompts include task context." }],
               description: "Carry context.",
               id: "PIPE-41.7",
               title: "Propagate node context",
@@ -1787,9 +1719,7 @@ task: Bad: compact scalar
             kind: "agent",
             profile: "moka-code-writer",
             task_context: expect.objectContaining({
-              acceptance_criteria: [
-                { id: "1", text: "Work units come from Backlog." },
-              ],
+              acceptance_criteria: [{ id: "1", text: "Work units come from Backlog." }],
               description: "Load child tickets.",
               id: "PIPE-41.8",
               title: "Resolve backlog children",
@@ -1812,7 +1742,7 @@ task: Bad: compact scalar
             needs: ["scheduler-context-acceptance"],
             profile: "moka-verifier",
           }),
-        ])
+        ]),
       );
       compileScheduleArtifactOrThrow(result.artifact, dir);
     } finally {
@@ -1821,15 +1751,13 @@ task: Bad: compact scalar
   });
 
   it("gives planners lowercase Backlog ticket work units", async () => {
-    const dir = mkdtempSync(
-      join(tmpdir(), "pipeline-schedule-lowercase-ticket-")
-    );
+    const dir = mkdtempSync(join(tmpdir(), "pipeline-schedule-lowercase-ticket-"));
     writeBacklogTask(
       dir,
       "jalgpall-2",
       "Adopt pg-boss for refresh queue + scheduler + retries",
       "## Description\n\nReplace the refresh queue.\n\n## Acceptance Criteria\n<!-- AC:BEGIN -->\n- [ ] #1 Refresh jobs are scheduled through pg-boss.\n<!-- AC:END -->",
-      { parentTaskId: "" }
+      { parentTaskId: "" },
     );
     const schedule = buildScheduleYaml({
       nodes: [
@@ -1857,9 +1785,7 @@ task: Bad: compact scalar
 
       expect(prompt).toContain("Backlog work units:");
       expect(prompt).toContain("jalgpall-2");
-      expect(prompt).toContain(
-        "Adopt pg-boss for refresh queue + scheduler + retries"
-      );
+      expect(prompt).toContain("Adopt pg-boss for refresh queue + scheduler + retries");
       expect(prompt).not.toContain("No backlog child tickets were resolved");
       expect(result.artifact.workflows.root.nodes).toEqual(
         expect.arrayContaining([
@@ -1877,7 +1803,7 @@ task: Bad: compact scalar
               title: "Adopt pg-boss for refresh queue + scheduler + retries",
             }),
           }),
-        ])
+        ]),
       );
     } finally {
       rmSync(dir, { force: true, recursive: true });
@@ -1886,41 +1812,26 @@ task: Bad: compact scalar
 
   it("passes Backlog child dependency metadata to the schedule planner", async () => {
     const dir = mkdtempSync(join(tmpdir(), "pipeline-schedule-pc37-"));
-    writeBacklogTask(
-      dir,
-      "PC-37",
-      "Pipeline console rollout",
-      "## Description\n\nParent epic.",
-      { parentTaskId: "" }
-    );
+    writeBacklogTask(dir, "PC-37", "Pipeline console rollout", "## Description\n\nParent epic.", { parentTaskId: "" });
     writeBacklogTask(
       dir,
       "PC-37.1",
       "Define runner contract",
       "## Description\n\nDefine contract.\n\n## Acceptance Criteria\n<!-- AC:BEGIN -->\n- [ ] #1 Contract is stable.\n<!-- AC:END -->",
-      { parentTaskId: "PC-37" }
+      { parentTaskId: "PC-37" },
     );
-    writeBacklogTask(
-      dir,
-      "PC-37.2",
-      "Build API endpoint",
-      "## Description\n\nBuild endpoint.",
-      { dependencies: ["PC-37.1"], parentTaskId: "PC-37" }
-    );
-    writeBacklogTask(
-      dir,
-      "PC-37.3",
-      "Build frontend view",
-      "## Description\n\nBuild frontend.",
-      { dependencies: ["PC-37.1"], parentTaskId: "PC-37" }
-    );
-    writeBacklogTask(
-      dir,
-      "PC-37.4",
-      "Add rollout verification",
-      "## Description\n\nVerify rollout.",
-      { dependencies: ["PC-37.2", "PC-37.3"], parentTaskId: "PC-37" }
-    );
+    writeBacklogTask(dir, "PC-37.2", "Build API endpoint", "## Description\n\nBuild endpoint.", {
+      dependencies: ["PC-37.1"],
+      parentTaskId: "PC-37",
+    });
+    writeBacklogTask(dir, "PC-37.3", "Build frontend view", "## Description\n\nBuild frontend.", {
+      dependencies: ["PC-37.1"],
+      parentTaskId: "PC-37",
+    });
+    writeBacklogTask(dir, "PC-37.4", "Add rollout verification", "## Description\n\nVerify rollout.", {
+      dependencies: ["PC-37.2", "PC-37.3"],
+      parentTaskId: "PC-37",
+    });
     const schedule = buildScheduleYaml({
       nodes: [
         "- id: research",
@@ -1967,9 +1878,7 @@ task: Bad: compact scalar
         worktreePath: dir,
       });
 
-      expect(prompt).toContain(
-        "Preserve Backlog dependency ids as schedule needs edges"
-      );
+      expect(prompt).toContain("Preserve Backlog dependency ids as schedule needs edges");
       expect(prompt).toContain("id: PC-37.2");
       expect(prompt).toContain("dependencies:");
       expect(prompt).toContain("- PC-37.1");
@@ -1984,13 +1893,9 @@ task: Bad: compact scalar
   it("rejects generated schedules that ignore Backlog child dependency edges", async () => {
     const dir = mkdtempSync(join(tmpdir(), "pipeline-schedule-pc37-invalid-"));
     writePc37CoreTasks(dir);
-    writeBacklogTask(
-      dir,
-      "PC-37.3",
-      "Build frontend view",
-      "## Description\n\nBuild frontend.",
-      { parentTaskId: "PC-37" }
-    );
+    writeBacklogTask(dir, "PC-37.3", "Build frontend view", "## Description\n\nBuild frontend.", {
+      parentTaskId: "PC-37",
+    });
     const invalidSchedule = `
 version: 1
 kind: pipeline-schedule
@@ -2039,7 +1944,7 @@ workflows:
           runId: "run-pc37-invalid",
           task: "PC-37",
           worktreePath: dir,
-        })
+        }),
       ).rejects.toThrow(WORK_UNIT_DEPENDENCY_RE);
     } finally {
       rmSync(dir, { force: true, recursive: true });
@@ -2048,24 +1953,14 @@ workflows:
 
   it("uses an exact child ticket as the only work unit for single-ticket schedules", async () => {
     const dir = mkdtempSync(join(tmpdir(), "pipeline-schedule-single-ticket-"));
-    writeBacklogTask(
-      dir,
-      "PIPE-41",
-      "Agent-driven workflow scheduling",
-      "## Description\n\nParent epic."
-    );
+    writeBacklogTask(dir, "PIPE-41", "Agent-driven workflow scheduling", "## Description\n\nParent epic.");
     writeBacklogTask(
       dir,
       "PIPE-41.7",
       "Propagate node context",
-      "## Description\n\nCarry context.\n\n## Acceptance Criteria\n<!-- AC:BEGIN -->\n- [ ] #1 Prompts include task context.\n<!-- AC:END -->"
+      "## Description\n\nCarry context.\n\n## Acceptance Criteria\n<!-- AC:BEGIN -->\n- [ ] #1 Prompts include task context.\n<!-- AC:END -->",
     );
-    writeBacklogTask(
-      dir,
-      "PIPE-41.8",
-      "Resolve backlog children",
-      "## Description\n\nLoad child tickets."
-    );
+    writeBacklogTask(dir, "PIPE-41.8", "Resolve backlog children", "## Description\n\nLoad child tickets.");
     const schedule = buildScheduleYaml({
       nodes: [
         "- id: research",
@@ -2114,7 +2009,7 @@ workflows:
               title: "Propagate node context",
             }),
           }),
-        ])
+        ]),
       );
     } finally {
       rmSync(dir, { force: true, recursive: true });
@@ -2123,41 +2018,17 @@ workflows:
 
   it("loads every referenced epic and descendant work unit for one generated graph", async () => {
     const dir = mkdtempSync(join(tmpdir(), "pipeline-schedule-multi-epic-"));
-    writeBacklogTask(
-      dir,
-      "PIPE-50",
-      "First epic",
-      "## Description\n\nFirst parent.",
-      { parentTaskId: "" }
-    );
-    writeBacklogTask(
-      dir,
-      "PIPE-50.1",
-      "First root child",
-      "## Description\n\nFirst child.",
-      { parentTaskId: "PIPE-50" }
-    );
-    writeBacklogTask(
-      dir,
-      "PIPE-50.1.1",
-      "Nested first child",
-      "## Description\n\nNested first child.",
-      { parentTaskId: "PIPE-50.1" }
-    );
-    writeBacklogTask(
-      dir,
-      "PIPE-51",
-      "Second epic",
-      "## Description\n\nSecond parent.",
-      { parentTaskId: "" }
-    );
-    writeBacklogTask(
-      dir,
-      "PIPE-51.1",
-      "Second root child",
-      "## Description\n\nSecond child.",
-      { parentTaskId: "PIPE-51" }
-    );
+    writeBacklogTask(dir, "PIPE-50", "First epic", "## Description\n\nFirst parent.", { parentTaskId: "" });
+    writeBacklogTask(dir, "PIPE-50.1", "First root child", "## Description\n\nFirst child.", {
+      parentTaskId: "PIPE-50",
+    });
+    writeBacklogTask(dir, "PIPE-50.1.1", "Nested first child", "## Description\n\nNested first child.", {
+      parentTaskId: "PIPE-50.1",
+    });
+    writeBacklogTask(dir, "PIPE-51", "Second epic", "## Description\n\nSecond parent.", { parentTaskId: "" });
+    writeBacklogTask(dir, "PIPE-51.1", "Second root child", "## Description\n\nSecond child.", {
+      parentTaskId: "PIPE-51",
+    });
     const schedule = buildScheduleYaml({
       nodes: [
         "- id: pipe-50-1-green",
@@ -2197,7 +2068,7 @@ workflows:
       expect(prompt).toContain("id: PIPE-50.1.1");
       expect(prompt).toContain("id: PIPE-51.1");
       expect(prompt).toContain(
-        "Only add needs edges for real dependencies, shared constraints, or verification/review fan-in."
+        "Only add needs edges for real dependencies, shared constraints, or verification/review fan-in.",
       );
     } finally {
       rmSync(dir, { force: true, recursive: true });
@@ -2206,24 +2077,9 @@ workflows:
 
   it("rejects agent_graph schedules that skip backlog work units", async () => {
     const dir = mkdtempSync(join(tmpdir(), "pipeline-schedule-agent-graph-"));
-    writeBacklogTask(
-      dir,
-      "PIPE-41",
-      "Agent-driven workflow scheduling",
-      "## Description\n\nParent epic."
-    );
-    writeBacklogTask(
-      dir,
-      "PIPE-41.7",
-      "Propagate node context",
-      "## Description\n\nCarry context."
-    );
-    writeBacklogTask(
-      dir,
-      "PIPE-41.8",
-      "Resolve backlog children",
-      "## Description\n\nLoad child tickets."
-    );
+    writeBacklogTask(dir, "PIPE-41", "Agent-driven workflow scheduling", "## Description\n\nParent epic.");
+    writeBacklogTask(dir, "PIPE-41.7", "Propagate node context", "## Description\n\nCarry context.");
+    writeBacklogTask(dir, "PIPE-41.8", "Resolve backlog children", "## Description\n\nLoad child tickets.");
     const shortcut = `
 version: 1
 kind: pipeline-schedule
@@ -2257,7 +2113,7 @@ workflows:
           runId: "run-epic",
           task: "PIPE-41",
           worktreePath: dir,
-        })
+        }),
       ).rejects.toThrow(MISSING_WORK_UNIT_RE);
     } finally {
       rmSync(dir, { force: true, recursive: true });
@@ -2293,7 +2149,7 @@ workflows:
           runId: "run-epic",
           task: "Ad hoc epic",
           worktreePath: dir,
-        })
+        }),
       ).rejects.toThrow(DOWNSTREAM_COVERAGE_RE);
     } finally {
       rmSync(dir, { force: true, recursive: true });
@@ -2301,9 +2157,7 @@ workflows:
   });
 
   it("rejects custom implementation-role nodes when no coverage-role profile can be generated", async () => {
-    const dir = mkdtempSync(
-      join(tmpdir(), "pipeline-schedule-custom-implementation-")
-    );
+    const dir = mkdtempSync(join(tmpdir(), "pipeline-schedule-custom-implementation-"));
     const roleConfig = removeCoverageSchedulingRoles(
       configWithSchedulingRoles([
         {
@@ -2311,7 +2165,7 @@ workflows:
           profileId: "custom-implementer",
           roles: ["implementation"],
         },
-      ])
+      ]),
     );
     const shortcut = `
 version: 1
@@ -2339,7 +2193,7 @@ workflows:
           runId: "run-custom-implementation",
           task: "Ad hoc epic",
           worktreePath: dir,
-        })
+        }),
       ).rejects.toThrow(DOWNSTREAM_COVERAGE_RE);
     } finally {
       rmSync(dir, { force: true, recursive: true });
@@ -2390,7 +2244,7 @@ workflows:
           runId: "run-custom-cover",
           task: "Covered implementation",
           worktreePath: dir,
-        })
+        }),
       ).resolves.toMatchObject({
         artifact: {
           schedule_id: "run-custom-cover",
@@ -2402,9 +2256,7 @@ workflows:
   });
 
   it("enforces Backlog dependency edges for custom implementation-role profiles", async () => {
-    const dir = mkdtempSync(
-      join(tmpdir(), "pipeline-schedule-custom-dependency-")
-    );
+    const dir = mkdtempSync(join(tmpdir(), "pipeline-schedule-custom-dependency-"));
     writePc37CoreTasks(dir);
     const roleConfig = configWithSchedulingRoles([
       {
@@ -2460,7 +2312,7 @@ workflows:
           runId: "run-custom-dependency",
           task: "PC-37",
           worktreePath: dir,
-        })
+        }),
       ).rejects.toThrow(WORK_UNIT_DEPENDENCY_RE);
     } finally {
       rmSync(dir, { force: true, recursive: true });

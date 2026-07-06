@@ -1,4 +1,14 @@
-import { z } from "zod";
+import * as Schema from "effect/Schema";
+
+import {
+  nonEmptyMutableArray,
+  parseStrictWithSchema,
+  positiveInteger,
+  requiredString,
+  stringRecord,
+  withDefault,
+  struct,
+} from "../schema-boundary";
 
 /**
  * Kubernetes Job manifest builder for factory lanes (create-experiment /
@@ -15,34 +25,49 @@ import { z } from "zod";
  * hosts.yml at /root/.config/gh/hosts.yml.
  */
 
-const factoryLaneJobOptionsSchema = z.object({
-  activeDeadlineSeconds: z.number().int().positive().default(1800),
-  argv: z.array(z.string().min(1)).min(1),
-  generateName: z.string().min(1).default("moka-factory-"),
-  gitCredentialsSecretName: z.string().min(1),
-  githubAuthSecretName: z.string().min(1),
-  image: z.string().min(1),
-  imagePullPolicy: z.string().min(1).optional(),
-  imagePullSecretName: z.string().min(1).optional(),
-  labels: z.record(z.string(), z.string()).default({}),
-  namespace: z.string().min(1),
-  resources: z
-    .object({
-      limits: z.record(z.string(), z.string()).optional(),
-      requests: z.record(z.string(), z.string()).optional(),
-    })
-    .optional(),
-  serviceAccountName: z.string().min(1).optional(),
-  ttlSecondsAfterFinished: z.number().int().positive().default(86_400),
+const factoryLaneJobOptionsSchema = struct({
+  activeDeadlineSeconds: withDefault(positiveInteger, 1800),
+  argv: nonEmptyMutableArray(requiredString),
+  generateName: withDefault(requiredString, "moka-factory-"),
+  gitCredentialsSecretName: requiredString,
+  githubAuthSecretName: requiredString,
+  image: requiredString,
+  imagePullPolicy: Schema.optional(requiredString),
+  imagePullSecretName: Schema.optional(requiredString),
+  labels: withDefault(stringRecord, {}),
+  namespace: requiredString,
+  resources: Schema.optional(
+    struct({
+      limits: Schema.optional(stringRecord),
+      requests: Schema.optional(stringRecord),
+    }),
+  ),
+  serviceAccountName: Schema.optional(requiredString),
+  ttlSecondsAfterFinished: withDefault(positiveInteger, 86_400),
 });
 
-export type FactoryLaneJobOptionsInput = z.input<
-  typeof factoryLaneJobOptionsSchema
->;
+export interface FactoryLaneJobOptionsInput {
+  activeDeadlineSeconds?: number;
+  argv: string[];
+  generateName?: string;
+  gitCredentialsSecretName: string;
+  githubAuthSecretName: string;
+  image: string;
+  imagePullPolicy?: string;
+  imagePullSecretName?: string;
+  labels?: Record<string, string>;
+  namespace: string;
+  resources?: {
+    limits?: Record<string, string>;
+    requests?: Record<string, string>;
+  };
+  serviceAccountName?: string;
+  ttlSecondsAfterFinished?: number;
+}
 export const FACTORY_LANE_LABEL = "pipeline.oisin.dev/factory-lane";
 
 export const buildFactoryLaneJob = (input: FactoryLaneJobOptionsInput) => {
-  const options = factoryLaneJobOptionsSchema.parse(input);
+  const options = parseStrictWithSchema(factoryLaneJobOptionsSchema, input);
   const lane = options.argv[0] ?? "unknown";
 
   return {
@@ -68,8 +93,7 @@ export const buildFactoryLaneJob = (input: FactoryLaneJobOptionsInput) => {
             {
               args: [...options.argv],
               image: options.image,
-              ...(options.imagePullPolicy !== undefined &&
-              options.imagePullPolicy.length > 0
+              ...(options.imagePullPolicy !== undefined && options.imagePullPolicy.length > 0
                 ? { imagePullPolicy: options.imagePullPolicy }
                 : {}),
               name: "lane",
@@ -89,13 +113,11 @@ export const buildFactoryLaneJob = (input: FactoryLaneJobOptionsInput) => {
               ],
             },
           ],
-          ...(options.imagePullSecretName !== undefined &&
-          options.imagePullSecretName.length > 0
+          ...(options.imagePullSecretName !== undefined && options.imagePullSecretName.length > 0
             ? { imagePullSecrets: [{ name: options.imagePullSecretName }] }
             : {}),
           restartPolicy: "Never",
-          ...(options.serviceAccountName !== undefined &&
-          options.serviceAccountName.length > 0
+          ...(options.serviceAccountName !== undefined && options.serviceAccountName.length > 0
             ? { serviceAccountName: options.serviceAccountName }
             : {}),
           volumes: [

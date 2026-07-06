@@ -24,9 +24,7 @@ const manifest = (target: RunTarget, schedule?: string): MokaRunManifest => ({
   target,
 });
 
-const options = (
-  overrides: Partial<ResumeRunOptions> = {}
-): ResumeRunOptions => ({
+const options = (overrides: Partial<ResumeRunOptions> = {}): ResumeRunOptions => ({
   dbUrl: "postgres://stub",
   runId: "run-origin",
   task: "drain the remaining nodes",
@@ -50,8 +48,7 @@ describe("resumeRunByOrigin", () => {
     const runLocal = vi.fn();
 
     const result = await resumeRunByOrigin(options(), {
-      readManifest: async () =>
-        Option.some(manifest("remote", "schedule_id: persisted-graph")),
+      readManifest: async () => Option.some(manifest("remote", "schedule_id: persisted-graph")),
       resubmit,
       runLocal,
     });
@@ -63,7 +60,7 @@ describe("resumeRunByOrigin", () => {
         scheduleYaml: "schedule_id: persisted-graph",
         task: "drain the remaining nodes",
         worktreePath: "/tmp/resume-origin",
-      })
+      }),
     );
     expect(runLocal).not.toHaveBeenCalled();
   });
@@ -76,11 +73,10 @@ describe("resumeRunByOrigin", () => {
 
     await expect(
       resumeRunByOrigin(options(), {
-        readManifest: async () =>
-          Option.some(manifest("local", "schedule_id: local-graph")),
+        readManifest: async () => Option.some(manifest("local", "schedule_id: local-graph")),
         resubmit,
         runLocal,
-      })
+      }),
     ).rejects.toThrow("LOCAL_PATH_TAKEN");
 
     expect(runLocal).toHaveBeenCalledTimes(1);
@@ -99,7 +95,7 @@ describe("resumeRunByOrigin", () => {
         readManifest,
         resubmit,
         runLocal,
-      })
+      }),
     ).rejects.toThrow("LOCAL_PATH_TAKEN");
 
     expect(readManifest).not.toHaveBeenCalled();
@@ -116,7 +112,7 @@ describe("resumeRunByOrigin", () => {
         readManifest: async () => Option.some(manifest("remote")),
         resubmit,
         runLocal,
-      })
+      }),
     ).rejects.toThrow(NO_SCHEDULE_ERROR);
 
     expect(resubmit).not.toHaveBeenCalled();

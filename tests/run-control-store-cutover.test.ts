@@ -5,23 +5,11 @@ import { join } from "node:path";
 
 import { Effect } from "effect";
 import postgres from "postgres";
-import {
-  afterAll,
-  afterEach,
-  beforeAll,
-  beforeEach,
-  describe,
-  expect,
-  it,
-  vi,
-} from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { migratePostgresRunControlStore } from "../src/run-control/postgres/postgres-run-control-store";
 import { resolveRunControlStore } from "../src/run-control/run-control-store";
-import type {
-  CreateRunRequest,
-  RunControlStore,
-} from "../src/run-control/run-control-store";
+import type { CreateRunRequest, RunControlStore } from "../src/run-control/run-control-store";
 
 // PIPE-91.12: cutover integration against the REAL cluster Postgres (no
 // testcontainer, no tunnel). Set MOKA_PG_TEST_URL to the (port-forwarded)
@@ -48,13 +36,9 @@ const createRequest = (runId: string, nodeIds: string[]): CreateRunRequest => ({
 const withStore = async <A>(
   dbUrl: Parameters<typeof resolveRunControlStore>[0],
   workspaceRoot: string,
-  use: (store: RunControlStore) => Effect.Effect<A, unknown>
+  use: (store: RunControlStore) => Effect.Effect<A, unknown>,
 ): Promise<A> =>
-  await Effect.runPromise(
-    Effect.scoped(
-      resolveRunControlStore(dbUrl, workspaceRoot).pipe(Effect.flatMap(use))
-    )
-  );
+  await Effect.runPromise(Effect.scoped(resolveRunControlStore(dbUrl, workspaceRoot).pipe(Effect.flatMap(use))));
 
 describe("resolveRunControlStore required DB policy", () => {
   let workspaceRoot: string;
@@ -70,22 +54,16 @@ describe("resolveRunControlStore required DB policy", () => {
   it("db.url absent fails before selecting or creating a filesystem store (AC1, AC3)", async () => {
     const runId = "run-file-select";
     await expect(
-      withStore(undefined, workspaceRoot, (store) =>
-        store.createRun(createRequest(runId, ["only"]))
-      )
+      withStore(undefined, workspaceRoot, (store) => store.createRun(createRequest(runId, ["only"]))),
     ).rejects.toThrow(DB_URL_REQUIRED_RE);
 
-    expect(existsSync(join(workspaceRoot, ".pipeline", "runs", runId))).toBe(
-      false
-    );
+    expect(existsSync(join(workspaceRoot, ".pipeline", "runs", runId))).toBe(false);
     expect(existsSync(join(workspaceRoot, ".pipeline"))).toBe(false);
   });
 
   it("db.url absent fails before any caller can read the legacy filesystem store (AC3)", async () => {
     await expect(
-      withStore(undefined, workspaceRoot, (store) =>
-        store.readRun({ runId: "run-missing-db" })
-      )
+      withStore(undefined, workspaceRoot, (store) => store.readRun({ runId: "run-missing-db" })),
     ).rejects.toThrow(DB_URL_REQUIRED_RE);
 
     expect(existsSync(join(workspaceRoot, ".pipeline"))).toBe(false);
@@ -104,17 +82,13 @@ describe("legacy filesystem run-control adapter (explicit only)", () => {
   });
 
   it("can still be used by explicit legacy/test fixtures (AC3)", async () => {
-    const { fileRunControlStore } =
-      await import("../src/run-control/run-control-store");
+    const { fileRunControlStore } = await import("../src/run-control/run-control-store");
     const runId = "run-explicit-file-store";
     const store = fileRunControlStore(workspaceRoot);
     await Effect.runPromise(store.createRun(createRequest(runId, ["only"])));
 
     const manifest: unknown = JSON.parse(
-      readFileSync(
-        join(workspaceRoot, ".pipeline/runs", runId, "manifest.json"),
-        "utf-8"
-      )
+      readFileSync(join(workspaceRoot, ".pipeline/runs", runId, "manifest.json"), "utf-8"),
     );
     expect(manifest).toMatchObject({ nodes: { only: "queued" }, runId });
     const got = await Effect.runPromise(store.readRun({ runId }));
@@ -131,8 +105,7 @@ describePg("resolveRunControlStore Postgres cutover (live cluster PG)", () => {
   let workspaceRoot: string;
   let admin: postgres.Sql;
 
-  const runId = (label: string): string =>
-    `${suitePrefix}-${label}-${randomUUID()}`;
+  const runId = (label: string): string => `${suitePrefix}-${label}-${randomUUID()}`;
 
   beforeAll(async () => {
     // Every op is a real round-trip over the port-forwarded cluster DB, so the
@@ -155,11 +128,9 @@ describePg("resolveRunControlStore Postgres cutover (live cluster PG)", () => {
 
   it("db.url set persists + rehydrates through the seam in a fresh resolved store (AC1)", async () => {
     const id = runId("cutover");
+    await withStore(dbUrl, workspaceRoot, (store) => store.createRun(createRequest(id, ["build", "test"])));
     await withStore(dbUrl, workspaceRoot, (store) =>
-      store.createRun(createRequest(id, ["build", "test"]))
-    );
-    await withStore(dbUrl, workspaceRoot, (store) =>
-      store.updateRunStatus({ at: nowIso(), runId: id, status: "running" })
+      store.updateRunStatus({ at: nowIso(), runId: id, status: "running" }),
     );
     await withStore(dbUrl, workspaceRoot, (store) =>
       store.updateNodeStatus({
@@ -167,16 +138,14 @@ describePg("resolveRunControlStore Postgres cutover (live cluster PG)", () => {
         nodeId: "build",
         runId: id,
         status: "passed",
-      })
+      }),
     );
 
     // The select chose Postgres, so NOTHING was written to the filesystem store.
     expect(existsSync(join(workspaceRoot, ".pipeline/runs", id))).toBe(false);
 
     // A fresh resolution (its own connection) replays the event log from PG.
-    const got = await withStore(dbUrl, workspaceRoot, (store) =>
-      store.readRun({ runId: id })
-    );
+    const got = await withStore(dbUrl, workspaceRoot, (store) => store.readRun({ runId: id }));
     expect(got?.status).toBe("running");
     expect(got?.nodes).toEqual({ build: "passed", test: "queued" });
   });
@@ -185,12 +154,8 @@ describePg("resolveRunControlStore Postgres cutover (live cluster PG)", () => {
     const idA = runId("par-A");
     const idB = runId("par-B");
     await Promise.all([
-      withStore(dbUrl, workspaceRoot, (store) =>
-        store.createRun(createRequest(idA, ["shared"]))
-      ),
-      withStore(dbUrl, workspaceRoot, (store) =>
-        store.createRun(createRequest(idB, ["shared"]))
-      ),
+      withStore(dbUrl, workspaceRoot, (store) => store.createRun(createRequest(idA, ["shared"]))),
+      withStore(dbUrl, workspaceRoot, (store) => store.createRun(createRequest(idB, ["shared"]))),
     ]);
     // Identical nodeId "shared" across two distinct runId namespaces, advanced
     // concurrently through separately resolved stores to opposite states.
@@ -201,7 +166,7 @@ describePg("resolveRunControlStore Postgres cutover (live cluster PG)", () => {
           nodeId: "shared",
           runId: idA,
           status: "passed",
-        })
+        }),
       ),
       withStore(dbUrl, workspaceRoot, (store) =>
         store.updateNodeStatus({
@@ -209,7 +174,7 @@ describePg("resolveRunControlStore Postgres cutover (live cluster PG)", () => {
           nodeId: "shared",
           runId: idB,
           status: "failed",
-        })
+        }),
       ),
     ]);
 

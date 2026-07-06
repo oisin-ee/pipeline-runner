@@ -53,22 +53,15 @@ export interface RuntimeSessionSnapshot {
 }
 
 export interface RuntimeCapabilityAdapter {
-  continuation(
-    request: RuntimeContinuationRequest
-  ): Promise<RuntimeSessionSnapshot>;
+  continuation(request: RuntimeContinuationRequest): Promise<RuntimeSessionSnapshot>;
   id: string;
   launch(plan: RunnerLaunchPlan): RuntimeLaunchCommand;
   normalizeOutput(stdout: string): RuntimeNormalizedOutput;
   outputCandidates(stdout: string): RuntimeOutputCandidate[];
-  sessionMetadata(
-    plan: RunnerLaunchPlan,
-    result?: AgentResult
-  ): RuntimeSessionMetadata;
+  sessionMetadata(plan: RunnerLaunchPlan, result?: AgentResult): RuntimeSessionMetadata;
 }
 
-const continuationEffect = (
-  request: RuntimeContinuationRequest
-): Effect.Effect<RuntimeSessionSnapshot> =>
+const continuationEffect = (request: RuntimeContinuationRequest): Effect.Effect<RuntimeSessionSnapshot> =>
   Effect.succeed({
     metadata: {
       adapterId: "opencode-sdk",
@@ -84,9 +77,7 @@ const continuationEffect = (
 
 const assertOpenCodePlan = (plan: RunnerLaunchPlan): void => {
   if (plan.type !== "opencode") {
-    throw new Error(
-      `OpenCode runtime adapter cannot handle runner type '${plan.type}'`
-    );
+    throw new Error(`OpenCode runtime adapter cannot handle runner type '${plan.type}'`);
   }
 };
 
@@ -96,9 +87,7 @@ const opencodeTextPart = (value: unknown): Option.Option<string> => {
   }
   const { part } = value;
   if (isRecord(part) && part.type === "text") {
-    return typeof part.text === "string"
-      ? Option.some(part.text)
-      : Option.none();
+    return typeof part.text === "string" ? Option.some(part.text) : Option.none();
   }
   return Option.none();
 };

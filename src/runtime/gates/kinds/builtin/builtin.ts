@@ -1,9 +1,5 @@
 import { executeBuiltin } from "../../../builtins";
-import type {
-  BuiltinGateSpec,
-  RuntimeContext,
-  RuntimeGateResult,
-} from "../../../contracts";
+import type { BuiltinGateSpec, RuntimeContext, RuntimeGateResult } from "../../../contracts";
 
 /**
  * Runs a named builtin via the executor and maps its exit code to a gate result.
@@ -14,7 +10,7 @@ export const evaluateBuiltinGate = async (
   gate: BuiltinGateSpec,
   gateId: string,
   nodeId: string,
-  context: RuntimeContext
+  context: RuntimeContext,
 ): Promise<RuntimeGateResult> => {
   const result = await executeBuiltin(gate.builtin, context);
   return {
@@ -23,7 +19,6 @@ export const evaluateBuiltinGate = async (
     kind: gate.kind,
     nodeId,
     passed: result.exitCode === 0,
-    reason:
-      result.exitCode === 0 ? undefined : `builtin '${gate.builtin}' failed`,
+    reason: result.exitCode === 0 ? undefined : `builtin '${gate.builtin}' failed`,
   };
 };

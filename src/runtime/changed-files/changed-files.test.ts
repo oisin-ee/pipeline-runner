@@ -49,8 +49,6 @@ describe("changed file snapshots", () => {
     writeFileSync(join(dir, "app.ts"), "export const value = 3;\n");
     const after = snapshotChangedFiles(dir);
 
-    expect(diffChangedFiles(before, after, dir).files).toEqual(
-      new Set(["app.ts"])
-    );
+    expect(diffChangedFiles(before, after, dir).files).toEqual(new Set(["app.ts"]));
   });
 });

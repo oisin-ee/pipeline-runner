@@ -1,17 +1,9 @@
 import type { BrokerCredentials } from "./broker";
 import { resolveBrokerCredentials } from "./broker";
 import { applyCodexBrokerProvider } from "./codex-config";
-import {
-  defaultBrokerConfigPaths,
-  readTextIfExists,
-  writeCredentialFile,
-  writtenFileName,
-} from "./file-targets";
+import { defaultBrokerConfigPaths, readTextIfExists, writeCredentialFile, writtenFileName } from "./file-targets";
 import type { BrokerConfigPaths } from "./file-targets";
-import {
-  applyOpencodeBrokerProvider,
-  renderOpencodeBrokerAuthJson,
-} from "./opencode-config";
+import { applyOpencodeBrokerProvider, renderOpencodeBrokerAuthJson } from "./opencode-config";
 
 export interface PrepareOpencodeCredentialsOptions {
   /**
@@ -28,34 +20,19 @@ export interface PrepareOpencodeCredentialsResult {
   brokerConfigured: string[];
 }
 
-const configureBrokerCredentials = (
-  broker: BrokerCredentials,
-  pathsOverride?: BrokerConfigPaths
-): string[] => {
+const configureBrokerCredentials = (broker: BrokerCredentials, pathsOverride?: BrokerConfigPaths): string[] => {
   const paths = pathsOverride ?? defaultBrokerConfigPaths();
   const configured: string[] = [];
 
-  writeCredentialFile(
-    paths.opencodeAuthPath,
-    renderOpencodeBrokerAuthJson(broker),
-    0o600
-  );
+  writeCredentialFile(paths.opencodeAuthPath, renderOpencodeBrokerAuthJson(broker), 0o600);
   configured.push(writtenFileName(paths.opencodeAuthPath));
 
-  writeCredentialFile(
-    paths.codexConfigPath,
-    applyCodexBrokerProvider(readTextIfExists(paths.codexConfigPath), broker)
-  );
+  writeCredentialFile(paths.codexConfigPath, applyCodexBrokerProvider(readTextIfExists(paths.codexConfigPath), broker));
   configured.push(writtenFileName(paths.codexConfigPath));
 
-  const opencodeConfig = applyOpencodeBrokerProvider(
-    readTextIfExists(paths.opencodeConfigPath),
-    broker
-  );
+  const opencodeConfig = applyOpencodeBrokerProvider(readTextIfExists(paths.opencodeConfigPath), broker);
   if ("error" in opencodeConfig) {
-    throw new Error(
-      `Cannot configure opencode broker provider: ${opencodeConfig.error}`
-    );
+    throw new Error(`Cannot configure opencode broker provider: ${opencodeConfig.error}`);
   }
   writeCredentialFile(paths.opencodeConfigPath, opencodeConfig.content);
   configured.push(writtenFileName(paths.opencodeConfigPath));
@@ -70,12 +47,12 @@ const configureBrokerCredentials = (
  * other auth path.
  */
 export const prepareOpencodeCredentials = (
-  options: PrepareOpencodeCredentialsOptions = {}
+  options: PrepareOpencodeCredentialsOptions = {},
 ): PrepareOpencodeCredentialsResult => {
   const broker = options.broker ?? resolveBrokerCredentials();
   if (broker === undefined) {
     throw new Error(
-      "BROKER_API_KEY is required: codex + opencode authenticate through the central CLIProxyAPI broker."
+      "BROKER_API_KEY is required: codex + opencode authenticate through the central CLIProxyAPI broker.",
     );
   }
   return {

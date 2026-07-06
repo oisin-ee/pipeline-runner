@@ -1,9 +1,8 @@
-import { z } from "zod";
+import * as R from "effect/Record";
+import * as Schema from "effect/Schema";
 
-import {
-  MCP_GATEWAY_BACKEND_LOCALITIES,
-  MCP_GATEWAY_WORKSPACE_PATH_SOURCES,
-} from "./catalog";
+import { mutableArray, requiredString, stringRecord, urlString, withDefault, struct } from "../../schema-boundary";
+import { MCP_GATEWAY_BACKEND_LOCALITIES, MCP_GATEWAY_WORKSPACE_PATH_SOURCES } from "./catalog";
 
 const REPO_LOCAL_WORKSPACE_PATH_SOURCE_MESSAGE = [
   "repo-local gateway backend must declare workspace_path_source",
@@ -11,148 +10,109 @@ const REPO_LOCAL_WORKSPACE_PATH_SOURCE_MESSAGE = [
   "PIPELINE_TARGET_PATH or cwd",
 ].join(" ");
 
-const mcpServerBaseSchema = z
-  .object({
-    args: z.array(z.string()).optional(),
-    bearer_token_env_var: z.string().min(1).optional(),
-    command: z.string().min(1).optional(),
-    env: z.record(z.string(), z.string()).optional(),
-    headers: z.record(z.string(), z.string()).optional(),
-    url: z
-      .string()
-      .url()
-      .refine(
-        (value) => ["http:", "https:"].includes(new URL(value).protocol),
-        {
-          message: "MCP server url must use http or https",
-        }
-      )
-      .optional(),
-  })
-  .strict();
+const httpUrlString = urlString.check(
+  Schema.makeFilter<string>(
+    (value) => ["http:", "https:"].includes(new URL(value).protocol) || "URL must use http or https",
+    {
+      description: "MCP URL must use HTTP or HTTPS.",
+      identifier: "McpHttpUrlString",
+      title: "MCP HTTP URL string",
+    },
+  ),
+);
 
-type McpServerInput = z.infer<typeof mcpServerBaseSchema>;
+const mcpServerBaseSchema = struct({
+  args: Schema.optional(mutableArray(Schema.String)),
+  bearer_token_env_var: Schema.optional(requiredString),
+  command: Schema.optional(requiredString),
+  env: Schema.optional(stringRecord),
+  headers: Schema.optional(stringRecord),
+  url: Schema.optional(httpUrlString),
+});
+
+type McpServerInput = typeof mcpServerBaseSchema.Type;
 interface McpServerRefinement {
   message: string;
-  path: (server: McpServerInput) => string[];
   violates: (server: McpServerInput) => boolean;
 }
 
 const hasCommand = (server: McpServerInput) => Boolean(server.command);
 const hasUrl = (server: McpServerInput) => Boolean(server.url);
 const hasAuthorizationHeader = (server: McpServerInput) =>
-  Object.keys(server.headers ?? {}).some(
-    (key) => key.toLowerCase() === "authorization"
-  );
+  R.keys(server.headers ?? {}).some((key) => key.toLowerCase() === "authorization");
 
-const mcpServerRefinements: McpServerRefinement[] = [
+const mcpServerRefinements: readonly McpServerRefinement[] = [
   {
     message: "MCP server must declare exactly one of command or url",
-    path: (server) => (hasCommand(server) ? ["url"] : ["command"]),
     violates: (server) => hasCommand(server) === hasUrl(server),
   },
   {
     message: "args are only valid for command MCP servers",
-    path: () => ["args"],
     violates: (server) => hasUrl(server) && Boolean(server.args),
   },
   {
     message: "env is only valid for command MCP servers",
-    path: () => ["env"],
     violates: (server) => hasUrl(server) && Boolean(server.env),
   },
   {
     message: "headers are only valid for url MCP servers",
-    path: () => ["headers"],
     violates: (server) => hasCommand(server) && Boolean(server.headers),
   },
   {
     message: "bearer_token_env_var is only valid for url MCP servers",
-    path: () => ["bearer_token_env_var"],
-    violates: (server) =>
-      hasCommand(server) && Boolean(server.bearer_token_env_var),
+    violates: (server) => hasCommand(server) && Boolean(server.bearer_token_env_var),
   },
   {
-    message:
-      "headers.Authorization cannot be combined with bearer_token_env_var",
-    path: () => ["bearer_token_env_var"],
-    violates: (server) =>
-      hasUrl(server) &&
-      Boolean(server.bearer_token_env_var) &&
-      hasAuthorizationHeader(server),
+    message: "headers.Authorization cannot be combined with bearer_token_env_var",
+    violates: (server) => hasUrl(server) && Boolean(server.bearer_token_env_var) && hasAuthorizationHeader(server),
   },
 ];
 
-export const mcpServerSchema = mcpServerBaseSchema.superRefine(
-  (server, ctx) => {
-    for (const refinement of mcpServerRefinements) {
-      if (refinement.violates(server)) {
-        ctx.addIssue({
-          code: "custom",
-          message: refinement.message,
-          path: refinement.path(server),
-        });
-      }
-    }
-  }
+export const mcpServerSchema = mcpServerBaseSchema.check(
+  Schema.makeFilter(
+    (server) => {
+      const failed = mcpServerRefinements.find((refinement) => refinement.violates(server));
+      return failed?.message ?? true;
+    },
+    {
+      description: "MCP server must define one transport with valid fields.",
+      identifier: "McpServerTransport",
+      title: "MCP server transport",
+    },
+  ),
 );
 
-const mcpGatewayBackendSchema = z
-  .object({
-    locality: z.enum(MCP_GATEWAY_BACKEND_LOCALITIES),
-    required: z.boolean().default(true),
-    tool_prefixes: z.array(z.string().min(1)).min(1),
-    workspace_path_source: z
-      .enum(MCP_GATEWAY_WORKSPACE_PATH_SOURCES)
-      .optional(),
-  })
-  .strict()
-  .superRefine((backend, ctx) => {
-    if (backend.locality === "repo-local") {
-      if (!backend.workspace_path_source) {
-        ctx.addIssue({
-          code: "custom",
-          message: REPO_LOCAL_WORKSPACE_PATH_SOURCE_MESSAGE,
-          path: ["workspace_path_source"],
-        });
+const mcpGatewayBackendSchema = struct({
+  locality: Schema.Literals(MCP_GATEWAY_BACKEND_LOCALITIES),
+  required: withDefault(Schema.Boolean, true),
+  tool_prefixes: mutableArray(requiredString).check(Schema.isNonEmpty()),
+  workspace_path_source: Schema.optional(Schema.Literals(MCP_GATEWAY_WORKSPACE_PATH_SOURCES)),
+}).check(
+  Schema.makeFilter(
+    (backend) => {
+      if (backend.locality === "repo-local") {
+        return backend.workspace_path_source !== undefined || REPO_LOCAL_WORKSPACE_PATH_SOURCE_MESSAGE;
       }
-      return;
-    }
-    if (backend.workspace_path_source) {
-      ctx.addIssue({
-        code: "custom",
-        message:
-          "workspace_path_source is only valid for repo-local gateway backends",
-        path: ["workspace_path_source"],
-      });
-    }
-  });
+      return (
+        backend.workspace_path_source === undefined ||
+        "workspace_path_source is only valid for repo-local gateway backends"
+      );
+    },
+    {
+      description: "Repo-local MCP gateway backend must declare workspace source.",
+      identifier: "McpGatewayBackendWorkspaceSource",
+      title: "MCP gateway backend workspace source",
+    },
+  ),
+);
 
-export const mcpGatewaySchema = z
-  .object({
-    authorization_env: z
-      .string()
-      .min(1)
-      .default("PIPELINE_MCP_GATEWAY_AUTHORIZATION"),
-    backends: z.record(z.string(), mcpGatewayBackendSchema).default({}),
-    default_profile: z.string().min(1).optional(),
-    // PIPE-83.11: where the singleton pipeline gateway is registered. "project"
-    // (default) embeds it in each repo's .opencode/opencode.json; "global" stops
-    // the per-project synthesis and inherits one global registration (written
-    // once via `moka gateway configure-host --scope global`).
-    host_scope: z.enum(["project", "global"]).default("project"),
-    mode: z.enum(["hosted", "local"]),
-    provider: z.literal("toolhive"),
-    url: z
-      .string()
-      .url()
-      .refine(
-        (value) => ["http:", "https:"].includes(new URL(value).protocol),
-        {
-          message: "MCP gateway url must use http or https",
-        }
-      )
-      .optional(),
-    url_env: z.string().min(1).default("PIPELINE_MCP_GATEWAY_URL"),
-  })
-  .strict();
+export const mcpGatewaySchema = struct({
+  authorization_env: withDefault(requiredString, "PIPELINE_MCP_GATEWAY_AUTHORIZATION"),
+  backends: withDefault(Schema.Record(Schema.String, mcpGatewayBackendSchema), {}),
+  default_profile: Schema.optional(requiredString),
+  host_scope: withDefault(Schema.Literals(["project", "global"]), "project"),
+  mode: Schema.Literals(["hosted", "local"]),
+  provider: Schema.Literal("toolhive"),
+  url: Schema.optional(httpUrlString),
+  url_env: withDefault(requiredString, "PIPELINE_MCP_GATEWAY_URL"),
+});

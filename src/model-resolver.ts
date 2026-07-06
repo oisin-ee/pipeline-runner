@@ -38,18 +38,13 @@ export interface ModelCandidates {
   skipped: string[];
 }
 
-const sizedCandidates = (
-  enabled: string[],
-  baseSkipped: string[],
-  options: ModelSizingOptions
-): ModelCandidates => {
+const sizedCandidates = (enabled: string[], baseSkipped: string[], options: ModelSizingOptions): ModelCandidates => {
   const { estimatedTokens, budget } = options;
   const required = estimatedTokens / (budget.max_context_pct / 100);
   const fits: string[] = [];
   const tooSmall: string[] = [];
   for (const candidate of enabled) {
-    const window =
-      budget.model_context_windows[candidate] ?? budget.default_context_window;
+    const window = budget.model_context_windows[candidate] ?? budget.default_context_window;
     if (window >= required) {
       fits.push(candidate);
     } else {
@@ -63,16 +58,11 @@ const sizedCandidates = (
   return { models: fits, reason, skipped: [...baseSkipped, ...tooSmall] };
 };
 
-const isAvailable = (
-  candidate: string,
-  available?: ReadonlySet<string>
-): boolean => (available === undefined ? true : available.has(candidate));
+const isAvailable = (candidate: string, available?: ReadonlySet<string>): boolean =>
+  available === undefined ? true : available.has(candidate);
 
 const sizingFromOptions = (options?: ModelSelectionOptions) => {
-  if (
-    options?.budget !== undefined &&
-    typeof options.estimatedTokens === "number"
-  ) {
+  if (options?.budget !== undefined && typeof options.estimatedTokens === "number") {
     return { budget: options.budget, estimatedTokens: options.estimatedTokens };
   }
   return;
@@ -90,12 +80,12 @@ const disabledModels = (): Set<string> =>
     (process.env[DISABLED_MODELS_ENV] ?? "")
       .split(",")
       .map((value) => value.trim())
-      .filter(Boolean)
+      .filter(Boolean),
   );
 
 export const selectNodeModelCandidates = (
   node: PlannedWorkflowNode,
-  options?: ModelSelectionOptions
+  options?: ModelSelectionOptions,
 ): ModelCandidates => {
   const models = node.models ?? [];
   if (models.length === 0) {
@@ -107,12 +97,8 @@ export const selectNodeModelCandidates = (
   }
   const disabled = disabledModels();
   const available = options?.available;
-  const enabled = models.filter(
-    (candidate) => !disabled.has(candidate) && isAvailable(candidate, available)
-  );
-  const baseSkipped = models.filter(
-    (candidate) => disabled.has(candidate) || !isAvailable(candidate, available)
-  );
+  const enabled = models.filter((candidate) => !disabled.has(candidate) && isAvailable(candidate, available));
+  const baseSkipped = models.filter((candidate) => disabled.has(candidate) || !isAvailable(candidate, available));
   const sizing = sizingFromOptions(options);
   if (sizing === undefined) {
     return {

@@ -22,15 +22,9 @@ export interface GoalLoopOptions {
   initialState: PipelineGoalState;
   maxContinuations: number;
   now?: () => Date;
-  runContinuation: (
-    input: GoalLoopContinuationInput
-  ) => PipelineGoalState | Promise<PipelineGoalState>;
+  runContinuation: (input: GoalLoopContinuationInput) => PipelineGoalState | Promise<PipelineGoalState>;
   shouldCancel?: () => boolean;
-  writePrompt?: (
-    attempt: number,
-    prompt: string,
-    state: PipelineGoalState
-  ) => string | Promise<string>;
+  writePrompt?: (attempt: number, prompt: string, state: PipelineGoalState) => string | Promise<string>;
 }
 
 export interface GoalLoopResult {
@@ -46,13 +40,13 @@ export class GoalLoopService extends Context.Service<
   {
     readonly runContinuation: (
       runner: GoalLoopOptions["runContinuation"],
-      input: GoalLoopContinuationInput
+      input: GoalLoopContinuationInput,
     ) => Effect.Effect<PipelineGoalState, unknown>;
     readonly writePrompt: (
       writer: GoalLoopOptions["writePrompt"],
       attempt: number,
       prompt: string,
-      state: PipelineGoalState
+      state: PipelineGoalState,
     ) => Effect.Effect<Option.Option<string>, unknown>;
   }
 >()("GoalLoopService") {}
@@ -61,7 +55,7 @@ const optionalWritePromptEffect = (
   writer: GoalLoopOptions["writePrompt"],
   attempt: number,
   prompt: string,
-  state: PipelineGoalState
+  state: PipelineGoalState,
 ): Effect.Effect<Option.Option<string>, unknown> =>
   writer === undefined
     ? Effect.succeed(NO_PROMPT_PATH)
@@ -76,6 +70,5 @@ export const GoalLoopServiceLive = Layer.succeed(GoalLoopService, {
       catch: (error) => error,
       try: async () => await runner(input),
     }),
-  writePrompt: (writer, attempt, prompt, state) =>
-    optionalWritePromptEffect(writer, attempt, prompt, state),
+  writePrompt: (writer, attempt, prompt, state) => optionalWritePromptEffect(writer, attempt, prompt, state),
 });

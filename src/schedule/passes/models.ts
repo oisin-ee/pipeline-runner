@@ -5,40 +5,28 @@ import type { ScheduleArtifact } from "../../planning/generate";
 
 type Workflow = PipelineConfig["workflows"][string];
 type WorkflowNode = Workflow["nodes"][number];
-type NodeTemplate =
-  PipelineConfig["scheduler"]["node_catalogs"][string]["nodes"][string];
+type NodeTemplate = PipelineConfig["scheduler"]["node_catalogs"][string]["nodes"][string];
 
-const nodeModelsOrCatalog = (
-  node: WorkflowNode & { kind: "agent" },
-  template: NodeTemplate
-) =>
-  node.models !== undefined && node.models.length > 0
-    ? node.models
-    : template.models;
+const nodeModelsOrCatalog = (node: WorkflowNode & { kind: "agent" }, template: NodeTemplate) =>
+  node.models !== undefined && node.models.length > 0 ? node.models : template.models;
 
 const nodeCatalogTemplateFor = (
   node: WorkflowNode & { kind: "agent" },
-  templates: PipelineConfig["scheduler"]["node_catalogs"][string]["nodes"]
+  templates: PipelineConfig["scheduler"]["node_catalogs"][string]["nodes"],
 ): Option.Option<NodeTemplate> => {
   if (Object.hasOwn(templates, node.id)) {
     return Option.some(templates[node.id]);
   }
-  const byCategory = Object.values(templates).find((candidate) =>
-    node.id.includes(candidate.category)
-  );
+  const byCategory = Object.values(templates).find((candidate) => node.id.includes(candidate.category));
   if (byCategory !== undefined) {
     return Option.some(byCategory);
   }
-  return Option.fromUndefinedOr(
-    Object.values(templates).find(
-      (candidate) => candidate.profile === node.profile
-    )
-  );
+  return Option.fromUndefinedOr(Object.values(templates).find((candidate) => candidate.profile === node.profile));
 };
 
 const applyNodeCatalogModelsToAgentNode = (
   node: WorkflowNode & { kind: "agent" },
-  templates: PipelineConfig["scheduler"]["node_catalogs"][string]["nodes"]
+  templates: PipelineConfig["scheduler"]["node_catalogs"][string]["nodes"],
 ): WorkflowNode => {
   const template = nodeCatalogTemplateFor(node, templates);
   return Option.match(template, {
@@ -54,7 +42,7 @@ const applyNodeCatalogModelsToAgentNode = (
 
 const applyNodeCatalogModelsToNode = (
   node: WorkflowNode,
-  templates: PipelineConfig["scheduler"]["node_catalogs"][string]["nodes"]
+  templates: PipelineConfig["scheduler"]["node_catalogs"][string]["nodes"],
 ): WorkflowNode => {
   switch (node.kind) {
     case "agent": {
@@ -63,9 +51,7 @@ const applyNodeCatalogModelsToNode = (
     case "parallel": {
       return {
         ...node,
-        nodes: node.nodes.map((child) =>
-          applyNodeCatalogModelsToNode(child, templates)
-        ),
+        nodes: node.nodes.map((child) => applyNodeCatalogModelsToNode(child, templates)),
       };
     }
     default: {
@@ -77,7 +63,7 @@ const applyNodeCatalogModelsToNode = (
 export const applyNodeCatalogModelFallbacks = (
   config: PipelineConfig,
   catalogId: Option.Option<string>,
-  artifact: ScheduleArtifact
+  artifact: ScheduleArtifact,
 ): ScheduleArtifact =>
   Option.match(catalogId, {
     onNone: () => artifact,
@@ -93,11 +79,9 @@ export const applyNodeCatalogModelFallbacks = (
             workflowId,
             {
               ...workflow,
-              nodes: workflow.nodes.map((node) =>
-                applyNodeCatalogModelsToNode(node, catalog.nodes)
-              ),
+              nodes: workflow.nodes.map((node) => applyNodeCatalogModelsToNode(node, catalog.nodes)),
             },
-          ])
+          ]),
         ),
       };
     },

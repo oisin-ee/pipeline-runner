@@ -47,7 +47,7 @@ const toolHiveBackend = (
   id: string,
   backend: McpGatewayBackend,
   repoLocalBackend: RepoLocalBackendSpec | void,
-  workload: ToolHiveWorkload | void
+  workload: ToolHiveWorkload | void,
 ): ToolHiveVmcpBackend => {
   if (backend.locality !== "repo-local") {
     return {
@@ -80,20 +80,14 @@ const toolHiveBackend = (
   };
 };
 
-const matchingWorkload = (
-  backendId: string,
-  workloads: ToolHiveWorkload[]
-): ToolHiveWorkload | void => {
+const matchingWorkload = (backendId: string, workloads: ToolHiveWorkload[]): ToolHiveWorkload | void => {
   const expectedPackageOwnedName = `oisin-pipeline-${backendId}`;
-  return workloads.find(
-    (workload) =>
-      workload.name === backendId || workload.name === expectedPackageOwnedName
-  );
+  return workloads.find((workload) => workload.name === backendId || workload.name === expectedPackageOwnedName);
 };
 
 export const renderToolHiveVmcpInventory = (
   config: PipelineConfig,
-  options: RenderToolHiveVmcpInventoryOptions = {}
+  options: RenderToolHiveVmcpInventoryOptions = {},
 ): ToolHiveVmcpInventory => {
   const gateway = config.mcp_gateway;
   if (gateway === undefined) {
@@ -103,18 +97,11 @@ export const renderToolHiveVmcpInventory = (
       yaml: stringify({ backends: [], group: "default", provider: "toolhive" }),
     };
   }
-  const repoLocalBackends = new Map(
-    (options.repoLocalBackends ?? []).map((backend) => [backend.id, backend])
-  );
+  const repoLocalBackends = new Map((options.repoLocalBackends ?? []).map((backend) => [backend.id, backend]));
   const toolHiveWorkloads = options.toolHiveWorkloads ?? [];
   const backends = Object.entries(gateway.backends)
     .map(([id, backend]) =>
-      toolHiveBackend(
-        id,
-        backend,
-        repoLocalBackends.get(id),
-        matchingWorkload(id, toolHiveWorkloads)
-      )
+      toolHiveBackend(id, backend, repoLocalBackends.get(id), matchingWorkload(id, toolHiveWorkloads)),
     )
     .toSorted((left, right) => left.name.localeCompare(right.name));
   const group = gateway.default_profile ?? "default";
@@ -130,12 +117,8 @@ export const renderToolHiveVmcpInventory = (
       },
       backends: backends.map((backend) => ({
         name: backend.name,
-        ...(backend.transport !== undefined && backend.transport !== ""
-          ? { transport: backend.transport }
-          : {}),
-        ...(backend.url !== undefined && backend.url !== ""
-          ? { url: backend.url }
-          : {}),
+        ...(backend.transport !== undefined && backend.transport !== "" ? { transport: backend.transport } : {}),
+        ...(backend.url !== undefined && backend.url !== "" ? { url: backend.url } : {}),
       })),
       groupRef: group,
       incomingAuth: {

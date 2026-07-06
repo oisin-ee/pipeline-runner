@@ -12,44 +12,27 @@ const OPEN_PR_BUILTIN = "open-pull-request";
 export const isPullRequestDeliveryEnabled = (config: PipelineConfig): boolean =>
   config.delivery?.pull_request?.enabled === true;
 
-export const shouldAppendPullRequestDelivery = (input: {
-  config: PipelineConfig;
-  requested?: boolean;
-}): boolean =>
+export const shouldAppendPullRequestDelivery = (input: { config: PipelineConfig; requested?: boolean }): boolean =>
   input.requested === true || isPullRequestDeliveryEnabled(input.config);
 
 /** True when the node list already has an open-pull-request builtin. */
 const hasPullRequestNode = (nodes: WorkflowNode[]): boolean =>
-  nodes.some(
-    (node) => node.kind === "builtin" && node.builtin === OPEN_PR_BUILTIN
-  );
+  nodes.some((node) => node.kind === "builtin" && node.builtin === OPEN_PR_BUILTIN);
 
 /** Collect top-level node ids that no other top-level node depends on. */
 const terminalNodeIds = (nodes: WorkflowNode[]): string[] => {
   const dependents = dependentsByNeed(nodes);
-  return nodes
-    .map((node) => node.id)
-    .filter((id) => (dependents.get(id)?.length ?? 0) === 0);
+  return nodes.map((node) => node.id).filter((id) => (dependents.get(id)?.length ?? 0) === 0);
 };
 
 /** Build a single open-pull-request builtin node depending on all terminals. */
-const buildPrNode = (
-  terminalIds: string[],
-  usedIds: Set<string>
-): WorkflowNode => {
-  const id = uniqueGeneratedId(
-    "generated-open-pull-request",
-    usedIds,
-    "generated-open-pull-request"
-  );
+const buildPrNode = (terminalIds: string[], usedIds: Set<string>): WorkflowNode => {
+  const id = uniqueGeneratedId("generated-open-pull-request", usedIds, "generated-open-pull-request");
   return { builtin: OPEN_PR_BUILTIN, id, kind: "builtin", needs: terminalIds };
 };
 
 /** Append a final open-pull-request node to the root workflow when enabled. */
-export const appendPullRequestDelivery = (
-  enabled: boolean,
-  artifact: ScheduleArtifact
-): ScheduleArtifact => {
+export const appendPullRequestDelivery = (enabled: boolean, artifact: ScheduleArtifact): ScheduleArtifact => {
   if (!enabled) {
     return artifact;
   }

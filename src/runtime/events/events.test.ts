@@ -12,9 +12,7 @@ import {
   runtimeNodeActorDescriptor,
 } from "./events";
 
-const runtimeContextForEvents = (
-  reporter: (event: PipelineRuntimeEvent) => void
-): RuntimeContext => {
+const runtimeContextForEvents = (reporter: (event: PipelineRuntimeEvent) => void): RuntimeContext => {
   const config = parsePipelineConfigParts({
     pipeline: `
 version: 1
@@ -129,7 +127,7 @@ describe("runtime events", () => {
     const events: PipelineRuntimeEvent[] = [];
     const reporter = childReporter(
       runtimeContextForEvents((event) => events.push(event)),
-      "parent"
+      "parent",
     );
 
     reporter?.({
@@ -160,12 +158,9 @@ describe("runtime events", () => {
     const events: PipelineRuntimeEvent[] = [];
     const actor = runtimeNodeActorDescriptor(
       runtimeContextForEvents((event) => events.push(event)),
-      "node-a"
+      "node-a",
     );
-    const emit = createPublicRuntimeObservabilityEmitter(
-      (event) => events.push(event),
-      "default"
-    );
+    const emit = createPublicRuntimeObservabilityEmitter((event) => events.push(event), "default");
 
     emit({
       actor,

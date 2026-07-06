@@ -17,10 +17,7 @@ const projection = {
       url: "https://pipeline-mcp.momokaya.ee/mcp/",
     },
   },
-  plugin: [
-    "@devtheops/opencode-plugin-otel@1.1.0",
-    "@prevalentware/opencode-goal-plugin",
-  ],
+  plugin: ["@devtheops/opencode-plugin-otel@1.1.0", "@prevalentware/opencode-goal-plugin"],
 };
 
 describe("mergeOpenCodeProjectConfig", () => {
@@ -31,9 +28,9 @@ describe("mergeOpenCodeProjectConfig", () => {
           plugin: ["local-auth-plugin", ["tuple-plugin", { enabled: true }]],
         },
         null,
-        2
+        2,
       ),
-      projection
+      projection,
     );
 
     expect(result.ok).toBe(true);
@@ -60,7 +57,7 @@ describe("mergeOpenCodeProjectConfig", () => {
     };
     const result = mergeOpenCodeProjectConfig(
       JSON.stringify({ mcp: { "pipeline-gateway": existingGateway } }, null, 2),
-      projection
+      projection,
     );
 
     expect(result.ok).toBe(true);
@@ -74,7 +71,7 @@ describe("mergeOpenCodeProjectConfig", () => {
   it("adds gateway, schema, and lsp only when missing", () => {
     const result = mergeOpenCodeProjectConfig(
       '{\n  // user config\n  "lsp": false,\n  "plugin": ["local-auth-plugin"],\n}\n',
-      projection
+      projection,
     );
 
     expect(result.ok).toBe(true);
@@ -84,27 +81,21 @@ describe("mergeOpenCodeProjectConfig", () => {
     const merged = parse(result.content);
     expect(merged.$schema).toBe("https://opencode.ai/config.json");
     expect(merged.lsp).toBe(false);
-    expect(merged.mcp["pipeline-gateway"]).toEqual(
-      projection.mcp["pipeline-gateway"]
-    );
-    expect(
-      merged.plugin.filter((item: string) => item === "local-auth-plugin")
-    ).toHaveLength(1);
+    expect(merged.mcp["pipeline-gateway"]).toEqual(projection.mcp["pipeline-gateway"]);
+    expect(merged.plugin.filter((item: string) => item === "local-auth-plugin")).toHaveLength(1);
   });
 
   it("replaces a same-name plugin entry when the projected entry is pinned", () => {
     const result = mergeOpenCodeProjectConfig(
       JSON.stringify({ plugin: ["@devtheops/opencode-plugin-otel"] }, null, 2),
-      { plugin: ["@devtheops/opencode-plugin-otel@1.1.0"] }
+      { plugin: ["@devtheops/opencode-plugin-otel@1.1.0"] },
     );
 
     expect(result.ok).toBe(true);
     if (!result.ok) {
       return;
     }
-    expect(JSON.parse(result.content).plugin).toEqual([
-      "@devtheops/opencode-plugin-otel@1.1.0",
-    ]);
+    expect(JSON.parse(result.content).plugin).toEqual(["@devtheops/opencode-plugin-otel@1.1.0"]);
   });
 
   it("adds missing provider models and preserves user overrides", () => {
@@ -112,11 +103,7 @@ describe("mergeOpenCodeProjectConfig", () => {
       options: { reasoningEffort: "xhigh", textVerbosity: "high" },
     };
     const result = mergeOpenCodeProjectConfig(
-      JSON.stringify(
-        { provider: { openai: { models: { "gpt-5.5-xhigh": userXhigh } } } },
-        null,
-        2
-      ),
+      JSON.stringify({ provider: { openai: { models: { "gpt-5.5-xhigh": userXhigh } } } }, null, 2),
       {
         provider: {
           openai: {
@@ -126,7 +113,7 @@ describe("mergeOpenCodeProjectConfig", () => {
             },
           },
         },
-      }
+      },
     );
 
     expect(result.ok).toBe(true);

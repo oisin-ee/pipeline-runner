@@ -1,10 +1,5 @@
 import type { RunEffort, RunMode, RunTarget } from "../run-control/contracts";
-import type {
-  LocalRuntimeExecution,
-  RemoteSubmitExecution,
-  RunResolution,
-  RunResolverFlags,
-} from "./run-resolver";
+import type { LocalRuntimeExecution, RemoteSubmitExecution, RunResolution, RunResolverFlags } from "./run-resolver";
 
 export interface RunCommandCall {
   readonly descriptionParts: string[];
@@ -40,10 +35,7 @@ export interface RunCommandDispatchDependencies {
   readonly runRemoteSubmit: (input: RemoteSubmitDispatchInput) => Promise<void>;
 }
 
-const localRunDispatchInput = (
-  call: RunCommandCall,
-  execution: LocalRuntimeExecution
-): LocalRunDispatchInput => {
+const localRunDispatchInput = (call: RunCommandCall, execution: LocalRuntimeExecution): LocalRunDispatchInput => {
   const { resolution, task } = call;
   return {
     execution,
@@ -59,7 +51,7 @@ const localRunDispatchInput = (
 const dispatchLocalMokaRunCommand = async (
   call: RunCommandCall,
   execution: LocalRuntimeExecution,
-  dependencies: RunCommandDispatchDependencies
+  dependencies: RunCommandDispatchDependencies,
 ): Promise<void> => {
   const localDispatchInput = localRunDispatchInput(call, execution);
   if (call.flags.detach === true) {
@@ -71,7 +63,7 @@ const dispatchLocalMokaRunCommand = async (
 
 const dispatchResolvedMokaRunCommand = async (
   call: RunCommandCall,
-  dependencies: RunCommandDispatchDependencies
+  dependencies: RunCommandDispatchDependencies,
 ): Promise<void> => {
   const { resolution } = call;
   const { execution } = resolution;
@@ -87,7 +79,7 @@ const dispatchResolvedMokaRunCommand = async (
 
 export const dispatchMokaRunCommand = async (
   call: RunCommandCall,
-  dependencies: RunCommandDispatchDependencies
+  dependencies: RunCommandDispatchDependencies,
 ): Promise<void> => {
   if (dependencies.runCommand) {
     await dependencies.runCommand(call);

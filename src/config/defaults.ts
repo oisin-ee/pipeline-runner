@@ -1,182 +1,135 @@
-import { Effect } from "effect";
-import { z } from "zod";
+import * as Effect from "effect/Effect";
+import * as Schema from "effect/Schema";
 
-import {
-  ConfigIoService,
-  parseConfigYamlAs,
-  runConfigIoSync,
-} from "../runtime/services/config-io-service";
+import { ConfigIoService, parseConfigYamlAs, runConfigIoSync } from "../runtime/services/config-io-service";
+import { mutableArray, nonEmptyMutableArray, requiredString, urlString, struct } from "../schema-boundary";
 
 export const PIPELINE_CONFIG_PATH = ".pipeline/pipeline.yaml";
 export const RUNNERS_CONFIG_PATH = ".pipeline/runners.yaml";
 export const PROFILES_CONFIG_PATH = ".pipeline/profiles.yaml";
-export const OPENCODE_ECOSYSTEM_MANIFEST_PATH =
-  "defaults/opencode-ecosystem.yaml";
+export const OPENCODE_ECOSYSTEM_MANIFEST_PATH = "defaults/opencode-ecosystem.yaml";
 
-const DEFAULT_PACKAGE_DEFAULTS_ROOT = new URL(
-  "../../defaults/",
-  import.meta.url
-);
+const DEFAULT_PACKAGE_DEFAULTS_ROOT = new URL("../../defaults/", import.meta.url);
+
+const loadDefaultYamlEffect = Effect.fn("loadDefaultYaml")(function* (filename: string) {
+  const configIo = yield* ConfigIoService;
+  return yield* configIo.readText(new URL(filename, DEFAULT_PACKAGE_DEFAULTS_ROOT));
+});
 
 const loadDefaultYaml = (filename: string): string => {
-  const program = Effect.gen(function* program() {
-    const configIo = yield* ConfigIoService;
-    return yield* configIo.readText(
-      new URL(filename, DEFAULT_PACKAGE_DEFAULTS_ROOT)
-    );
-  });
-  return runConfigIoSync(program);
+  return runConfigIoSync(loadDefaultYamlEffect(filename));
 };
 
-export const PACKAGE_DEFAULT_RUNNERS_YAML: string =
-  loadDefaultYaml("runners.yaml");
+export const PACKAGE_DEFAULT_RUNNERS_YAML: string = loadDefaultYaml("runners.yaml");
 
-export const PACKAGE_DEFAULT_PROFILES_YAML: string =
-  loadDefaultYaml("profiles.yaml");
+export const PACKAGE_DEFAULT_PROFILES_YAML: string = loadDefaultYaml("profiles.yaml");
 
-export const PACKAGE_DEFAULT_PIPELINE_YAML: string =
-  loadDefaultYaml("pipeline.yaml");
+export const PACKAGE_DEFAULT_PIPELINE_YAML: string = loadDefaultYaml("pipeline.yaml");
 
-const DEFAULT_OPENCODE_ECOSYSTEM_MANIFEST_URL = new URL(
-  `../../${OPENCODE_ECOSYSTEM_MANIFEST_PATH}`,
-  import.meta.url
-);
+const DEFAULT_OPENCODE_ECOSYSTEM_MANIFEST_URL = new URL(`../../${OPENCODE_ECOSYSTEM_MANIFEST_PATH}`, import.meta.url);
 
-const ecosystemStringArraySchema = z.array(z.string().min(1));
+const ecosystemStringArraySchema = mutableArray(requiredString);
 
-const ecosystemRuntimeSchema = z
-  .object({
-    compatibility_runners: ecosystemStringArraySchema,
-    default_runner: z.literal("opencode"),
-    default_stack_direct: z.literal(true),
-    state_authority: z.literal("pipeline"),
-  })
-  .strict();
+const ecosystemRuntimeSchema = struct({
+  compatibility_runners: ecosystemStringArraySchema,
+  default_runner: Schema.Literal("opencode"),
+  default_stack_direct: Schema.Literal(true),
+  state_authority: Schema.Literal("pipeline"),
+});
 
-const ecosystemDependencySchema = z
-  .object({
-    dependency_scope: z.string().min(1),
-    id: z.string().min(1),
-    package: z.string().min(1),
-    role: z.string().min(1),
-    source: z.string().url(),
-  })
-  .strict();
+const ecosystemDependencySchema = struct({
+  dependency_scope: requiredString,
+  id: requiredString,
+  package: requiredString,
+  role: requiredString,
+  source: urlString,
+});
 
-const ecosystemCodeSchema = z
-  .object({
-    default_stack: z.literal(true),
-    id: z.string().min(1),
-    name: z.string().min(1),
-    package: z.string().min(1).optional(),
-    plugin: z
-      .discriminatedUnion("kind", [
-        z
-          .object({
-            kind: z.literal("local"),
-            source_path: z.string().min(1),
-            target_path: z.string().min(1),
-          })
-          .strict(),
-        z
-          .object({
-            kind: z.literal("npm"),
-            package: z.string().min(1),
-          })
-          .strict(),
-      ])
-      .optional(),
-    role: z.string().min(1),
-    source: z.string().url(),
-  })
-  .strict();
+const ecosystemCodeSchema = struct({
+  default_stack: Schema.Literal(true),
+  id: requiredString,
+  name: requiredString,
+  package: Schema.optional(requiredString),
+  plugin: Schema.optional(
+    Schema.Union([
+      struct({
+        kind: Schema.Literal("local"),
+        source_path: requiredString,
+        target_path: requiredString,
+      }),
+      struct({
+        kind: Schema.Literal("npm"),
+        package: requiredString,
+      }),
+    ]),
+  ),
+  role: requiredString,
+  source: urlString,
+});
 
-const ecosystemMcpBackendSchema = z
-  .object({
-    credentials: ecosystemStringArraySchema,
-    id: z.string().min(1),
-    locality: z.string().min(1),
-    name: z.string().min(1).optional(),
-    required: z.boolean(),
-    role: z.string().min(1),
-  })
-  .strict();
+const ecosystemMcpBackendSchema = struct({
+  credentials: ecosystemStringArraySchema,
+  id: requiredString,
+  locality: requiredString,
+  name: Schema.optional(requiredString),
+  required: Schema.Boolean,
+  role: requiredString,
+});
 
-const ecosystemProfileResourceSchema = z
-  .object({
-    id: z.string().min(1),
-    path: z.string().min(1).optional(),
-    source: z.string().min(1).optional(),
-    used_by: ecosystemStringArraySchema,
-  })
-  .strict();
+const ecosystemProfileResourceSchema = struct({
+  id: requiredString,
+  path: Schema.optional(requiredString),
+  source: Schema.optional(requiredString),
+  used_by: ecosystemStringArraySchema,
+});
 
-const ecosystemHostCapabilitiesSchema = z
-  .object({
-    agents: z.literal(true),
-    commands: z.literal(true),
-    lsp: z.literal(true),
-    mcp_servers: z.literal(true),
-    permissions: z.literal(true),
-    plugins: z.literal(true),
-    project_config: z.literal(true),
-    skills: z.literal(true),
-    subagents: z.literal(true),
-  })
-  .strict();
+const ecosystemHostCapabilitiesSchema = struct({
+  agents: Schema.Literal(true),
+  commands: Schema.Literal(true),
+  lsp: Schema.Literal(true),
+  mcp_servers: Schema.Literal(true),
+  permissions: Schema.Literal(true),
+  plugins: Schema.Literal(true),
+  project_config: Schema.Literal(true),
+  skills: Schema.Literal(true),
+  subagents: Schema.Literal(true),
+});
 
-const ecosystemSourceSchema = z
-  .object({
-    label: z.string().min(1),
-    url: z.string().url(),
-  })
-  .strict();
+const ecosystemSourceSchema = struct({
+  label: requiredString,
+  url: urlString,
+});
 
-const openCodeEcosystemManifestSchema = z
-  .object({
-    ecosystem_code: z.array(ecosystemCodeSchema).min(1),
-    generated_by: z.literal("@oisincoveney/pipeline"),
-    host_capabilities: ecosystemHostCapabilitiesSchema,
-    mcp_backends: z.array(ecosystemMcpBackendSchema).min(1),
-    official_dependencies: z.array(ecosystemDependencySchema).min(1),
-    prompts: z.array(ecosystemProfileResourceSchema).min(1),
-    runtime: ecosystemRuntimeSchema,
-    skills: z.array(ecosystemProfileResourceSchema).min(1),
-    sources: z.array(ecosystemSourceSchema).min(1),
-    version: z.literal(1),
-  })
-  .strict();
+const openCodeEcosystemManifestSchema = struct({
+  ecosystem_code: nonEmptyMutableArray(ecosystemCodeSchema),
+  generated_by: Schema.Literal("@oisincoveney/pipeline"),
+  host_capabilities: ecosystemHostCapabilitiesSchema,
+  mcp_backends: nonEmptyMutableArray(ecosystemMcpBackendSchema),
+  official_dependencies: nonEmptyMutableArray(ecosystemDependencySchema),
+  prompts: nonEmptyMutableArray(ecosystemProfileResourceSchema),
+  runtime: ecosystemRuntimeSchema,
+  skills: nonEmptyMutableArray(ecosystemProfileResourceSchema),
+  sources: nonEmptyMutableArray(ecosystemSourceSchema),
+  version: Schema.Literal(1),
+});
 
-export type OpenCodeEcosystemManifest = z.infer<
-  typeof openCodeEcosystemManifestSchema
->;
+export type OpenCodeEcosystemManifest = typeof openCodeEcosystemManifestSchema.Type;
 
 export const parseOpenCodeEcosystemManifest = (
   source: string,
-  sourcePath = OPENCODE_ECOSYSTEM_MANIFEST_PATH
+  sourcePath = OPENCODE_ECOSYSTEM_MANIFEST_PATH,
 ): OpenCodeEcosystemManifest => {
-  const program = parseConfigYamlAs(
-    source,
-    sourcePath,
-    openCodeEcosystemManifestSchema
-  );
+  const program = parseConfigYamlAs(source, sourcePath, openCodeEcosystemManifestSchema);
   return runConfigIoSync(program);
 };
 
-const loadDefaultOpenCodeEcosystemManifest = (): OpenCodeEcosystemManifest => {
-  const program = Effect.gen(function* program() {
-    const configIo = yield* ConfigIoService;
-    const source = yield* configIo.readText(
-      DEFAULT_OPENCODE_ECOSYSTEM_MANIFEST_URL
-    );
-    return yield* parseConfigYamlAs(
-      source,
-      OPENCODE_ECOSYSTEM_MANIFEST_PATH,
-      openCodeEcosystemManifestSchema
-    );
-  });
-  return runConfigIoSync(program);
-};
+const loadDefaultOpenCodeEcosystemManifestEffect = Effect.fn("loadDefaultOpenCodeEcosystemManifest")(function* () {
+  const configIo = yield* ConfigIoService;
+  const source = yield* configIo.readText(DEFAULT_OPENCODE_ECOSYSTEM_MANIFEST_URL);
+  return yield* parseConfigYamlAs(source, OPENCODE_ECOSYSTEM_MANIFEST_PATH, openCodeEcosystemManifestSchema);
+});
 
-export const DEFAULT_OPENCODE_ECOSYSTEM_MANIFEST =
-  loadDefaultOpenCodeEcosystemManifest();
+const loadDefaultOpenCodeEcosystemManifest = (): OpenCodeEcosystemManifest =>
+  runConfigIoSync(loadDefaultOpenCodeEcosystemManifestEffect());
+
+export const DEFAULT_OPENCODE_ECOSYSTEM_MANIFEST = loadDefaultOpenCodeEcosystemManifest();

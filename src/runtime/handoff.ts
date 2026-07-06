@@ -1,5 +1,15 @@
-import { Option } from "effect";
-import { z } from "zod";
+import * as Option from "effect/Option";
+import * as Schema from "effect/Schema";
+
+import {
+  mutableArray,
+  nonNegativeInteger,
+  parseResultWithSchema,
+  requiredString,
+  stringArray,
+  withDefault,
+  struct,
+} from "../schema-boundary";
 
 /**
  * NodeHandoff (PIPE-83.1) — the curated, typed envelope a node hands to its
@@ -11,26 +21,23 @@ import { z } from "zod";
  * agent-node), with a synthesized minimal fallback when no structured handoff
  * is available so existing consumers keep working unchanged.
  */
-const MARKDOWN_JSON_FENCE_RE =
-  /^\s*```(?:json)?\s*\r?\n([\s\S]*?)\r?\n```\s*$/iu;
+const MARKDOWN_JSON_FENCE_RE = /^\s*```(?:json)?\s*\r?\n([\s\S]*?)\r?\n```\s*$/iu;
 const SUMMARY_FALLBACK_MAX_CHARS = 600;
 
-const handoffArtifactSchema = z.object({
-  lineRange: z
-    .tuple([z.number().int().nonnegative(), z.number().int().nonnegative()])
-    .optional(),
-  path: z.string().min(1),
+const handoffArtifactSchema = struct({
+  lineRange: Schema.optional(Schema.mutable(Schema.Tuple([nonNegativeInteger, nonNegativeInteger]))),
+  path: requiredString,
 });
 
-const nodeHandoffSchema = z.object({
-  artifacts: z.array(handoffArtifactSchema).default([]),
-  decisions: z.array(z.string()).default([]),
-  openQuestions: z.array(z.string()).default([]),
-  summary: z.string(),
-  testNames: z.array(z.string()).default([]),
+const nodeHandoffSchema = struct({
+  artifacts: withDefault(mutableArray(handoffArtifactSchema), []),
+  decisions: withDefault(stringArray, []),
+  openQuestions: withDefault(stringArray, []),
+  summary: Schema.String,
+  testNames: withDefault(stringArray, []),
 });
 
-export type NodeHandoff = z.infer<typeof nodeHandoffSchema>;
+export type NodeHandoff = typeof nodeHandoffSchema.Type;
 
 /**
  * Parse a candidate handoff JSON string (tolerant of a Markdown ```json fence).
@@ -46,8 +53,8 @@ export const parseHandoff = (raw: string): Option.Option<NodeHandoff> => {
   } catch {
     return Option.none();
   }
-  const result = nodeHandoffSchema.safeParse(value);
-  return result.success ? Option.some(result.data) : Option.none();
+  const result = parseResultWithSchema(nodeHandoffSchema, value);
+  return result.ok ? Option.some(result.value) : Option.none();
 };
 
 /**
@@ -72,9 +79,7 @@ export const renderHandoff = (nodeId: string, handoff: NodeHandoff): string => {
     ["Decisions:", handoff.decisions],
     [
       "Artifacts:",
-      handoff.artifacts.map((a) =>
-        a.lineRange ? `${a.path}:${a.lineRange[0]}-${a.lineRange[1]}` : a.path
-      ),
+      handoff.artifacts.map((a) => (a.lineRange ? `${a.path}:${a.lineRange[0]}-${a.lineRange[1]}` : a.path)),
     ],
     ["Tests:", handoff.testNames],
     ["Open questions:", handoff.openQuestions],

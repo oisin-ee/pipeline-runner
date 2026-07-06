@@ -10,11 +10,9 @@ vi.mock("execa", () => ({
 
 import { execa } from "execa";
 
+import type { PipelineConfig } from "../src/config.ts";
 import { parsePipelineConfigParts } from "../src/config.ts";
-import {
-  createOrchestratorLaunchPlan,
-  createRunnerLaunchPlan,
-} from "../src/runner";
+import { createOrchestratorLaunchPlan, createRunnerLaunchPlan } from "../src/runner";
 import { normalizeRunnerOutput } from "../src/runner-output.ts";
 import { runLaunchPlan } from "../src/runner/subprocess";
 import { opencodeSdkRuntimeAdapter } from "../src/runtime/opencode-adapter.ts";
@@ -22,10 +20,8 @@ import { opencodeSdkRuntimeAdapter } from "../src/runtime/opencode-adapter.ts";
 const mockExeca = execa as unknown as ReturnType<typeof vi.fn>;
 const originalPipelineAgentTimeoutMs = process.env.PIPELINE_AGENT_TIMEOUT_MS;
 const originalPipelineMcpGatewayUrl = process.env.PIPELINE_MCP_GATEWAY_URL;
-const originalPipelineMcpGatewayAuthorization =
-  process.env.PIPELINE_MCP_GATEWAY_AUTHORIZATION;
-const makeSimpleResult = async (stdout = "output", exitCode = 0) =>
-  await Promise.resolve({ exitCode, stdout });
+const originalPipelineMcpGatewayAuthorization = process.env.PIPELINE_MCP_GATEWAY_AUTHORIZATION;
+const makeSimpleResult = async (stdout = "output", exitCode = 0) => await Promise.resolve({ exitCode, stdout });
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -46,25 +42,43 @@ const restoreEnv = (key: string, value: Option<string>): void => {
 };
 
 afterEach(() => {
-  restoreEnv(
-    "PIPELINE_AGENT_TIMEOUT_MS",
-    fromUndefinedOr(originalPipelineAgentTimeoutMs)
-  );
-  restoreEnv(
-    "PIPELINE_MCP_GATEWAY_URL",
-    fromUndefinedOr(originalPipelineMcpGatewayUrl)
-  );
-  restoreEnv(
-    "PIPELINE_MCP_GATEWAY_AUTHORIZATION",
-    fromUndefinedOr(originalPipelineMcpGatewayAuthorization)
-  );
+  restoreEnv("PIPELINE_AGENT_TIMEOUT_MS", fromUndefinedOr(originalPipelineAgentTimeoutMs));
+  restoreEnv("PIPELINE_MCP_GATEWAY_URL", fromUndefinedOr(originalPipelineMcpGatewayUrl));
+  restoreEnv("PIPELINE_MCP_GATEWAY_AUTHORIZATION", fromUndefinedOr(originalPipelineMcpGatewayAuthorization));
 });
 
-const parseTestConfig = (parts: {
-  pipeline: string;
-  profiles: string;
-  runners: string;
-}) => parsePipelineConfigParts(parts);
+const parseTestConfig = (parts: { pipeline: string; profiles: string; runners: string }) =>
+  parsePipelineConfigParts(parts);
+
+const withProfilePatch = (
+  config: PipelineConfig,
+  profileId: string,
+  patch: Partial<PipelineConfig["profiles"][string]>,
+): PipelineConfig => ({
+  ...config,
+  profiles: {
+    ...config.profiles,
+    [profileId]: {
+      ...config.profiles[profileId],
+      ...patch,
+    },
+  },
+});
+
+const withRunnerPatch = (
+  config: PipelineConfig,
+  runnerId: string,
+  patch: Partial<PipelineConfig["runners"][string]>,
+): PipelineConfig => ({
+  ...config,
+  runners: {
+    ...config.runners,
+    [runnerId]: {
+      ...config.runners[runnerId],
+      ...patch,
+    },
+  },
+});
 
 describe("createRunnerLaunchPlan", () => {
   const CONFIG = parseTestConfig({
@@ -112,40 +126,32 @@ runners:
   it.each([
     ["opencode-agent", "opencode", "opencode"],
     ["command-agent", "shell", "node"],
-  ])(
-    "creates a deterministic launch plan for %s",
-    (profileId, runnerId, command) => {
-      const plan = createRunnerLaunchPlan(CONFIG, {
+  ])("creates a deterministic launch plan for %s", (profileId, runnerId, command) => {
+    const plan = createRunnerLaunchPlan(CONFIG, {
+      nodeId: "node",
+      profileId,
+      prompt: "do work",
+      worktreePath: "/tmp/wt",
+    });
+
+    expect(plan).toEqual(
+      expect.objectContaining({
+        command,
+        cwd: "/tmp/wt",
         nodeId: "node",
         profileId,
-        prompt: "do work",
-        worktreePath: "/tmp/wt",
-      });
-
-      expect(plan).toEqual(
-        expect.objectContaining({
-          command,
-          cwd: "/tmp/wt",
-          nodeId: "node",
-          profileId,
-          runnerId,
-        })
-      );
-      expect(plan.args.join(" ")).toContain(
-        profileId === "command-agent" ? "/tmp/wt" : "do work"
-      );
-    }
-  );
+        runnerId,
+      }),
+    );
+    expect(plan.args.join(" ")).toContain(profileId === "command-agent" ? "/tmp/wt" : "do work");
+  });
 
   it("adds git info excludes before opencode launch plans run", async () => {
     mockExeca.mockReturnValue(makeSimpleResult("opencode output", 0));
-    const { mkdirSync, readFileSync, rmSync, writeFileSync } =
-      await import("node:fs");
+    const { mkdirSync, readFileSync, rmSync, writeFileSync } = await import("node:fs");
     const { tmpdir } = await import("node:os");
     const { join } = await import("node:path");
-    const dir = await import("node:fs").then(({ mkdtempSync }) =>
-      mkdtempSync(join(tmpdir(), "runner-opencode-"))
-    );
+    const dir = await import("node:fs").then(({ mkdtempSync }) => mkdtempSync(join(tmpdir(), "runner-opencode-")));
 
     try {
       mkdirSync(join(dir, ".git", "info"), { recursive: true });
@@ -157,7 +163,7 @@ runners:
           profileId: "opencode-agent",
           prompt: "verify things",
           worktreePath: dir,
-        })
+        }),
       );
 
       const exclude = readFileSync(join(dir, ".git", "info", "exclude"), {
@@ -172,8 +178,9 @@ runners:
   });
 
   it("uses a profile timeout for native runner launch plans", () => {
-    const config = structuredClone(CONFIG);
-    config.profiles["opencode-agent"].timeout_ms = 900_000;
+    const config = withProfilePatch(CONFIG, "opencode-agent", {
+      timeout_ms: 900_000,
+    });
 
     const plan = createRunnerLaunchPlan(config, {
       nodeId: "research-current-club",
@@ -288,9 +295,16 @@ runners:
   });
 
   it("rejects unsupported output contracts before execution", () => {
-    const bad = structuredClone(CONFIG);
-    bad.runners.opencode.capabilities.output_formats = ["text"];
-    bad.profiles["opencode-agent"].output = { format: "json_schema" };
+    const bad = withProfilePatch(
+      withRunnerPatch(CONFIG, "opencode", {
+        capabilities: {
+          ...CONFIG.runners.opencode.capabilities,
+          output_formats: ["text"],
+        },
+      }),
+      "opencode-agent",
+      { output: { format: "json_schema" } },
+    );
 
     expect(() =>
       createRunnerLaunchPlan(bad, {
@@ -298,7 +312,7 @@ runners:
         profileId: "opencode-agent",
         prompt: "do work",
         worktreePath: "/tmp/wt",
-      })
+      }),
     ).toThrow("does not support output format");
   });
 
@@ -418,7 +432,7 @@ runners:
       output_formats: [text]
 `,
       },
-      project
+      project,
     );
 
     const agent = createRunnerLaunchPlan(config, {
@@ -429,15 +443,13 @@ runners:
     });
     expect(agent.args.join("\n")).not.toContain("mcp_servers.pipeline-gateway");
     expect(agent.args.join("\n")).not.toContain("mcp_servers.serena");
-    expect(agent.args.join("\n")).not.toContain(
-      "git+https://github.com/oraios/serena"
-    );
+    expect(agent.args.join("\n")).not.toContain("git+https://github.com/oraios/serena");
   });
 
   it("falls back from actor model to runner model for launch plans", () => {
-    const config = structuredClone(CONFIG);
-    config.profiles["opencode-agent"].model = undefined;
-    config.profiles.orchestrator.model = undefined;
+    const config = withProfilePatch(withProfilePatch(CONFIG, "opencode-agent", { model: undefined }), "orchestrator", {
+      model: undefined,
+    });
 
     const agent = createRunnerLaunchPlan(config, {
       nodeId: "agent",
@@ -473,8 +485,9 @@ runners:
   });
 
   it("uses OpenCode permission bypass mode for read-only profiles", () => {
-    const config = structuredClone(CONFIG);
-    config.profiles["opencode-agent"].filesystem = { mode: "read-only" };
+    const config = withProfilePatch(CONFIG, "opencode-agent", {
+      filesystem: { mode: "read-only" },
+    });
 
     const plan = createRunnerLaunchPlan(config, {
       nodeId: "node",

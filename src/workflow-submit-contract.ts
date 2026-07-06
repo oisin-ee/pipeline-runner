@@ -1,12 +1,12 @@
-import { z } from "zod";
+import * as Schema from "effect/Schema";
 
-export const workflowSubmitResultSchema = z
-  .object({
-    namespace: z.string().min(1),
-    payloadConfigMapName: z.string().min(1),
-    scheduleConfigMapName: z.string().min(1).optional(),
-    taskDescriptorConfigMapName: z.string().min(1).optional(),
-    workflowName: z.string().min(1),
-    workflowUid: z.string().min(1).optional(),
-  })
-  .strict();
+import { requiredString, struct } from "./schema-boundary";
+
+export const workflowSubmitResultSchema = struct({
+  namespace: requiredString,
+  payloadConfigMapName: requiredString,
+  scheduleConfigMapName: Schema.optional(requiredString),
+  taskDescriptorConfigMapName: Schema.optional(requiredString),
+  workflowName: requiredString,
+  workflowUid: Schema.optional(requiredString),
+});

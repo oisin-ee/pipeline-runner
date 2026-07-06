@@ -63,9 +63,7 @@ export const buildCopierCopyArgs = (options: {
   "copy",
   "--trust",
   "--defaults",
-  ...(options.templateRef !== undefined && options.templateRef.length > 0
-    ? ["--vcs-ref", options.templateRef]
-    : []),
+  ...(options.templateRef !== undefined && options.templateRef.length > 0 ? ["--vcs-ref", options.templateRef] : []),
   "--data",
   `name=${options.name}`,
   "--data",
@@ -97,20 +95,16 @@ const assertRepoAbsent = async (input: {
     .catch(() => false);
   if (exists) {
     throw new Error(
-      `create-experiment: repo ${slug} already exists — pick another name or retire the old experiment first`
+      `create-experiment: repo ${slug} already exists — pick another name or retire the old experiment first`,
     );
   }
 };
 
-export const runCreateExperiment = async (
-  options: CreateExperimentOptions
-): Promise<CreateExperimentResult> => {
+export const runCreateExperiment = async (options: CreateExperimentOptions): Promise<CreateExperimentResult> => {
   const { exec, git, log } = resolveFactorySeams(options);
   const { name } = options;
   if (!EXPERIMENT_NAME_PATTERN.test(name)) {
-    throw new Error(
-      `create-experiment: name must be kebab-case (got ${JSON.stringify(name)})`
-    );
+    throw new Error(`create-experiment: name must be kebab-case (got ${JSON.stringify(name)})`);
   }
   const org = options.org ?? DEFAULT_ORG;
   const flavor = options.flavor ?? "web";
@@ -118,14 +112,11 @@ export const runCreateExperiment = async (
   const previews = options.previews ?? true;
   const templateSource = options.templateSource ?? DEFAULT_TEMPLATE_SOURCE;
   const infraRepoUrl = options.infraRepoUrl ?? DEFAULT_INFRA_REPO_URL;
-  const workRoot =
-    options.workRoot ?? mkdtempSync(join(tmpdir(), "create-experiment-"));
+  const workRoot = options.workRoot ?? mkdtempSync(join(tmpdir(), "create-experiment-"));
   const stampDir = resolve(workRoot, name);
   const repoUrl = `https://github.com/${org}/${name}`;
 
-  log(
-    `create-experiment: birthing ${org}/${name} (flavor=${flavor} db=${db} previews=${previews})`
-  );
+  log(`create-experiment: birthing ${org}/${name} (flavor=${flavor} db=${db} previews=${previews})`);
 
   await assertRepoAbsent({ exec, name, org });
 
@@ -145,29 +136,20 @@ export const runCreateExperiment = async (
     }),
     // copier fetches the private template with its own git subprocess — give it
     // the mounted github.com credential (see git-credentials.ts).
-    { env: githubGitCredentialEnv() }
+    { env: githubGitCredentialEnv() },
   );
 
-  const stampedRegistryEntry = join(
-    stampDir,
-    STAMPED_REGISTRY_DIR,
-    `${name}.yaml`
-  );
+  const stampedRegistryEntry = join(stampDir, STAMPED_REGISTRY_DIR, `${name}.yaml`);
   if (!existsSync(stampedRegistryEntry)) {
     throw new Error(
-      `create-experiment: stamp is missing the registry entry ${STAMPED_REGISTRY_DIR}/${name}.yaml — template contract changed?`
+      `create-experiment: stamp is missing the registry entry ${STAMPED_REGISTRY_DIR}/${name}.yaml — template contract changed?`,
     );
   }
 
   log("create-experiment: committing the stamped tree");
   await git(stampDir, ["init", "--initial-branch=main"]);
   await git(stampDir, ["add", "--all"]);
-  await git(stampDir, [
-    ...committerConfigArgs(),
-    "commit",
-    "-m",
-    `feat: initial stamp from ${templateSource}`,
-  ]);
+  await git(stampDir, [...committerConfigArgs(), "commit", "-m", `feat: initial stamp from ${templateSource}`]);
 
   log(`create-experiment: creating ${repoUrl} (private)`);
   await exec("gh", ["repo", "create", `${org}/${name}`, "--private"]);
@@ -176,14 +158,7 @@ export const runCreateExperiment = async (
 
   log(`create-experiment: registering ${name} in the fleet registry`);
   const infraDir = resolve(workRoot, "infra");
-  await git(workRoot, [
-    "clone",
-    "--depth",
-    "1",
-    "--single-branch",
-    infraRepoUrl,
-    infraDir,
-  ]);
+  await git(workRoot, ["clone", "--depth", "1", "--single-branch", infraRepoUrl, infraDir]);
   const registryPath = `${FLEET_REGISTRY_DIR}/${name}.yaml`;
   await mkdir(join(infraDir, FLEET_REGISTRY_DIR), { recursive: true });
   await copyFile(stampedRegistryEntry, join(infraDir, registryPath));
@@ -197,8 +172,6 @@ export const runCreateExperiment = async (
   await git(infraDir, ["push", "origin", "HEAD:main"]);
   const infraCommitSha = (await git(infraDir, ["rev-parse", "HEAD"])).trim();
 
-  log(
-    `create-experiment: done — repo=${repoUrl} registry=${registryPath} infraCommit=${infraCommitSha}`
-  );
+  log(`create-experiment: done — repo=${repoUrl} registry=${registryPath} infraCommit=${infraCommitSha}`);
   return { infraCommitSha, registryPath, repoUrl, stampDir };
 };

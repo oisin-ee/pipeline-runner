@@ -26,18 +26,12 @@ export interface WorkflowPlannerIssue {
   path?: string;
 }
 
-export class WorkflowPlannerError extends Data.TaggedError(
-  "WorkflowPlannerError"
-)<{
+export class WorkflowPlannerError extends Data.TaggedError("WorkflowPlannerError")<{
   readonly code: WorkflowPlannerErrorCode;
   readonly message: string;
   readonly issues: WorkflowPlannerIssue[];
 }> {
-  constructor(
-    code: WorkflowPlannerErrorCode,
-    message: string,
-    issues: WorkflowPlannerIssue[] = []
-  ) {
+  constructor(code: WorkflowPlannerErrorCode, message: string, issues: WorkflowPlannerIssue[] = []) {
     super({ code, issues, message });
   }
 }
@@ -87,31 +81,20 @@ export interface PlannedWorkflowExecution {
 type WorkflowNode = PipelineConfig["workflows"][string]["nodes"][number];
 type GroupWorkflowNode = Extract<WorkflowNode, { kind: "group" }>;
 
-const workflowExecution = (
-  workflow: PipelineConfig["workflows"][string]
-): PlannedWorkflowExecution => {
+const workflowExecution = (workflow: PipelineConfig["workflows"][string]): PlannedWorkflowExecution => {
   const execution: PlannedWorkflowExecution = {
     failFast: workflow.execution?.fail_fast === true,
   };
-  if (
-    workflow.execution?.max_parallel_nodes !== undefined &&
-    workflow.execution.max_parallel_nodes !== 0
-  ) {
+  if (workflow.execution?.max_parallel_nodes !== undefined && workflow.execution.max_parallel_nodes !== 0) {
     execution.maxParallelNodes = workflow.execution.max_parallel_nodes;
   }
-  if (
-    workflow.execution?.timeout_ms !== undefined &&
-    workflow.execution.timeout_ms !== 0
-  ) {
+  if (workflow.execution?.timeout_ms !== undefined && workflow.execution.timeout_ms !== 0) {
     execution.timeoutMs = workflow.execution.timeout_ms;
   }
   return execution;
 };
 
-const duplicateNodeIssues = (
-  workflowId: string,
-  nodes: WorkflowNode[]
-): WorkflowPlannerIssue[] => {
+const duplicateNodeIssues = (workflowId: string, nodes: WorkflowNode[]): WorkflowPlannerIssue[] => {
   const seen = new Set<string>();
   return nodes.flatMap((node) => {
     if (seen.has(node.id)) {
@@ -127,24 +110,17 @@ const duplicateNodeIssues = (
   });
 };
 
-const dependencyIssues = (
-  workflowId: string,
-  nodes: WorkflowNode[],
-  nodeIds: Set<string>
-): WorkflowPlannerIssue[] =>
+const dependencyIssues = (workflowId: string, nodes: WorkflowNode[], nodeIds: Set<string>): WorkflowPlannerIssue[] =>
   nodes.flatMap((node) =>
     (node.needs ?? [])
       .filter((need) => !nodeIds.has(need))
       .map((need) => ({
         message: `node '${node.id}' references missing dependency '${need}'`,
         path: `workflows.${workflowId}.nodes.${node.id}.needs`,
-      }))
+      })),
   );
 
-const emptyGroupIssues = (
-  workflowId: string,
-  node: GroupWorkflowNode
-): WorkflowPlannerIssue[] => {
+const emptyGroupIssues = (workflowId: string, node: GroupWorkflowNode): WorkflowPlannerIssue[] => {
   if (node.nodes.length > 0) {
     return [];
   }
@@ -156,11 +132,7 @@ const emptyGroupIssues = (
   ];
 };
 
-const groupChildIssues = (
-  workflowId: string,
-  node: GroupWorkflowNode,
-  nodeIds: Set<string>
-): WorkflowPlannerIssue[] =>
+const groupChildIssues = (workflowId: string, node: GroupWorkflowNode, nodeIds: Set<string>): WorkflowPlannerIssue[] =>
   node.nodes.flatMap((childId) => {
     if (!nodeIds.has(childId)) {
       return [
@@ -181,8 +153,7 @@ const groupChildIssues = (
     return [];
   });
 
-const isGroupNode = (node: WorkflowNode): node is GroupWorkflowNode =>
-  node.kind === "group";
+const isGroupNode = (node: WorkflowNode): node is GroupWorkflowNode => node.kind === "group";
 
 const normalizeGroupDependencies = (nodes: WorkflowNode[]): WorkflowNode[] =>
   nodes.map((node) => {
@@ -195,22 +166,12 @@ const normalizeGroupDependencies = (nodes: WorkflowNode[]): WorkflowNode[] =>
     };
   });
 
-const groupIssues = (
-  workflowId: string,
-  nodes: WorkflowNode[],
-  nodeIds: Set<string>
-): WorkflowPlannerIssue[] =>
+const groupIssues = (workflowId: string, nodes: WorkflowNode[], nodeIds: Set<string>): WorkflowPlannerIssue[] =>
   nodes
     .filter(isGroupNode)
-    .flatMap((node) => [
-      ...emptyGroupIssues(workflowId, node),
-      ...groupChildIssues(workflowId, node, nodeIds),
-    ]);
+    .flatMap((node) => [...emptyGroupIssues(workflowId, node), ...groupChildIssues(workflowId, node, nodeIds)]);
 
-const cycleIssues = (
-  workflowId: string,
-  nodes: WorkflowNode[]
-): WorkflowPlannerIssue[] =>
+const cycleIssues = (workflowId: string, nodes: WorkflowNode[]): WorkflowPlannerIssue[] =>
   findDependencyCycles(nodes).map((cycle) => {
     const id = cycle[0] ?? "nodes";
     return {
@@ -219,10 +180,7 @@ const cycleIssues = (
     };
   });
 
-const validateNodeGraph = (
-  workflowId: string,
-  nodes: WorkflowNode[]
-): WorkflowPlannerIssue[] => {
+const validateNodeGraph = (workflowId: string, nodes: WorkflowNode[]): WorkflowPlannerIssue[] => {
   const duplicateIssues = duplicateNodeIssues(workflowId, nodes);
   const nodeIds = new Set(nodes.map((node) => node.id));
   const issues = [
@@ -236,14 +194,12 @@ const validateNodeGraph = (
   return issues;
 };
 
-const plannedNodeIndex = (
-  nodesById: ReadonlyMap<string, PlannedWorkflowNode>,
-  nodeId: string
-): number => nodesById.get(nodeId)?.index ?? 0;
+const plannedNodeIndex = (nodesById: ReadonlyMap<string, PlannedWorkflowNode>, nodeId: string): number =>
+  nodesById.get(nodeId)?.index ?? 0;
 
 const plannedNodesForIds = (
   graph: DependencyGraph<PlannedWorkflowNode>,
-  nodeIds: readonly string[]
+  nodeIds: readonly string[],
 ): PlannedWorkflowNode[] =>
   nodeIds
     .map((nodeId) => dependencyGraphValue(graph, nodeId))
@@ -251,39 +207,31 @@ const plannedNodesForIds = (
 
 const buildParallelBatches = (
   graph: DependencyGraph<PlannedWorkflowNode>,
-  topologicalOrder: PlannedWorkflowNode[]
+  topologicalOrder: PlannedWorkflowNode[],
 ): PlannedWorkflowNode[][] => {
   const byId = new Map(topologicalOrder.map((node) => [node.id, node]));
   return dependencyBatches(
     graph,
     topologicalOrder.map((node) => node.id),
-    (left, right) =>
-      plannedNodeIndex(byId, left) - plannedNodeIndex(byId, right)
+    (left, right) => plannedNodeIndex(byId, left) - plannedNodeIndex(byId, right),
   ).map((batch) => plannedNodesForIds(graph, batch));
 };
 
 const agentNodeCategory = (node: WorkflowNode): Option.Option<string> =>
   node.kind === "agent" ? Option.fromUndefinedOr(node.category) : Option.none();
 
-const plannedTaskContext = (
-  taskContext: WorkflowNode["task_context"]
-): Option.Option<PlannedWorkflowTaskContext> => {
+const plannedTaskContext = (taskContext: WorkflowNode["task_context"]): Option.Option<PlannedWorkflowTaskContext> => {
   if (taskContext === undefined) {
     return Option.none();
   }
   const planned: PlannedWorkflowTaskContext = {};
   if (taskContext.acceptance_criteria !== undefined) {
-    planned.acceptanceCriteria = taskContext.acceptance_criteria.map(
-      (criterion) => ({
-        id: criterion.id,
-        text: criterion.text,
-      })
-    );
+    planned.acceptanceCriteria = taskContext.acceptance_criteria.map((criterion) => ({
+      id: criterion.id,
+      text: criterion.text,
+    }));
   }
-  if (
-    taskContext.description !== undefined &&
-    taskContext.description.length > 0
-  ) {
+  if (taskContext.description !== undefined && taskContext.description.length > 0) {
     planned.description = taskContext.description;
   }
   if (taskContext.id !== undefined && taskContext.id.length > 0) {
@@ -295,14 +243,11 @@ const plannedTaskContext = (
   return Option.some(planned);
 };
 
-type PlannedNodeKindFields = Pick<
-  PlannedWorkflowNode,
-  "builtin" | "children" | "command" | "nodes" | "profile"
->;
+type PlannedNodeKindFields = Pick<PlannedWorkflowNode, "builtin" | "children" | "command" | "nodes" | "profile">;
 
 const plannedNodeKindFields = (
   node: WorkflowNode,
-  children: Option.Option<PlannedWorkflowNode[]>
+  children: Option.Option<PlannedWorkflowNode[]>,
 ): PlannedNodeKindFields => {
   if (node.kind === "agent") {
     return { profile: node.profile };
@@ -319,42 +264,31 @@ const plannedNodeKindFields = (
   return { nodes: node.nodes };
 };
 
-const plannedNodeCategoryField = (
-  category: Option.Option<string>
-): Pick<PlannedWorkflowNode, "category"> =>
+const plannedNodeCategoryField = (category: Option.Option<string>): Pick<PlannedWorkflowNode, "category"> =>
   Option.match(category, {
     onNone: () => ({}),
     onSome: (value) => ({ category: value }),
   });
 
 const plannedNodeTaskContextField = (
-  taskContext: Option.Option<PlannedWorkflowTaskContext>
+  taskContext: Option.Option<PlannedWorkflowTaskContext>,
 ): Pick<PlannedWorkflowNode, "taskContext"> =>
   Option.match(taskContext, {
     onNone: () => ({}),
     onSome: (value) => ({ taskContext: value }),
   });
 
-const plannedNodeTimeoutField = (
-  timeoutMs: Option.Option<number>
-): Pick<PlannedWorkflowNode, "timeoutMs"> =>
+const plannedNodeTimeoutField = (timeoutMs: Option.Option<number>): Pick<PlannedWorkflowNode, "timeoutMs"> =>
   Option.match(timeoutMs, {
     onNone: () => ({}),
     onSome: (value) => (value === 0 ? {} : { timeoutMs: value }),
   });
 
-const toPlannedNode = (
-  node: WorkflowNode,
-  index: number
-): PlannedWorkflowNode => {
+const toPlannedNode = (node: WorkflowNode, index: number): PlannedWorkflowNode => {
   const category = agentNodeCategory(node);
   const children =
     node.kind === "parallel"
-      ? Option.some(
-          node.nodes.map((child, childIndex) =>
-            toPlannedNode(child, childIndex)
-          )
-        )
+      ? Option.some(node.nodes.map((child, childIndex) => toPlannedNode(child, childIndex)))
       : Option.none();
   const taskContext = plannedTaskContext(node.task_context);
   return {
@@ -375,9 +309,7 @@ const toPlannedNode = (
   };
 };
 
-const createWorkflowGraph = (
-  nodes: WorkflowNode[]
-): DependencyGraph<PlannedWorkflowNode> => {
+const createWorkflowGraph = (nodes: WorkflowNode[]): DependencyGraph<PlannedWorkflowNode> => {
   const graph = createDependencyGraph(nodes, {
     dependenciesOf: (node) => node.needs,
     valueOf: (node, index) => toPlannedNode(node, index),
@@ -407,9 +339,7 @@ const codeForIssue = (message: string): WorkflowPlannerErrorCode => {
   return "WORKFLOW_MISSING_DEPENDENCY";
 };
 
-const issuesToError = (
-  issues: WorkflowPlannerIssue[]
-): WorkflowPlannerError => {
+const issuesToError = (issues: WorkflowPlannerIssue[]): WorkflowPlannerError => {
   const [first] = issues;
   const code = codeForIssue(first.message);
   return new WorkflowPlannerError(
@@ -417,25 +347,21 @@ const issuesToError = (
     [
       "Invalid workflow plan:",
       ...issues.map((issue) =>
-        issue.path !== undefined && issue.path.length > 0
-          ? `- ${issue.path}: ${issue.message}`
-          : `- ${issue.message}`
+        issue.path !== undefined && issue.path.length > 0 ? `- ${issue.path}: ${issue.message}` : `- ${issue.message}`,
       ),
     ].join("\n"),
-    issues
+    issues,
   );
 };
 
 export const compileWorkflowPlan = (
   config: PipelineConfig,
-  workflowId = config.default_workflow
+  workflowId = config.default_workflow,
 ): WorkflowExecutionPlan => {
   if (!Object.hasOwn(config.workflows, workflowId)) {
-    throw new WorkflowPlannerError(
-      "WORKFLOW_MISSING_WORKFLOW",
-      `workflow '${workflowId}' is not declared`,
-      [{ message: "workflow is missing", path: `workflows.${workflowId}` }]
-    );
+    throw new WorkflowPlannerError("WORKFLOW_MISSING_WORKFLOW", `workflow '${workflowId}' is not declared`, [
+      { message: "workflow is missing", path: `workflows.${workflowId}` },
+    ]);
   }
   const workflow = config.workflows[workflowId];
 
@@ -452,10 +378,7 @@ export const compileWorkflowPlan = (
    * planning/graph.ts instead of graphlib's recursive topsort because deep
    * generated chains can overflow the call stack.
    */
-  const topologicalOrder = plannedNodesForIds(
-    graph,
-    topologicalDependencyOrder(graph)
-  );
+  const topologicalOrder = plannedNodesForIds(graph, topologicalDependencyOrder(graph));
   const parallelBatches = buildParallelBatches(graph, topologicalOrder);
 
   return {

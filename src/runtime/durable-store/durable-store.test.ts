@@ -28,9 +28,7 @@ describe("inMemoryDurableRunStore", () => {
     it("round-trips a node record by (runId, nodeId)", () => {
       const store = inMemoryDurableRunStore();
       const result = passedResult("build");
-      const criteria: AcceptanceCriterion[] = [
-        { id: "ac1", text: "must build" },
-      ];
+      const criteria: AcceptanceCriterion[] = [{ id: "ac1", text: "must build" }];
       const inputs = { task: "build the project" };
 
       store.record("run-1", "build", { criteria, inputs, result });
@@ -76,9 +74,7 @@ describe("inMemoryDurableRunStore", () => {
         result: second,
       });
 
-      expect(Option.getOrThrow(store.get("run-1", "node")).result.output).toBe(
-        "second run"
-      );
+      expect(Option.getOrThrow(store.get("run-1", "node")).result.output).toBe("second run");
     });
   });
 

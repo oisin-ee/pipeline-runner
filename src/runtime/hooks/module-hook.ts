@@ -11,33 +11,26 @@ import { moduleHookPolicyFailure } from "./policy";
 import { parseAndValidateHookResult, runtimeHookFailure } from "./results";
 import type { HookExecutionInput, RuntimeHookInvocationResult } from "./types";
 
-const moduleDefaultExportFailure = (
-  input: HookExecutionInput
-): RuntimeHookInvocationResult => ({
+const moduleDefaultExportFailure = (input: HookExecutionInput): RuntimeHookInvocationResult => ({
   failure: runtimeHookFailure(
     input.binding,
     `hook '${input.binding.id}' failed`,
     ["module hook must default-export a function"],
-    input.node
+    input.node,
   ),
 });
 
 const hookModuleSpecifier = (
   hookFunction: Extract<HookFunctionSpec, { kind: "module" }>,
-  context: HookExecutionInput["context"]
+  context: HookExecutionInput["context"],
 ): string => {
-  if (
-    hookFunction.module.startsWith(".") ||
-    hookFunction.module.startsWith("/")
-  ) {
-    return pathToFileURL(resolve(context.worktreePath, hookFunction.module))
-      .href;
+  if (hookFunction.module.startsWith(".") || hookFunction.module.startsWith("/")) {
+    return pathToFileURL(resolve(context.worktreePath, hookFunction.module)).href;
   }
   return hookFunction.module;
 };
 
-const isHookFunction = (value: unknown): value is HookFunction =>
-  typeof value === "function";
+const isHookFunction = (value: unknown): value is HookFunction => typeof value === "function";
 
 const moduleDefaultHook = (value: unknown): Option.Option<HookFunction> => {
   if (!isRecord(value)) {
@@ -47,11 +40,7 @@ const moduleDefaultHook = (value: unknown): Option.Option<HookFunction> => {
   return isHookFunction(candidate) ? Option.some(candidate) : Option.none();
 };
 
-const runWithTimeout = async <T>(
-  run: () => Promise<T> | T,
-  timeoutMs: number,
-  timeoutMessage: string
-): Promise<T> => {
+const runWithTimeout = async <T>(run: () => Promise<T> | T, timeoutMs: number, timeoutMessage: string): Promise<T> => {
   let timeout = Option.none<ReturnType<typeof setTimeout>>();
   try {
     return await Promise.race([
@@ -73,42 +62,25 @@ const runWithTimeout = async <T>(
 
 const executeImportedModuleHook = async (
   hookFunction: Extract<HookFunctionSpec, { kind: "module" }>,
-  input: HookExecutionInput
+  input: HookExecutionInput,
 ): Promise<RuntimeHookInvocationResult> => {
-  const imported: unknown = await import(
-    hookModuleSpecifier(hookFunction, input.context)
-  );
+  const imported: unknown = await import(hookModuleSpecifier(hookFunction, input.context));
   const hook = moduleDefaultHook(imported);
   if (Option.isNone(hook)) {
     return moduleDefaultExportFailure(input);
   }
   const output = await runWithTimeout(
     async () =>
-      await hook.value(
-        hookContext(
-          input.context,
-          input.event,
-          input.binding,
-          input.failure,
-          input.node,
-          input.gateId
-        )
-      ),
+      await hook.value(hookContext(input.context, input.event, input.binding, input.failure, input.node, input.gateId)),
     hookFunction.timeout_ms ?? input.context.hookPolicy.timeoutMs,
-    `hook '${input.binding.id}' timed out`
+    `hook '${input.binding.id}' timed out`,
   );
-  return parseAndValidateHookResult(
-    output,
-    input.binding,
-    hookFunction,
-    input.context,
-    input.node
-  );
+  return parseAndValidateHookResult(output, input.binding, hookFunction, input.context, input.node);
 };
 
 const runModuleHookFunction = async (
   hookFunction: Extract<HookFunctionSpec, { kind: "module" }>,
-  input: HookExecutionInput
+  input: HookExecutionInput,
 ): Promise<RuntimeHookInvocationResult> => {
   try {
     return await executeImportedModuleHook(hookFunction, input);
@@ -118,7 +90,7 @@ const runModuleHookFunction = async (
         input.binding,
         `hook '${input.binding.id}' failed`,
         [error instanceof Error ? error.message : String(error)],
-        input.node
+        input.node,
       ),
     };
   }
@@ -126,13 +98,9 @@ const runModuleHookFunction = async (
 
 export const executeModuleHookFunction = (
   hookFunction: Extract<HookFunctionSpec, { kind: "module" }>,
-  input: HookExecutionInput
+  input: HookExecutionInput,
 ): Promise<RuntimeHookInvocationResult> | RuntimeHookInvocationResult => {
-  const policyFailure = moduleHookPolicyFailure(
-    input.binding,
-    input.context,
-    input.node
-  );
+  const policyFailure = moduleHookPolicyFailure(input.binding, input.context, input.node);
   if (Option.isSome(policyFailure)) {
     return { failure: policyFailure.value };
   }

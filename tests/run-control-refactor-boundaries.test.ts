@@ -18,8 +18,6 @@ describe("PIPE-45.7 run-control ownership boundaries", () => {
   });
 
   it("keeps filesystem store ownership visible without file-level suppressions", () => {
-    expect(source("src/run-control/store.ts")).not.toContain(
-      FILE_SUPPRESSION_MARKER
-    );
+    expect(source("src/run-control/store.ts")).not.toContain(FILE_SUPPRESSION_MARKER);
   });
 });

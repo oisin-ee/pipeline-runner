@@ -4,13 +4,7 @@ import { evaluateJsonSchemaGate } from "./json-schema";
 
 export const jsonSchemaModule: GateKindModule = {
   evaluate: forKind("json_schema", (gate, input) =>
-    evaluateJsonSchemaGate(
-      gate,
-      input.gateId,
-      input.nodeId,
-      input.context,
-      input.attempt
-    )
+    evaluateJsonSchemaGate(gate, input.gateId, input.nodeId, input.context, input.attempt),
   ),
   kind: "json_schema",
 };

@@ -1,3 +1,4 @@
+import * as Schema from "effect/Schema";
 import { describe, expect, it } from "vitest";
 
 const TIMESTAMP = "2026-06-02T09:00:00.000Z";
@@ -43,8 +44,7 @@ const validPayload = (): Record<string, unknown> => ({
   },
 });
 
-const loadContractModule = async (): Promise<Record<string, any>> =>
-  await import("../src/runner-command-contract");
+const loadContractModule = async (): Promise<Record<string, any>> => await import("../src/runner-command-contract");
 
 describe("runner-command payload contract", () => {
   it("builds the public console-to-runner payload contract with hook policy defaults", async () => {
@@ -138,8 +138,7 @@ describe("runner-command payload contract", () => {
   });
 
   it("carries explicit hook policy through the runner payload contract", async () => {
-    const { buildRunnerCommandPayload, parseRunnerCommandPayload } =
-      await loadContractModule();
+    const { buildRunnerCommandPayload, parseRunnerCommandPayload } = await loadContractModule();
 
     const payload = buildRunnerCommandPayload({
       events: validEvents(),
@@ -174,9 +173,7 @@ describe("runner-command payload contract", () => {
       },
     };
 
-    expect(() => parseRunnerCommandPayload(JSON.stringify(payload))).toThrow(
-      INVALID_SUBMISSION_MODE_RE
-    );
+    expect(() => parseRunnerCommandPayload(JSON.stringify(payload))).toThrow(INVALID_SUBMISSION_MODE_RE);
   });
 
   it("accepts SSH git remotes as repository URLs", async () => {
@@ -192,20 +189,14 @@ describe("runner-command payload contract", () => {
 
     const parsed = parseRunnerCommandPayload(JSON.stringify(payload));
 
-    expect(parsed.repository.url).toBe(
-      "git@github.com:oisin-ee/pipeline-runner.git"
-    );
+    expect(parsed.repository.url).toBe("git@github.com:oisin-ee/pipeline-runner.git");
   });
 
   it("exports schemas and types for each payload component", async () => {
     const contract = await loadContractModule();
 
-    expect(contract.runnerCommandPayloadSchema.parse(validPayload())).toEqual(
-      validPayload()
-    );
-    expect(
-      contract.parseRunnerCommandPayload(JSON.stringify(validPayload()))
-    ).toEqual(validPayload());
+    expect(Schema.decodeUnknownSync(contract.runnerCommandPayloadSchema)(validPayload())).toEqual(validPayload());
+    expect(contract.parseRunnerCommandPayload(JSON.stringify(validPayload()))).toEqual(validPayload());
   });
 
   it("rejects payloads missing required runner fields", async () => {
@@ -213,22 +204,17 @@ describe("runner-command payload contract", () => {
     const payload = validPayload();
     (payload.run as Record<string, unknown>).id = undefined;
 
-    expect(() => parseRunnerCommandPayload(JSON.stringify(payload))).toThrow(
-      MISSING_RUN_ID_RE
-    );
+    expect(() => parseRunnerCommandPayload(JSON.stringify(payload))).toThrow(MISSING_RUN_ID_RE);
   });
 
   it("rejects incompatible runner contract versions with structured issue details", async () => {
-    const { RunnerCommandPayloadValidationError, parseRunnerCommandPayload } =
-      await loadContractModule();
+    const { RunnerCommandPayloadValidationError, parseRunnerCommandPayload } = await loadContractModule();
     const payload = {
       ...validPayload(),
       contractVersion: "2",
     };
 
-    expect(() => parseRunnerCommandPayload(JSON.stringify(payload))).toThrow(
-      RunnerCommandPayloadValidationError
-    );
+    expect(() => parseRunnerCommandPayload(JSON.stringify(payload))).toThrow(RunnerCommandPayloadValidationError);
     try {
       parseRunnerCommandPayload(JSON.stringify(payload));
     } catch (error) {
@@ -247,9 +233,7 @@ describe("runner-command payload contract", () => {
     const { parseRunnerCommandPayload } = await loadContractModule();
     const payload = `{"__proto__":{"polluted":true},"repository":{"baseBranch":"main","url":"https://github.com/oisin-ee/pipeline-runner.git"},"run":{"id":"run_123","project":"project_123","requestedBy":"user_456"},"task":{"kind":"prompt","prompt":"Ship PIPE-38"}}`;
 
-    expect(() => parseRunnerCommandPayload(payload)).toThrow(
-      PROTOTYPE_POLLUTION_RE
-    );
+    expect(() => parseRunnerCommandPayload(payload)).toThrow(PROTOTYPE_POLLUTION_RE);
   });
 
   it("rejects invalid repository URLs before the runner starts", async () => {
@@ -262,17 +246,13 @@ describe("runner-command payload contract", () => {
       },
     };
 
-    expect(() => parseRunnerCommandPayload(JSON.stringify(payload))).toThrow(
-      INVALID_REPOSITORY_URL_RE
-    );
+    expect(() => parseRunnerCommandPayload(JSON.stringify(payload))).toThrow(INVALID_REPOSITORY_URL_RE);
   });
 
   it("fails fast when the configured console event token file is missing", async () => {
     const { resolveRunnerEventSinkAuthToken } = await loadContractModule();
 
-    expect(() => resolveRunnerEventSinkAuthToken({})).toThrow(
-      AUTH_TOKEN_FILE_RE
-    );
+    expect(() => resolveRunnerEventSinkAuthToken({})).toThrow(AUTH_TOKEN_FILE_RE);
   });
 
   it("resolves the bearer token using the configured authTokenFile", async () => {
@@ -282,7 +262,7 @@ describe("runner-command payload contract", () => {
       resolveRunnerEventSinkAuthToken({
         authTokenFile: "/etc/pipeline/event-auth/token",
         readFile: () => "file-based-token",
-      })
+      }),
     ).toBe("file-based-token");
   });
 
@@ -305,7 +285,7 @@ describe("runner-command payload contract", () => {
           type: "workflow.planned",
           workflowId: "default",
         },
-        { runId: "run_123", sequence: 1, timestamp: TIMESTAMP }
+        { runId: "run_123", sequence: 1, timestamp: TIMESTAMP },
       ),
       ...mapRuntimeEventToRunnerEventRecords(
         {
@@ -315,7 +295,7 @@ describe("runner-command payload contract", () => {
           runnerId: "opencode",
           type: "node.start",
         },
-        { runId: "run_123", sequence: 3, timestamp: TIMESTAMP }
+        { runId: "run_123", sequence: 3, timestamp: TIMESTAMP },
       ),
       ...mapRuntimeEventToRunnerEventRecords(
         {
@@ -327,7 +307,7 @@ describe("runner-command payload contract", () => {
           reason: "targeted tests failed",
           type: "gate.finish",
         },
-        { runId: "run_123", sequence: 4, timestamp: TIMESTAMP }
+        { runId: "run_123", sequence: 4, timestamp: TIMESTAMP },
       ),
       ...mapRuntimeEventToRunnerEventRecords(
         {
@@ -337,7 +317,7 @@ describe("runner-command payload contract", () => {
           required: true,
           type: "artifact.check.finish",
         },
-        { runId: "run_123", sequence: 5, timestamp: TIMESTAMP }
+        { runId: "run_123", sequence: 5, timestamp: TIMESTAMP },
       ),
       ...mapRuntimeEventToRunnerEventRecords(
         {
@@ -347,7 +327,7 @@ describe("runner-command payload contract", () => {
           output: "failing-test evidence",
           type: "node.output.recorded",
         },
-        { runId: "run_123", sequence: 6, timestamp: TIMESTAMP }
+        { runId: "run_123", sequence: 6, timestamp: TIMESTAMP },
       ),
       ...mapRuntimeEventToRunnerEventRecords(
         {
@@ -355,7 +335,7 @@ describe("runner-command payload contract", () => {
           type: "workflow.finish",
           workflowId: "default",
         },
-        { runId: "run_123", sequence: 7, timestamp: TIMESTAMP }
+        { runId: "run_123", sequence: 7, timestamp: TIMESTAMP },
       ),
     ];
 
@@ -478,7 +458,7 @@ describe("runner-command payload contract", () => {
         type: "runtime.observability",
         workflowId: "default",
       },
-      { runId: "run_123", sequence: 8, timestamp: TIMESTAMP }
+      { runId: "run_123", sequence: 8, timestamp: TIMESTAMP },
     );
 
     expect(mapped).toEqual([
@@ -518,9 +498,7 @@ describe("runner-command payload contract", () => {
 
       const parsed = parseRunnerCommandPayload(JSON.stringify(payload));
 
-      expect(parsed.events.authTokenFile).toBe(
-        "/etc/pipeline/event-auth/token"
-      );
+      expect(parsed.events.authTokenFile).toBe("/etc/pipeline/event-auth/token");
     });
 
     it("resolves auth token from file path when authTokenFile is set", async () => {
@@ -642,7 +620,7 @@ describe("runner-command payload contract", () => {
         runId: "golden-run",
         sequence: sequenceBases[index],
         timestamp: TIMESTAMP,
-      })
+      }),
     );
 
     expect(observabilityEvent.actor).toEqual({
@@ -650,9 +628,7 @@ describe("runner-command payload contract", () => {
       kind: "node",
       systemId: "pipeline.golden-run.default",
     });
-    expect(
-      runtimeEvents.filter((event) => event.type === "runtime.observability")
-    ).toEqual([observabilityEvent]);
+    expect(runtimeEvents.filter((event) => event.type === "runtime.observability")).toEqual([observabilityEvent]);
 
     expect(sequence).toEqual([
       {
@@ -766,8 +742,7 @@ describe("runner-command payload contract", () => {
         at: TIMESTAMP,
         log: {
           level: "info",
-          message:
-            "Runtime observed: runtime.node.finished - node impl finished with passed status",
+          message: "Runtime observed: runtime.node.finished - node impl finished with passed status",
           nodeId: "impl",
           workflowId: "default",
         },
@@ -803,7 +778,7 @@ describe("runner-command payload contract", () => {
         type: "hook.result",
         workflowId: "default",
       },
-      { runId: "run_123", sequence: 9, timestamp: TIMESTAMP }
+      { runId: "run_123", sequence: 9, timestamp: TIMESTAMP },
     );
 
     expect(mapped).toEqual([

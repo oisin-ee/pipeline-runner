@@ -2,14 +2,11 @@ import { Effect } from "effect";
 import { describe, expect, it, vi } from "vitest";
 
 import type { WorkflowReadApi } from "./argo-poll";
-import {
-  ARGO_PENDING_PHASE,
-  pollWorkflowPhaseUntilTerminal,
-} from "./argo-poll";
+import { ARGO_PENDING_PHASE, pollWorkflowPhaseUntilTerminal } from "./argo-poll";
 
 // Minimal fake: returns phases in order, one per call.
 const fakeWorkflowReadApi = (
-  phases: (string | Error)[]
+  phases: (string | Error)[],
 ): {
   api: WorkflowReadApi;
   callCount: () => number;
@@ -41,7 +38,7 @@ describe("pollWorkflowPhaseUntilTerminal", () => {
         pollIntervalMs: 0,
         workflowName: "wf-abc",
         workflowReadApi: api,
-      })
+      }),
     );
 
     expect(result).toBe("Succeeded");
@@ -57,7 +54,7 @@ describe("pollWorkflowPhaseUntilTerminal", () => {
         pollIntervalMs: 0,
         workflowName: "wf-abc",
         workflowReadApi: api,
-      })
+      }),
     );
 
     expect(result).toBe("Failed");
@@ -73,7 +70,7 @@ describe("pollWorkflowPhaseUntilTerminal", () => {
         pollIntervalMs: 0,
         workflowName: "wf-abc",
         workflowReadApi: api,
-      })
+      }),
     );
 
     expect(result).toBe("Error");
@@ -91,12 +88,11 @@ describe("pollWorkflowPhaseUntilTerminal", () => {
       pollWorkflowPhaseUntilTerminal({
         maxRetries: 3,
         namespace: "default",
-        onTransientError: (err, attempt) =>
-          logged.push(`attempt=${attempt} err=${String(err)}`),
+        onTransientError: (err, attempt) => logged.push(`attempt=${attempt} err=${String(err)}`),
         pollIntervalMs: 0,
         workflowName: "wf-abc",
         workflowReadApi: api,
-      })
+      }),
     );
 
     expect(result).toBe("Succeeded");
@@ -124,19 +120,15 @@ describe("pollWorkflowPhaseUntilTerminal", () => {
           pollIntervalMs: 0,
           workflowName: "wf-abc",
           workflowReadApi: api,
-        })
-      )
+        }),
+      ),
     ).rejects.toThrow("network timeout");
   });
 
   it("pending/blank phase keeps polling until terminal", async () => {
     // Argo uses an absent/blank phase as the initial pending state — classifyPhase maps
     // it to RunningPhase so the poll loop continues.
-    const { api, callCount } = fakeWorkflowReadApi([
-      ARGO_PENDING_PHASE,
-      "Running",
-      "Succeeded",
-    ]);
+    const { api, callCount } = fakeWorkflowReadApi([ARGO_PENDING_PHASE, "Running", "Succeeded"]);
 
     const result = await Effect.runPromise(
       pollWorkflowPhaseUntilTerminal({
@@ -145,7 +137,7 @@ describe("pollWorkflowPhaseUntilTerminal", () => {
         pollIntervalMs: 0,
         workflowName: "wf-abc",
         workflowReadApi: api,
-      })
+      }),
     );
 
     expect(result).toBe("Succeeded");

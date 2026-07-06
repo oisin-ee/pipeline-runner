@@ -14,14 +14,10 @@ export interface CliOutputBuffers {
   stdout: string[];
 }
 
-export const runPath = (
-  workspaceRoot: string,
-  runId: string,
-  ...parts: string[]
-): string => join(workspaceRoot, ".pipeline", "runs", runId, ...parts);
+export const runPath = (workspaceRoot: string, runId: string, ...parts: string[]): string =>
+  join(workspaceRoot, ".pipeline", "runs", runId, ...parts);
 
-export const readJson = (path: string): unknown =>
-  JSON.parse(readFileSync(path, "utf-8"));
+export const readJson = (path: string): unknown => JSON.parse(readFileSync(path, "utf-8"));
 
 export const readJsonl = (path: string): unknown[] => {
   if (!existsSync(path)) {
@@ -67,10 +63,7 @@ export const runMokaCliInTarget = async (input: {
       writeErr: (value) => input.buffers.stderr.push(value),
       writeOut: (value) => input.buffers.stdout.push(value),
     });
-    await program.parseAsync(
-      ["node", "/repo/node_modules/.bin/moka", ...input.args],
-      { from: "node" }
-    );
+    await program.parseAsync(["node", "/repo/node_modules/.bin/moka", ...input.args], { from: "node" });
   } catch (error) {
     thrown = error;
   } finally {

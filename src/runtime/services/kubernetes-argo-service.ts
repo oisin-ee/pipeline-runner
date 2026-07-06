@@ -1,10 +1,4 @@
-import {
-  CoreV1Api,
-  CustomObjectsApi,
-  KubeConfig,
-  PatchStrategy,
-  setHeaderOptions,
-} from "@kubernetes/client-node";
+import { CoreV1Api, CustomObjectsApi, KubeConfig, PatchStrategy, setHeaderOptions } from "@kubernetes/client-node";
 import { Context, Effect, Layer } from "effect";
 import { getOrElse, isSome, none, some } from "effect/Option";
 import type { Option } from "effect/Option";
@@ -18,15 +12,15 @@ export type { WorkflowReadApi } from "../../loop/argo-poll";
 export interface CoreApi {
   readonly createNamespacedConfigMap: (
     param: Parameters<CoreV1Api["createNamespacedConfigMap"]>[0],
-    options?: Parameters<CoreV1Api["createNamespacedConfigMap"]>[1]
+    options?: Parameters<CoreV1Api["createNamespacedConfigMap"]>[1],
   ) => Promise<unknown>;
   readonly deleteNamespacedConfigMap: (
     param: Parameters<CoreV1Api["deleteNamespacedConfigMap"]>[0],
-    options?: Parameters<CoreV1Api["deleteNamespacedConfigMap"]>[1]
+    options?: Parameters<CoreV1Api["deleteNamespacedConfigMap"]>[1],
   ) => Promise<unknown>;
   readonly patchNamespacedConfigMap: (
     param: Parameters<CoreV1Api["patchNamespacedConfigMap"]>[0],
-    options?: Parameters<CoreV1Api["patchNamespacedConfigMap"]>[1]
+    options?: Parameters<CoreV1Api["patchNamespacedConfigMap"]>[1],
   ) => Promise<unknown>;
 }
 export interface WorkflowApi {
@@ -82,17 +76,13 @@ export class KubernetesArgoService extends Context.Service<
   KubernetesArgoService,
   {
     readonly createConfigMap: (input: {
-      readonly body: Parameters<
-        CoreApi["createNamespacedConfigMap"]
-      >[0]["body"];
+      readonly body: Parameters<CoreApi["createNamespacedConfigMap"]>[0]["body"];
       readonly dependencies: KubernetesArgoIoDependencies;
       readonly namespace: string;
       readonly options: KubernetesArgoClientOptions;
     }) => Effect.Effect<unknown, unknown>;
     readonly createWorkflow: (input: {
-      readonly body: Parameters<
-        WorkflowApi["createNamespacedCustomObject"]
-      >[0]["body"];
+      readonly body: Parameters<WorkflowApi["createNamespacedCustomObject"]>[0]["body"];
       readonly dependencies: KubernetesArgoIoDependencies;
       readonly namespace: string;
       readonly options: KubernetesArgoClientOptions;
@@ -116,16 +106,13 @@ export class KubernetesArgoService extends Context.Service<
       readonly namespace: string;
       readonly options: KubernetesArgoClientOptions;
     }) => Effect.Effect<unknown, unknown>;
-    readonly kubectl: (
-      args: readonly string[],
-      options: KubectlOptions
-    ) => Effect.Effect<KubectlResult>;
+    readonly kubectl: (args: readonly string[], options: KubectlOptions) => Effect.Effect<KubectlResult>;
   }
 >()("KubernetesArgoService") {}
 
 export const resolveKubeConfig = (
   options: KubernetesArgoClientOptions,
-  dependencies: KubernetesArgoIoDependencies
+  dependencies: KubernetesArgoIoDependencies,
 ): KubeConfig => {
   if (dependencies.kubeConfig !== undefined) {
     return dependencies.kubeConfig;
@@ -141,9 +128,7 @@ export const resolveKubeConfig = (
   if (isSome(kubeContext)) {
     const contextObject = kubeConfig.getContextObject(kubeContext.value);
     if (contextObject === null) {
-      throw new Error(
-        `Kube context '${kubeContext.value}' was not found in the resolved kubeconfig`
-      );
+      throw new Error(`Kube context '${kubeContext.value}' was not found in the resolved kubeconfig`);
     }
     kubeConfig.setCurrentContext(kubeContext.value);
   }
@@ -152,48 +137,36 @@ export const resolveKubeConfig = (
 
 const buildApiClients = (
   kubeConfig: KubeConfig,
-  dependencies: KubernetesArgoIoDependencies
+  dependencies: KubernetesArgoIoDependencies,
 ): { coreApi: CoreApi; workflowApi: WorkflowApi } => ({
   coreApi: dependencies.coreApi ?? kubeConfig.makeApiClient(CoreV1Api),
-  workflowApi:
-    dependencies.workflowApi ?? kubeConfig.makeApiClient(CustomObjectsApi),
+  workflowApi: dependencies.workflowApi ?? kubeConfig.makeApiClient(CustomObjectsApi),
 });
 
 const apiClients = (
   options: KubernetesArgoClientOptions,
-  dependencies: KubernetesArgoIoDependencies
+  dependencies: KubernetesArgoIoDependencies,
 ): { coreApi: CoreApi; workflowApi: WorkflowApi } => {
-  if (
-    dependencies.coreApi !== undefined &&
-    dependencies.workflowApi !== undefined
-  ) {
+  if (dependencies.coreApi !== undefined && dependencies.workflowApi !== undefined) {
     return {
       coreApi: dependencies.coreApi,
       workflowApi: dependencies.workflowApi,
     };
   }
-  return buildApiClients(
-    resolveKubeConfig(options, dependencies),
-    dependencies
-  );
+  return buildApiClients(resolveKubeConfig(options, dependencies), dependencies);
 };
 
 const readApiClient = (
   options: KubernetesArgoClientOptions,
-  dependencies: KubernetesArgoIoDependencies
+  dependencies: KubernetesArgoIoDependencies,
 ): WorkflowReadApi => {
   if (dependencies.workflowReadApi !== undefined) {
     return dependencies.workflowReadApi;
   }
-  return resolveKubeConfig(options, dependencies).makeApiClient(
-    CustomObjectsApi
-  );
+  return resolveKubeConfig(options, dependencies).makeApiClient(CustomObjectsApi);
 };
 
-const kubectlArgs = (
-  args: readonly string[],
-  kubeContext?: string
-): string[] => {
+const kubectlArgs = (args: readonly string[], kubeContext?: string): string[] => {
   const context = textOption(kubeContext);
   return isSome(context) ? ["--context", context.value, ...args] : [...args];
 };
@@ -207,8 +180,7 @@ const kubectlErrorStderr = (error: unknown): string => {
   return getOrElse(shortMessage, () => "kubectl failed").trim();
 };
 
-const kubectlErrorStdout = (error: unknown): string =>
-  getOrElse(stringField(error, "stdout"), () => "").trim();
+const kubectlErrorStdout = (error: unknown): string => getOrElse(stringField(error, "stdout"), () => "").trim();
 
 export const KubernetesArgoServiceLive = Layer.succeed(KubernetesArgoService, {
   createConfigMap: ({ body, dependencies, namespace, options }) =>
@@ -219,10 +191,9 @@ export const KubernetesArgoServiceLive = Layer.succeed(KubernetesArgoService, {
       Effect.flatMap(({ coreApi }) =>
         Effect.tryPromise({
           catch: (error) => error,
-          try: async () =>
-            await coreApi.createNamespacedConfigMap({ body, namespace }),
-        })
-      )
+          try: async () => await coreApi.createNamespacedConfigMap({ body, namespace }),
+        }),
+      ),
     ),
   createWorkflow: ({ body, dependencies, namespace, options }) =>
     Effect.try({
@@ -240,8 +211,8 @@ export const KubernetesArgoServiceLive = Layer.succeed(KubernetesArgoService, {
               plural: "workflows",
               version: "v1alpha1",
             }),
-        })
-      )
+        }),
+      ),
     ),
   deleteConfigMap: ({ dependencies, name, namespace, options }) =>
     Effect.try({
@@ -251,10 +222,9 @@ export const KubernetesArgoServiceLive = Layer.succeed(KubernetesArgoService, {
       Effect.flatMap(({ coreApi }) =>
         Effect.tryPromise({
           catch: (error) => error,
-          try: async () =>
-            await coreApi.deleteNamespacedConfigMap({ name, namespace }),
-        })
-      )
+          try: async () => await coreApi.deleteNamespacedConfigMap({ name, namespace }),
+        }),
+      ),
     ),
   getWorkflowPhase: ({ dependencies, name, namespace, options }) =>
     Effect.try({
@@ -272,9 +242,9 @@ export const KubernetesArgoServiceLive = Layer.succeed(KubernetesArgoService, {
               plural: "workflows",
               version: "v1alpha1",
             }),
-        })
+        }),
       ),
-      Effect.map((resource) => classifyArgoPhase(extractArgoRawPhase(resource)))
+      Effect.map((resource) => classifyArgoPhase(extractArgoRawPhase(resource))),
     ),
   kubectl: (args, options) =>
     Effect.tryPromise({
@@ -282,9 +252,7 @@ export const KubernetesArgoServiceLive = Layer.succeed(KubernetesArgoService, {
       try: async () => {
         const kubeconfigPath = textOption(options.kubeconfigPath);
         return await execa("kubectl", kubectlArgs(args, options.kubeContext), {
-          env: isSome(kubeconfigPath)
-            ? { KUBECONFIG: kubeconfigPath.value }
-            : undefined,
+          env: isSome(kubeconfigPath) ? { KUBECONFIG: kubeconfigPath.value } : undefined,
           stdin: "ignore",
         });
       },
@@ -299,16 +267,10 @@ export const KubernetesArgoServiceLive = Layer.succeed(KubernetesArgoService, {
           ok: false,
           stderr: kubectlErrorStderr(error),
           stdout: kubectlErrorStdout(error),
-        })
-      )
+        }),
+      ),
     ),
-  patchConfigMapOwnerReferences: ({
-    body,
-    dependencies,
-    name,
-    namespace,
-    options,
-  }) =>
+  patchConfigMapOwnerReferences: ({ body, dependencies, name, namespace, options }) =>
     Effect.try({
       catch: (error) => error,
       try: () => apiClients(options, dependencies),
@@ -319,9 +281,9 @@ export const KubernetesArgoServiceLive = Layer.succeed(KubernetesArgoService, {
           try: async () =>
             await coreApi.patchNamespacedConfigMap(
               { body, name, namespace },
-              setHeaderOptions("Content-Type", PatchStrategy.MergePatch)
+              setHeaderOptions("Content-Type", PatchStrategy.MergePatch),
             ),
-        })
-      )
+        }),
+      ),
     ),
 });

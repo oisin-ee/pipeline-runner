@@ -16,12 +16,7 @@ import type {
   RuntimeGateResult,
   RuntimeNodeResult,
 } from "./contracts";
-import {
-  emitNodeFinish,
-  emitNodeOutputRecorded,
-  emitNodeStart,
-  runtimeNodeActorDescriptor,
-} from "./events";
+import { emitNodeFinish, emitNodeOutputRecorded, emitNodeStart, runtimeNodeActorDescriptor } from "./events";
 import { EXIT_INFRA } from "./exit-codes";
 import { evaluateNodeGates } from "./gates";
 import { dispatchHooks } from "./hooks";
@@ -29,47 +24,27 @@ import { NodeStateTracker } from "./node-state-tracker";
 import type { NodeExecutionEvent } from "./node-state-tracker";
 import { executeParallelNode } from "./parallel-node";
 import { remediateFailedNode } from "./remediation/remediation";
-import type {
-  NodeRemediationResult,
-  RuntimeRemediationDependencies,
-} from "./remediation/remediation";
+import type { NodeRemediationResult, RuntimeRemediationDependencies } from "./remediation/remediation";
 import { decideNodeRetry, nodeRetryPolicy } from "./retry";
 import type { NodeRetryDecision } from "./retry";
 import { cancelledFailure, nodeRuntimeFailure } from "./runtime-results";
 
-const recordNodeEvent = (
-  context: RuntimeContext,
-  nodeId: string,
-  event: NodeExecutionEvent
-): void => {
-  const tracker = new NodeStateTracker(
-    nodeId,
-    Option.getOrUndefined(context.nodeStateStore.getNodeState(nodeId))
-  );
+const recordNodeEvent = (context: RuntimeContext, nodeId: string, event: NodeExecutionEvent): void => {
+  const tracker = new NodeStateTracker(nodeId, Option.getOrUndefined(context.nodeStateStore.getNodeState(nodeId)));
   const state = tracker.record(event);
   context.nodeStateStore.nodeStates.set(nodeId, state);
 };
 
-export const isCancelled = (context: RuntimeContext): boolean =>
-  context.signal?.aborted === true;
+export const isCancelled = (context: RuntimeContext): boolean => context.signal?.aborted === true;
 
 const dispatchHooksEffect = (
   ...args: Parameters<typeof dispatchHooks>
 ): Effect.Effect<Awaited<ReturnType<typeof dispatchHooks>>, unknown> =>
   Effect.tryPromise(async () => await dispatchHooks(...args));
 
-const plannedNodeById = (
-  context: RuntimeContext,
-  nodeId: string
-): Option.Option<PlannedWorkflowNode> =>
-  Option.orElse(
-    context.plan.graph.hasNode(nodeId)
-      ? Option.some(context.plan.graph.node(nodeId))
-      : Option.none(),
-    () =>
-      Option.fromUndefinedOr(
-        findPlannedNode(context.plan.topologicalOrder, nodeId)
-      )
+const plannedNodeById = (context: RuntimeContext, nodeId: string): Option.Option<PlannedWorkflowNode> =>
+  Option.orElse(context.plan.graph.hasNode(nodeId) ? Option.some(context.plan.graph.node(nodeId)) : Option.none(), () =>
+    Option.fromUndefinedOr(findPlannedNode(context.plan.topologicalOrder, nodeId)),
   );
 
 interface NodeAttemptLoopState {
@@ -83,24 +58,16 @@ const initialAttemptLoopState = (): NodeAttemptLoopState => ({
   last: { evidence: [], exitCode: 1, output: "" },
 });
 
-const remediationPassedResult = (
-  remediation: Option.Option<NodeRemediationResult>
-): Option.Option<RuntimeNodeResult> =>
+const remediationPassedResult = (remediation: Option.Option<NodeRemediationResult>): Option.Option<RuntimeNodeResult> =>
   Option.flatMap(remediation, (value) => Option.fromNullishOr(value.result));
 
-const remediationRequestsRetry = (
-  remediation: Option.Option<NodeRemediationResult>
-): boolean =>
+const remediationRequestsRetry = (remediation: Option.Option<NodeRemediationResult>): boolean =>
   Option.match(remediation, {
     onNone: () => false,
     onSome: (value) => value.retryNode === true,
   });
 
-const cancelledRetry = (
-  nodeId: string,
-  attempt: number,
-  last: NodeAttemptResult
-): NodeAttemptRetry => ({
+const cancelledRetry = (nodeId: string, attempt: number, last: NodeAttemptResult): NodeAttemptRetry => ({
   attempt,
   evidence: [...last.evidence, ...cancelledFailure().evidence],
   gate: nodeId,
@@ -125,15 +92,10 @@ const attemptErrorMessage = (error: unknown): string => {
   if (inner !== error) {
     return attemptErrorMessage(inner);
   }
-  return error instanceof Error && error.message
-    ? error.message
-    : String(error);
+  return error instanceof Error && error.message ? error.message : String(error);
 };
 
-const nodeRetryFailure = (
-  node: PlannedWorkflowNode,
-  retry: NodeAttemptRetry
-): RuntimeFailure => ({
+const nodeRetryFailure = (node: PlannedWorkflowNode, retry: NodeAttemptRetry): RuntimeFailure => ({
   evidence: retry.evidence,
   gate: retry.gate,
   nodeId: node.id,
@@ -155,21 +117,14 @@ const waitForAbort = (signal?: AbortSignal): Effect.Effect<void> => {
   });
 };
 
-const waitForRetryDelay = (
-  delayMs: number,
-  signal?: AbortSignal
-): Effect.Effect<void> => {
+const waitForRetryDelay = (delayMs: number, signal?: AbortSignal): Effect.Effect<void> => {
   if (delayMs <= 0 || signal?.aborted === true) {
     return Effect.void;
   }
   return Effect.race(Effect.sleep(delayMs), waitForAbort(signal));
 };
 
-const passedNodeResult = (
-  nodeId: string,
-  attempt: number,
-  last: NodeAttemptResult
-): RuntimeNodeResult => ({
+const passedNodeResult = (nodeId: string, attempt: number, last: NodeAttemptResult): RuntimeNodeResult => ({
   attempts: attempt,
   evidence: last.evidence,
   exitCode: 0,
@@ -181,33 +136,22 @@ const passedNodeResult = (
 const retryGateId = (nodeId: string, failedGate?: RuntimeGateResult): string =>
   failedGate === undefined ? nodeId : failedGate.gateId;
 
-const retryReasonText = (
-  exitCode: number,
-  failedGate?: RuntimeGateResult
-): string => {
+const retryReasonText = (exitCode: number, failedGate?: RuntimeGateResult): string => {
   if (failedGate === undefined) {
     return `node exited with code ${exitCode}`;
   }
   return failedGate.reason ?? `node exited with code ${exitCode}`;
 };
 
-const retryEvidence = (
-  last: NodeAttemptResult,
-  failedGate?: RuntimeGateResult
-): string[] =>
+const retryEvidence = (last: NodeAttemptResult, failedGate?: RuntimeGateResult): string[] =>
   failedGate === undefined
     ? last.evidence.concat(`node exited with code ${last.exitCode}`)
     : [...last.evidence, ...failedGate.evidence];
 
-const snapshotChangedFilesEffect = (
-  worktreePath: string
-): Effect.Effect<ReturnType<typeof snapshotChangedFiles>> =>
+const snapshotChangedFilesEffect = (worktreePath: string): Effect.Effect<ReturnType<typeof snapshotChangedFiles>> =>
   Effect.sync(() => snapshotChangedFiles(worktreePath));
 
-const nodeRetryReason = (
-  attempt: NodeAttemptResult,
-  failedGate?: RuntimeGateResult
-): RetryReason => {
+const nodeRetryReason = (attempt: NodeAttemptResult, failedGate?: RuntimeGateResult): RetryReason => {
   if (attempt.timedOut === true) {
     return "timeout";
   }
@@ -221,7 +165,7 @@ const failedAttemptRetry = (
   nodeId: string,
   attempt: number,
   last: NodeAttemptResult,
-  err: unknown
+  err: unknown,
 ): NodeAttemptRetry => {
   const message = attemptErrorMessage(err);
   return {
@@ -238,17 +182,11 @@ const retryFromAttemptError = (
   context: RuntimeContext,
   attempt: number,
   last: NodeAttemptResult,
-  err: unknown
+  err: unknown,
 ): NodeAttemptRetry =>
-  isCancelled(context)
-    ? cancelledRetry(node.id, attempt, last)
-    : failedAttemptRetry(node.id, attempt, last, err);
+  isCancelled(context) ? cancelledRetry(node.id, attempt, last) : failedAttemptRetry(node.id, attempt, last, err);
 
-const exhaustedRetry = (
-  node: PlannedWorkflowNode,
-  maxAttempts: number,
-  last: NodeAttemptResult
-): NodeAttemptRetry => ({
+const exhaustedRetry = (node: PlannedWorkflowNode, maxAttempts: number, last: NodeAttemptResult): NodeAttemptRetry => ({
   attempt: Math.max(1, maxAttempts),
   evidence: last.evidence,
   gate: node.id,
@@ -260,7 +198,7 @@ const retryCycle = (
   node: PlannedWorkflowNode,
   attempt: number,
   last: NodeAttemptResult,
-  failedGate?: RuntimeGateResult
+  failedGate?: RuntimeGateResult,
 ): NodeAttemptCycleResult => ({
   last,
   retry: {
@@ -276,7 +214,7 @@ const retryCandidateForCycle = (
   node: PlannedWorkflowNode,
   cycle: NodeAttemptCycleResult,
   last: NodeAttemptResult,
-  attempt: number
+  attempt: number,
 ): NodeAttemptRetry =>
   cycle.retry ?? {
     attempt,
@@ -291,7 +229,7 @@ const nodeFailure = (
   attempts: number,
   evidence: string[],
   output: string,
-  exitCode = 1
+  exitCode = 1,
 ): RuntimeNodeResult => ({
   attempts,
   evidence,
@@ -301,30 +239,21 @@ const nodeFailure = (
   status: "failed",
 });
 
-const cancelledCycle = (
-  nodeId: string,
-  attempt: number,
-  previous: NodeAttemptResult
-): NodeAttemptCycleResult => ({
+const cancelledCycle = (nodeId: string, attempt: number, previous: NodeAttemptResult): NodeAttemptCycleResult => ({
   last: previous,
-  result: nodeFailure(
-    nodeId,
-    attempt,
-    cancelledFailure().evidence,
-    previous.output
-  ),
+  result: nodeFailure(nodeId, attempt, cancelledFailure().evidence, previous.output),
 });
 
 type NodeAttemptExecutor = (
   node: PlannedWorkflowNode,
   context: RuntimeContext,
-  attempt: number
+  attempt: number,
 ) => Effect.Effect<NodeAttemptResult, unknown>;
 
 const executeAgentAttempt = (
   node: PlannedWorkflowNode,
   context: RuntimeContext,
-  attempt: number
+  attempt: number,
 ): Effect.Effect<NodeAttemptResult, unknown> =>
   Effect.tryPromise({
     catch: (error) => error,
@@ -333,7 +262,7 @@ const executeAgentAttempt = (
 
 const executeCommandAttempt = (
   node: PlannedWorkflowNode,
-  context: RuntimeContext
+  context: RuntimeContext,
 ): Effect.Effect<NodeAttemptResult, unknown> =>
   Effect.tryPromise({
     catch: (error) => error,
@@ -345,16 +274,14 @@ const executeCommandAttempt = (
 
 const executeBuiltinAttempt = (
   node: PlannedWorkflowNode,
-  context: RuntimeContext
+  context: RuntimeContext,
 ): Effect.Effect<NodeAttemptResult, unknown> =>
   Effect.tryPromise({
     catch: (error) => error,
     try: async () => await executeBuiltin(node.builtin ?? "", context, node),
   });
 
-const executeGroupAttempt = (
-  node: PlannedWorkflowNode
-): Effect.Effect<NodeAttemptResult> =>
+const executeGroupAttempt = (node: PlannedWorkflowNode): Effect.Effect<NodeAttemptResult> =>
   Effect.succeed({
     evidence: [`group '${node.id}' completed`],
     exitCode: 0,
@@ -364,7 +291,7 @@ const executeGroupAttempt = (
 const dispatchGateFailureHook = (
   context: RuntimeContext,
   node: PlannedWorkflowNode,
-  result: RuntimeGateResult
+  result: RuntimeGateResult,
 ): Effect.Effect<void, unknown> =>
   Effect.asVoid(
     dispatchHooksEffect(
@@ -377,32 +304,21 @@ const dispatchGateFailureHook = (
         reason: result.reason ?? "gate failed",
       },
       node,
-      result.gateId
-    )
+      result.gateId,
+    ),
   );
 
 const now = (): string => new Date().toISOString();
 
-export const markNodeReady = (
-  context: RuntimeContext,
-  nodeId: string
-): void => {
+export const markNodeReady = (context: RuntimeContext, nodeId: string): void => {
   recordNodeEvent(context, nodeId, { at: now(), type: "READY" });
 };
 
-export const recordSkippedNodeState = (
-  context: RuntimeContext,
-  nodeId: string,
-  reason: string
-): void => {
+export const recordSkippedNodeState = (context: RuntimeContext, nodeId: string, reason: string): void => {
   recordNodeEvent(context, nodeId, { at: now(), reason, type: "SKIPPED" });
 };
 
-const emitRemediationPass = (
-  context: RuntimeContext,
-  nodeId: string,
-  result: RuntimeNodeResult
-): void => {
+const emitRemediationPass = (context: RuntimeContext, nodeId: string, result: RuntimeNodeResult): void => {
   recordNodeEvent(context, nodeId, { at: now(), result, type: "PASSED" });
   emitNodeFinish(context, result);
 };
@@ -412,7 +328,7 @@ const recordRetryingNodeEvent = (
   nodeId: string,
   attempt: number,
   retry: NodeAttemptRetry,
-  retryDecision: NodeRetryDecision
+  retryDecision: NodeRetryDecision,
 ): void => {
   recordNodeEvent(context, nodeId, {
     at: now(),
@@ -430,7 +346,7 @@ const recordRemediationRetryingNodeEvent = (
   context: RuntimeContext,
   nodeId: string,
   attempt: number,
-  retry: NodeAttemptRetry
+  retry: NodeAttemptRetry,
 ): void => {
   const retryDecision: NodeRetryDecision = {
     attempt,
@@ -449,21 +365,16 @@ const finishFailedNode = (
   node: PlannedWorkflowNode,
   context: RuntimeContext,
   last: NodeAttemptResult,
-  retry: NodeAttemptRetry
+  retry: NodeAttemptRetry,
 ): Effect.Effect<RuntimeNodeResult, unknown> =>
   Effect.gen(function* effectBody() {
-    yield* dispatchHooksEffect(
-      context,
-      "node.error",
-      nodeRetryFailure(node, retry),
-      node
-    );
+    yield* dispatchHooksEffect(context, "node.error", nodeRetryFailure(node, retry), node);
     const result = nodeFailure(
       node.id,
       retry.attempt,
       retry.evidence,
       last.output,
-      last.exitCode === EXIT_INFRA ? EXIT_INFRA : 1
+      last.exitCode === EXIT_INFRA ? EXIT_INFRA : 1,
     );
     recordNodeEvent(context, node.id, {
       at: now(),
@@ -479,7 +390,7 @@ const emitRuntimeRetry = (
   context: RuntimeContext,
   nodeId: string,
   retry: NodeRetryDecision,
-  reason: RetryReason
+  reason: RetryReason,
 ): void => {
   context.observability?.({
     actor: runtimeNodeActorDescriptor(context, nodeId),
@@ -487,9 +398,7 @@ const emitRuntimeRetry = (
     nodeId,
     reason,
     timestamp: now(),
-    type: retry.scheduled
-      ? "runtime.retry.scheduled"
-      : "runtime.retry.exhausted",
+    type: retry.scheduled ? "runtime.retry.scheduled" : "runtime.retry.exhausted",
   });
 };
 
@@ -498,7 +407,7 @@ const scheduleNodeRetry = (
   context: RuntimeContext,
   retryPolicy: ReturnType<typeof nodeRetryPolicy>,
   retry: NodeAttemptRetry,
-  attempt: number
+  attempt: number,
 ): Effect.Effect<NodeAttemptLoopStep> =>
   Effect.gen(function* effectBody() {
     const retryDecision = decideNodeRetry({
@@ -523,7 +432,7 @@ const failedHookCycle = (
   attempt: number,
   previous: NodeAttemptResult,
   evidence: string[],
-  context: RuntimeContext
+  context: RuntimeContext,
 ): NodeAttemptCycleResult => {
   const result = nodeFailure(nodeId, attempt, evidence, previous.output);
   recordNodeEvent(context, nodeId, {
@@ -539,7 +448,7 @@ const beginNodeAttempt = (
   node: PlannedWorkflowNode,
   context: RuntimeContext,
   attempt: number,
-  previous: NodeAttemptResult
+  previous: NodeAttemptResult,
 ): Effect.Effect<Option.Option<NodeAttemptCycleResult>, unknown> =>
   Effect.gen(function* effectBody() {
     if (isCancelled(context)) {
@@ -547,27 +456,12 @@ const beginNodeAttempt = (
     }
     emitNodeStart(context, node, attempt);
     recordNodeEvent(context, node.id, { at: now(), attempt, type: "STARTED" });
-    const startHook = yield* dispatchHooksEffect(
-      context,
-      "node.start",
-      undefined,
-      node
-    );
+    const startHook = yield* dispatchHooksEffect(context, "node.start", undefined, node);
     const startHookFailure = Option.fromNullishOr(startHook);
     if (Option.isSome(startHookFailure)) {
-      return Option.some(
-        failedHookCycle(
-          node.id,
-          attempt,
-          previous,
-          startHookFailure.value.evidence,
-          context
-        )
-      );
+      return Option.some(failedHookCycle(node.id, attempt, previous, startHookFailure.value.evidence, context));
     }
-    return isCancelled(context)
-      ? Option.some(cancelledCycle(node.id, attempt, previous))
-      : Option.none();
+    return isCancelled(context) ? Option.some(cancelledCycle(node.id, attempt, previous)) : Option.none();
   });
 
 const runnerFinishedEvent = (last: NodeAttemptResult): NodeExecutionEvent => ({
@@ -583,23 +477,15 @@ const recordAttemptOutput = (
   node: PlannedWorkflowNode,
   context: RuntimeContext,
   attempt: number,
-  last: NodeAttemptResult
+  last: NodeAttemptResult,
 ): Effect.Effect<void> =>
   Effect.gen(function* effectBody() {
-    const afterSnapshot = yield* snapshotChangedFilesEffect(
-      context.worktreePath
-    );
-    const beforeSnapshot = Option.fromUndefinedOr(
-      context.nodeStateStore.nodeSnapshots.get(node.id)
-    );
+    const afterSnapshot = yield* snapshotChangedFilesEffect(context.worktreePath);
+    const beforeSnapshot = Option.fromUndefinedOr(context.nodeStateStore.nodeSnapshots.get(node.id));
     if (Option.isSome(beforeSnapshot)) {
       context.nodeStateStore.nodeSnapshots.set(
         node.id,
-        diffChangedFiles(
-          beforeSnapshot.value,
-          afterSnapshot,
-          context.worktreePath
-        )
+        diffChangedFiles(beforeSnapshot.value, afterSnapshot, context.worktreePath),
       );
     }
     context.nodeStateStore.lastOutputByNode.set(node.id, last.output);
@@ -615,22 +501,15 @@ const recordAttemptOutput = (
 const evaluateGatesForAttempt = (
   node: PlannedWorkflowNode,
   context: RuntimeContext,
-  last: NodeAttemptResult
+  last: NodeAttemptResult,
 ): Effect.Effect<RuntimeGateResult[], unknown> =>
   Effect.gen(function* effectBody() {
     recordNodeEvent(context, node.id, { at: now(), type: "GATES_STARTED" });
     const gateResults = yield* Effect.tryPromise(
       async () =>
-        await evaluateNodeGates(
-          node,
-          context,
-          last,
-          async (failedNode, result) => {
-            await Effect.runPromise(
-              dispatchGateFailureHook(context, failedNode, result)
-            );
-          }
-        )
+        await evaluateNodeGates(node, context, last, async (failedNode, result) => {
+          await Effect.runPromise(dispatchGateFailureHook(context, failedNode, result));
+        }),
     );
     recordNodeEvent(context, node.id, {
       at: now(),
@@ -644,7 +523,7 @@ const passedCycle = (
   nodeId: string,
   attempt: number,
   last: NodeAttemptResult,
-  context: RuntimeContext
+  context: RuntimeContext,
 ): NodeAttemptCycleResult => {
   const result = passedNodeResult(nodeId, attempt, last);
   recordNodeEvent(context, nodeId, { at: now(), result, type: "PASSED" });
@@ -655,7 +534,7 @@ const cancelledNodeResult = (
   context: RuntimeContext,
   nodeId: string,
   attempt: number,
-  last: NodeAttemptResult
+  last: NodeAttemptResult,
 ): Option.Option<RuntimeNodeResult> => {
   if (!isCancelled(context)) {
     return Option.none();
@@ -680,31 +559,15 @@ const successfulAttemptCycle = (
   node: PlannedWorkflowNode,
   context: RuntimeContext,
   attempt: number,
-  last: NodeAttemptResult
+  last: NodeAttemptResult,
 ): Effect.Effect<NodeAttemptCycleResult, unknown> =>
   Effect.gen(function* effectBody() {
-    const successHook = yield* dispatchHooksEffect(
-      context,
-      "node.success",
-      undefined,
-      node
-    );
+    const successHook = yield* dispatchHooksEffect(context, "node.success", undefined, node);
     const successHookFailure = Option.fromNullishOr(successHook);
     if (Option.isSome(successHookFailure)) {
-      return failedHookCycle(
-        node.id,
-        attempt,
-        last,
-        successHookFailure.value.evidence,
-        context
-      );
+      return failedHookCycle(node.id, attempt, last, successHookFailure.value.evidence, context);
     }
-    const cancelledAfterHook = cancelledNodeResult(
-      context,
-      node.id,
-      attempt,
-      last
-    );
+    const cancelledAfterHook = cancelledNodeResult(context, node.id, attempt, last);
     return Option.isSome(cancelledAfterHook)
       ? { last, result: cancelledAfterHook.value }
       : passedCycle(node.id, attempt, last, context);
@@ -715,7 +578,7 @@ const finishNodeAttemptWithGate = (
   context: RuntimeContext,
   attempt: number,
   last: NodeAttemptResult,
-  failedGate?: RuntimeGateResult
+  failedGate?: RuntimeGateResult,
 ): Effect.Effect<NodeAttemptCycleResult, unknown> => {
   if (failedGate !== undefined || last.exitCode !== 0) {
     return Effect.succeed(retryCycle(node, attempt, last, failedGate));
@@ -727,68 +590,47 @@ const finishNodeAttemptAfterGates = (
   node: PlannedWorkflowNode,
   context: RuntimeContext,
   attempt: number,
-  last: NodeAttemptResult
+  last: NodeAttemptResult,
 ): Effect.Effect<NodeAttemptCycleResult, unknown> =>
   Effect.gen(function* effectBody() {
     if (last.exitCode === EXIT_INFRA) {
       return yield* finishNodeAttemptWithGate(node, context, attempt, last);
     }
     const gateResults = yield* evaluateGatesForAttempt(node, context, last);
-    const cancelledAfterGates = cancelledNodeResult(
-      context,
-      node.id,
-      attempt,
-      last
-    );
+    const cancelledAfterGates = cancelledNodeResult(context, node.id, attempt, last);
     if (Option.isSome(cancelledAfterGates)) {
       return { last, result: cancelledAfterGates.value };
     }
     const failedGate = gateResults.find((gate) => !gate.passed);
-    return yield* finishNodeAttemptWithGate(
-      node,
-      context,
-      attempt,
-      last,
-      failedGate
-    );
+    return yield* finishNodeAttemptWithGate(node, context, attempt, last, failedGate);
   });
 
 let runNodeAttemptBody: (
   node: PlannedWorkflowNode,
   context: RuntimeContext,
-  attempt: number
+  attempt: number,
 ) => Effect.Effect<NodeAttemptResult, unknown>;
 
 let runNodeAttempts: (
   node: PlannedWorkflowNode,
   context: RuntimeContext,
   retryPolicy: ReturnType<typeof nodeRetryPolicy>,
-  state: NodeAttemptLoopState
+  state: NodeAttemptLoopState,
 ) => Effect.Effect<Option.Option<RuntimeNodeResult>, unknown>;
 
 const executeNodeAttemptCycle = (
   node: PlannedWorkflowNode,
   context: RuntimeContext,
   attempt: number,
-  previous: NodeAttemptResult
+  previous: NodeAttemptResult,
 ): Effect.Effect<NodeAttemptCycleResult, unknown> =>
   Effect.gen(function* effectBody() {
-    const startResult = yield* beginNodeAttempt(
-      node,
-      context,
-      attempt,
-      previous
-    );
+    const startResult = yield* beginNodeAttempt(node, context, attempt, previous);
     if (Option.isSome(startResult)) {
       return startResult.value;
     }
     const last = yield* runNodeAttemptBody(node, context, attempt);
-    const cancelledAfterAttempt = cancelledNodeResult(
-      context,
-      node.id,
-      attempt,
-      last
-    );
+    const cancelledAfterAttempt = cancelledNodeResult(context, node.id, attempt, last);
     if (Option.isSome(cancelledAfterAttempt)) {
       return { last, result: cancelledAfterAttempt.value };
     }
@@ -799,16 +641,11 @@ const nodeAttemptCycleOrError = (
   node: PlannedWorkflowNode,
   context: RuntimeContext,
   attempt: number,
-  last: NodeAttemptResult
+  last: NodeAttemptResult,
 ): Effect.Effect<NodeAttemptCycleResult | { error: unknown }> =>
-  Effect.catch(executeNodeAttemptCycle(node, context, attempt, last), (error) =>
-    Effect.succeed({ error })
-  );
+  Effect.catch(executeNodeAttemptCycle(node, context, attempt, last), (error) => Effect.succeed({ error }));
 
-const executeNode = (
-  node: PlannedWorkflowNode,
-  context: RuntimeContext
-): Effect.Effect<RuntimeNodeResult, unknown> =>
+const executeNode = (node: PlannedWorkflowNode, context: RuntimeContext): Effect.Effect<RuntimeNodeResult, unknown> =>
   Effect.gen(function* effectBody() {
     const retryPolicy = nodeRetryPolicy(node);
     const state = initialAttemptLoopState();
@@ -816,30 +653,25 @@ const executeNode = (
     if (Option.isSome(result)) {
       return result.value;
     }
-    const finalRetry =
-      state.retry ?? exhaustedRetry(node, retryPolicy.maxAttempts, state.last);
+    const finalRetry = state.retry ?? exhaustedRetry(node, retryPolicy.maxAttempts, state.last);
     return yield* finishFailedNode(node, context, state.last, finalRetry);
   });
 
 const executeParallelAttempt = (
   node: PlannedWorkflowNode,
-  context: RuntimeContext
+  context: RuntimeContext,
 ): Effect.Effect<NodeAttemptResult, unknown> =>
   Effect.tryPromise(
     async () =>
       await executeParallelNode(node, context, {
-        executeNode: async (child, childContext) =>
-          await Effect.runPromise(executeNode(child, childContext)),
+        executeNode: async (child, childContext) => await Effect.runPromise(executeNode(child, childContext)),
         markNodeReady: (childContext, childId) => {
           markNodeReady(childContext, childId);
         },
-      })
+      }),
   );
 
-const nodeAttemptExecutors: Record<
-  PlannedWorkflowNode["kind"],
-  NodeAttemptExecutor
-> = {
+const nodeAttemptExecutors: Record<PlannedWorkflowNode["kind"], NodeAttemptExecutor> = {
   agent: executeAgentAttempt,
   builtin: executeBuiltinAttempt,
   command: executeCommandAttempt,
@@ -850,24 +682,20 @@ const nodeAttemptExecutors: Record<
 const executeNodeAttempt = (
   node: PlannedWorkflowNode,
   context: RuntimeContext,
-  attempt: number
-): Effect.Effect<NodeAttemptResult, unknown> =>
-  nodeAttemptExecutors[node.kind](node, context, attempt);
+  attempt: number,
+): Effect.Effect<NodeAttemptResult, unknown> => nodeAttemptExecutors[node.kind](node, context, attempt);
 
 runNodeAttemptBody = (
   node: PlannedWorkflowNode,
   context: RuntimeContext,
-  attempt: number
+  attempt: number,
 ): Effect.Effect<NodeAttemptResult, unknown> =>
   Effect.gen(function* effectBody() {
     recordNodeEvent(context, node.id, {
       at: now(),
       type: "START_HOOKS_FINISHED",
     });
-    context.nodeStateStore.nodeSnapshots.set(
-      node.id,
-      yield* snapshotChangedFilesEffect(context.worktreePath)
-    );
+    context.nodeStateStore.nodeSnapshots.set(node.id, yield* snapshotChangedFilesEffect(context.worktreePath));
     recordNodeEvent(context, node.id, {
       at: now(),
       type: "SNAPSHOT_BEFORE_FINISHED",
@@ -881,28 +709,26 @@ runNodeAttemptBody = (
 
 export const executePlannedNode = (
   nodeId: string,
-  context: RuntimeContext
+  context: RuntimeContext,
 ): Effect.Effect<RuntimeNodeResult, unknown> =>
   Effect.gen(function* effectBody() {
     const node = plannedNodeById(context, nodeId);
     if (Option.isNone(node)) {
-      return yield* Effect.fail(
-        new Error(`workflow scheduler referenced unknown node '${nodeId}'`)
-      );
+      return yield* Effect.fail(new Error(`workflow scheduler referenced unknown node '${nodeId}'`));
     }
     const result = yield* executeNode(node.value, context);
     yield* dispatchHooksEffect(
       context,
       "node.finish",
       result.status === "failed" ? nodeRuntimeFailure(result) : undefined,
-      node.value
+      node.value,
     );
     return result;
   });
 
 const executeReadyNode = (
   node: PlannedWorkflowNode,
-  context: RuntimeContext
+  context: RuntimeContext,
 ): Effect.Effect<RuntimeNodeResult, unknown> => {
   markNodeReady(context, node.id);
   return executeNode(node, context);
@@ -919,7 +745,7 @@ const continueAfterRetryCandidate = (
   context: RuntimeContext,
   retryPolicy: ReturnType<typeof nodeRetryPolicy>,
   retry: NodeAttemptRetry,
-  attempt: number
+  attempt: number,
 ): Effect.Effect<NodeAttemptLoopStep, unknown> =>
   Effect.gen(function* effectBody() {
     const remediation = yield* remediateFailedNode({
@@ -947,20 +773,14 @@ const continueAfterAttemptCycle = (
   retryPolicy: ReturnType<typeof nodeRetryPolicy>,
   state: NodeAttemptLoopState,
   attempt: number,
-  cycle: NodeAttemptCycleResult
+  cycle: NodeAttemptCycleResult,
 ): Effect.Effect<NodeAttemptLoopStep, unknown> => {
   if (cycle.result !== undefined) {
     emitNodeFinish(context, cycle.result);
     return Effect.succeed(cycle.result);
   }
   state.retry = retryCandidateForCycle(node, cycle, state.last, attempt);
-  return continueAfterRetryCandidate(
-    node,
-    context,
-    retryPolicy,
-    state.retry,
-    attempt
-  );
+  return continueAfterRetryCandidate(node, context, retryPolicy, state.retry, attempt);
 };
 
 const runSingleNodeAttempt = (
@@ -968,51 +788,27 @@ const runSingleNodeAttempt = (
   context: RuntimeContext,
   retryPolicy: ReturnType<typeof nodeRetryPolicy>,
   state: NodeAttemptLoopState,
-  attempt: number
+  attempt: number,
 ): Effect.Effect<NodeAttemptLoopStep, unknown> =>
   Effect.gen(function* effectBody() {
-    const outcome = yield* nodeAttemptCycleOrError(
-      node,
-      context,
-      attempt,
-      state.last
-    );
+    const outcome = yield* nodeAttemptCycleOrError(node, context, attempt, state.last);
     if ("error" in outcome) {
-      state.retry = retryFromAttemptError(
-        node,
-        context,
-        attempt,
-        state.last,
-        outcome.error
-      );
+      state.retry = retryFromAttemptError(node, context, attempt, state.last, outcome.error);
       return "failed";
     }
     state.last = outcome.last;
-    return yield* continueAfterAttemptCycle(
-      node,
-      context,
-      retryPolicy,
-      state,
-      attempt,
-      outcome
-    );
+    return yield* continueAfterAttemptCycle(node, context, retryPolicy, state, attempt, outcome);
   });
 
 runNodeAttempts = (
   node: PlannedWorkflowNode,
   context: RuntimeContext,
   retryPolicy: ReturnType<typeof nodeRetryPolicy>,
-  state: NodeAttemptLoopState
+  state: NodeAttemptLoopState,
 ): Effect.Effect<Option.Option<RuntimeNodeResult>, unknown> =>
   Effect.gen(function* effectBody() {
     for (let attempt = 1; ; attempt += 1) {
-      const step = yield* runSingleNodeAttempt(
-        node,
-        context,
-        retryPolicy,
-        state,
-        attempt
-      );
+      const step = yield* runSingleNodeAttempt(node, context, retryPolicy, state, attempt);
       if (step === "retry") {
         continue;
       }

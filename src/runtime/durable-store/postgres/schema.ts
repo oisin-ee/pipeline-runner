@@ -1,11 +1,5 @@
 import { sql } from "drizzle-orm";
-import {
-  jsonb,
-  pgSchema,
-  primaryKey,
-  text,
-  timestamp,
-} from "drizzle-orm/pg-core";
+import { jsonb, pgSchema, primaryKey, text, timestamp } from "drizzle-orm/pg-core";
 
 import type { AcceptanceCriterion, RuntimeNodeResult } from "../../contracts";
 
@@ -27,9 +21,7 @@ export const mokaPostgresSchema = pgSchema(MOKA_POSTGRES_SCHEMA);
  * or mutate pipeline-console application tables in `public`.
  */
 export const durableRun = mokaPostgresSchema.table("moka_durable_run", {
-  createdAt: timestamp("created_at", { withTimezone: true })
-    .defaultNow()
-    .notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   runId: text("run_id").primaryKey(),
 });
 
@@ -42,14 +34,12 @@ export const durableNodeRecord = mokaPostgresSchema.table(
       .default(sql`'[]'::jsonb`),
     inputs: jsonb("inputs").$type<unknown>(),
     nodeId: text("node_id").notNull(),
-    recordedAt: timestamp("recorded_at", { withTimezone: true })
-      .defaultNow()
-      .notNull(),
+    recordedAt: timestamp("recorded_at", { withTimezone: true }).defaultNow().notNull(),
     result: jsonb("result").$type<RuntimeNodeResult>().notNull(),
     runId: text("run_id")
       .notNull()
       .references(() => durableRun.runId),
     status: text("status").notNull(),
   },
-  (table) => [primaryKey({ columns: [table.runId, table.nodeId] })]
+  (table) => [primaryKey({ columns: [table.runId, table.nodeId] })],
 );

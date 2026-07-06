@@ -1,20 +1,10 @@
-import {
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import {
-  formatPipelineInitResult,
-  initPipelineProject,
-} from "../src/pipeline-init";
+import { formatPipelineInitResult, initPipelineProject } from "../src/pipeline-init";
 
 // `moka init` now installs only Moka's own host adapters (command surfaces,
 // native-agent projections, and singleton MCP gateway config). The agent
@@ -37,13 +27,7 @@ describe("initPipelineProject (global scope)", () => {
   beforeEach(() => {
     dir = mkdtempSync(join(tmpdir(), "pipeline-init-repo-"));
     home = mkdtempSync(join(tmpdir(), "pipeline-init-home-"));
-    for (const key of [
-      "CLAUDE_CONFIG_DIR",
-      "CODEX_HOME",
-      "OPENCODE_CONFIG_DIR",
-      "GEMINI_CONFIG_DIR",
-      "HOME",
-    ]) {
+    for (const key of ["CLAUDE_CONFIG_DIR", "CODEX_HOME", "OPENCODE_CONFIG_DIR", "GEMINI_CONFIG_DIR", "HOME"]) {
       savedEnv[key] = process.env[key];
     }
     // Redirect the per-machine host dirs into the temp home so the global
@@ -78,9 +62,7 @@ describe("initPipelineProject (global scope)", () => {
     expect(existsSync(join(dir, ".pipeline"))).toBe(false);
     expect(existsSync(join(dir, ".mcp.json"))).toBe(false);
     expect(bootstrappedHostFilesExist(home)).toBe(true);
-    const opencode = JSON.parse(
-      readFileSync(join(home, ".config", "opencode", "opencode.json"), "utf-8")
-    );
+    const opencode = JSON.parse(readFileSync(join(home, ".config", "opencode", "opencode.json"), "utf-8"));
     expect(opencode.mcp["pipeline-gateway"]).toMatchObject({
       type: "remote",
       url: "https://pipeline-mcp.momokaya.ee/mcp/",
@@ -96,9 +78,7 @@ describe("initPipelineProject (global scope)", () => {
     // config — so it is not asserted here.)
     expect(existsSync(join(home, ".claude", "CLAUDE.md"))).toBe(false);
     expect(existsSync(join(home, ".codex", "AGENTS.md"))).toBe(false);
-    expect(existsSync(join(home, ".config", "opencode", "AGENTS.md"))).toBe(
-      false
-    );
+    expect(existsSync(join(home, ".config", "opencode", "AGENTS.md"))).toBe(false);
     expect(existsSync(join(home, ".claude", "skills"))).toBe(false);
     expect(existsSync(join(home, ".config", "opencode", "skills"))).toBe(false);
   });
@@ -111,9 +91,7 @@ describe("initPipelineProject (global scope)", () => {
     expect(output).toContain("Moka host adapters");
     expect(output).toContain("chezmoi");
     expect(output).toContain("generated .opencode/opencode.json");
-    expect(output).toContain(
-      "no repo-local pipeline config files were created"
-    );
+    expect(output).toContain("no repo-local pipeline config files were created");
   });
 
   it("does not modify existing repo-local pipeline files", async () => {
@@ -122,42 +100,26 @@ describe("initPipelineProject (global scope)", () => {
 
     await initPipelineProject({ cwd: dir });
 
-    expect(readFileSync(join(dir, ".pipeline", "pipeline.yaml"), "utf-8")).toBe(
-      "custom: true\n"
-    );
+    expect(readFileSync(join(dir, ".pipeline", "pipeline.yaml"), "utf-8")).toBe("custom: true\n");
     expect(existsSync(join(dir, ".pipeline", "profiles.yaml"))).toBe(false);
     expect(existsSync(join(dir, ".pipeline", "runners.yaml"))).toBe(false);
   });
 
   it("forces generated command files by default so stale adapters are refreshed", async () => {
-    const commandPath = join(
-      home,
-      ".config",
-      "opencode",
-      "commands",
-      "moka-execute.md"
-    );
+    const commandPath = join(home, ".config", "opencode", "commands", "moka-execute.md");
     mkdirSync(dirname(commandPath), { recursive: true });
     writeFileSync(commandPath, "manual stale command\n");
 
     await initPipelineProject({ cwd: dir });
 
-    expect(readFileSync(commandPath, "utf-8")).not.toBe(
-      "manual stale command\n"
-    );
+    expect(readFileSync(commandPath, "utf-8")).not.toBe("manual stale command\n");
   });
 
   it("writes into the per-machine host dirs, not the repo", async () => {
     const result = await initPipelineProject({ cwd: dir });
 
-    expect(
-      existsSync(
-        join(home, ".config", "opencode", "commands", "moka-execute.md")
-      )
-    ).toBe(true);
-    expect(existsSync(join(home, ".config", "opencode", "opencode.json"))).toBe(
-      true
-    );
+    expect(existsSync(join(home, ".config", "opencode", "commands", "moka-execute.md"))).toBe(true);
+    expect(existsSync(join(home, ".config", "opencode", "opencode.json"))).toBe(true);
     expect(existsSync(join(dir, ".opencode"))).toBe(false);
     expect(existsSync(join(dir, ".claude"))).toBe(false);
     expect(formatPipelineInitResult(result)).toContain("Moka host adapters");

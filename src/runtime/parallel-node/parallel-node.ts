@@ -2,24 +2,14 @@ import { Effect, Option, Semaphore } from "effect";
 
 import type { PipelineConfig } from "../../config";
 import type { PlannedWorkflowNode } from "../../planning/compile";
-import type {
-  NodeAttemptResult,
-  RuntimeContext,
-  RuntimeNodeResult,
-} from "../contracts";
+import type { NodeAttemptResult, RuntimeContext, RuntimeNodeResult } from "../contracts";
 import { childReporter } from "../events";
 import { configUsesOpencode, leaseOpencodeRuntime } from "../opencode-runtime";
 import type { CreateWorktreeOptions } from "../parallel-worktrees/parallel-worktrees";
-import {
-  WorktreeService,
-  WorktreeServiceLive,
-} from "../services/worktree-service";
+import { WorktreeService, WorktreeServiceLive } from "../services/worktree-service";
 
 export interface ParallelNodeRuntime {
-  executeNode: (
-    node: PlannedWorkflowNode,
-    context: RuntimeContext
-  ) => Promise<RuntimeNodeResult>;
+  executeNode: (node: PlannedWorkflowNode, context: RuntimeContext) => Promise<RuntimeNodeResult>;
   markNodeReady: (context: RuntimeContext, nodeId: string) => void;
 }
 
@@ -42,9 +32,7 @@ const makeFailFastGate = (controller: AbortController): FailFastGate => ({
 // PIPE-83.7 AC3: per-category fan-out caps as Effect semaphores keyed by the
 // token_budget.fan_out_width categories (e.g. green=2), so N candidates of a
 // category never exceed its cap even within the global maxParallelNodes.
-const makeCategorySemaphores = (
-  context: RuntimeContext
-): Effect.Effect<CategorySemaphores> => {
+const makeCategorySemaphores = (context: RuntimeContext): Effect.Effect<CategorySemaphores> => {
   const fanOut = context.config.token_budget.fan_out_width;
   return Effect.gen(function* effectBody() {
     const caps: CategorySemaphores = new Map();
@@ -55,9 +43,7 @@ const makeCategorySemaphores = (
   });
 };
 
-const gcStaleWorktrees = (
-  context: RuntimeContext
-): Effect.Effect<void, never, WorktreeService> =>
+const gcStaleWorktrees = (context: RuntimeContext): Effect.Effect<void, never, WorktreeService> =>
   Effect.gen(function* effectBody() {
     if (context.config.parallel_worktrees?.enabled === true) {
       const worktree = yield* WorktreeService;
@@ -68,11 +54,9 @@ const gcStaleWorktrees = (
 const executeChild = (
   child: PlannedWorkflowNode,
   context: RuntimeContext,
-  runtime: ParallelNodeRuntime
+  runtime: ParallelNodeRuntime,
 ): Effect.Effect<RuntimeNodeResult> =>
-  Effect.tryPromise(async () => await runtime.executeNode(child, context)).pipe(
-    Effect.orDie
-  );
+  Effect.tryPromise(async () => await runtime.executeNode(child, context)).pipe(Effect.orDie);
 
 const opencodeSessionReporter =
   (context: RuntimeContext): ((nodeId: string, sessionId: string) => void) =>
@@ -80,27 +64,22 @@ const opencodeSessionReporter =
     context.reporter?.({ nodeId, sessionId, type: "node.session" });
   };
 
-const leaseChildOpencodeRuntime = (
-  context: RuntimeContext,
-  worktreePath: string
-) =>
+const leaseChildOpencodeRuntime = (context: RuntimeContext, worktreePath: string) =>
   Effect.tryPromise(
     async () =>
       await leaseOpencodeRuntime({
         config: context.config,
-        ...(context.reporter === undefined
-          ? {}
-          : { onSession: opencodeSessionReporter(context) }),
+        ...(context.reporter === undefined ? {} : { onSession: opencodeSessionReporter(context) }),
         ...(context.signal === undefined ? {} : { signal: context.signal }),
         worktreePath,
-      })
+      }),
   ).pipe(Effect.orDie);
 
 const runChildWithWorktreeLease = (
   child: PlannedWorkflowNode,
   context: RuntimeContext,
   runtime: ParallelNodeRuntime,
-  worktreePath: string
+  worktreePath: string,
 ): Effect.Effect<RuntimeNodeResult> => {
   const childContext = { ...context, worktreePath };
   if (!configUsesOpencode(context.config)) {
@@ -108,29 +87,19 @@ const runChildWithWorktreeLease = (
   }
   return Effect.acquireUseRelease(
     leaseChildOpencodeRuntime(context, worktreePath),
-    (childRuntime) =>
-      executeChild(
-        child,
-        { ...childContext, executor: childRuntime.executor },
-        runtime
-      ),
+    (childRuntime) => executeChild(child, { ...childContext, executor: childRuntime.executor }, runtime),
     (childRuntime) =>
       Effect.tryPromise(async () => {
         await childRuntime.release();
-      }).pipe(Effect.orDie)
+      }).pipe(Effect.orDie),
   );
 };
 
-const childLeaseOptions = (
-  child: PlannedWorkflowNode,
-  context: RuntimeContext
-): CreateWorktreeOptions => ({
+const childLeaseOptions = (child: PlannedWorkflowNode, context: RuntimeContext): CreateWorktreeOptions => ({
   childNodeId: child.id,
   parentNodeId: context.parentParallelNodeId ?? "parallel",
   repoRoot: context.worktreePath,
-  ...(context.runId === undefined || context.runId.length === 0
-    ? {}
-    : { runId: context.runId }),
+  ...(context.runId === undefined || context.runId.length === 0 ? {} : { runId: context.runId }),
 });
 
 /**
@@ -142,7 +111,7 @@ const childLeaseOptions = (
 const runChildInWorktree = (
   child: PlannedWorkflowNode,
   context: RuntimeContext,
-  runtime: ParallelNodeRuntime
+  runtime: ParallelNodeRuntime,
 ): Effect.Effect<RuntimeNodeResult, never, WorktreeService> => {
   if (context.config.parallel_worktrees?.enabled !== true) {
     return executeChild(child, context, runtime);
@@ -152,7 +121,7 @@ const runChildInWorktree = (
     return yield* Effect.acquireUseRelease(
       worktree.createChild(childLeaseOptions(child, context)),
       (lease) => runChildWithWorktreeLease(child, context, runtime, lease.path),
-      (lease) => Effect.sync(() => lease.release())
+      (lease) => Effect.sync(() => lease.release()),
     );
   });
 };
@@ -161,7 +130,7 @@ const createParallelChildContext = (
   context: RuntimeContext,
   parentNodeId: string,
   children: PlannedWorkflowNode[],
-  signal?: AbortSignal
+  signal?: AbortSignal,
 ): RuntimeContext => ({
   ...context,
   hookResults: new Map(context.hookResults),
@@ -177,7 +146,7 @@ const createParallelChildContext = (
 });
 
 const createLinkedAbortController = (
-  signal?: AbortSignal
+  signal?: AbortSignal,
 ): {
   cleanup: () => void;
   controller: AbortController;
@@ -217,29 +186,20 @@ const createLinkedAbortController = (
 // global maxParallelNodes — so N green candidates respect green=2.
 const childCategory = (
   childId: string,
-  fanOut?: PipelineConfig["token_budget"]["fan_out_width"]
+  fanOut?: PipelineConfig["token_budget"]["fan_out_width"],
 ): Option.Option<string> =>
   fanOut === undefined
     ? Option.none()
-    : Option.fromUndefinedOr(
-        Object.keys(fanOut.by_category).find((category) =>
-          childId.includes(category)
-        )
-      );
+    : Option.fromUndefinedOr(Object.keys(fanOut.by_category).find((category) => childId.includes(category)));
 
 const withCategoryCap = (
   caps: CategorySemaphores,
   childId: string,
   context: RuntimeContext,
-  effect: Effect.Effect<RuntimeNodeResult, never, WorktreeService>
+  effect: Effect.Effect<RuntimeNodeResult, never, WorktreeService>,
 ): Effect.Effect<RuntimeNodeResult, never, WorktreeService> => {
-  const category = childCategory(
-    childId,
-    context.config.token_budget.fan_out_width
-  );
-  const semaphore = Option.flatMap(category, (value) =>
-    Option.fromUndefinedOr(caps.get(value))
-  );
+  const category = childCategory(childId, context.config.token_budget.fan_out_width);
+  const semaphore = Option.flatMap(category, (value) => Option.fromUndefinedOr(caps.get(value)));
   return Option.match(semaphore, {
     onNone: () => effect,
     onSome: (value) => value.withPermits(1)(effect),
@@ -254,18 +214,13 @@ const runChildCapped = (
   context: RuntimeContext,
   runtime: ParallelNodeRuntime,
   caps: CategorySemaphores,
-  gate?: FailFastGate
+  gate?: FailFastGate,
 ): Effect.Effect<Option.Option<RuntimeNodeResult>, never, WorktreeService> =>
   Effect.gen(function* effectBody() {
     if (gate !== undefined && gate.aborted()) {
       return Option.none();
     }
-    const result = yield* withCategoryCap(
-      caps,
-      child.id,
-      context,
-      runChildInWorktree(child, context, runtime)
-    );
+    const result = yield* withCategoryCap(caps, child.id, context, runChildInWorktree(child, context, runtime));
     if (gate !== undefined && result.status === "failed") {
       gate.abort();
     }
@@ -277,23 +232,15 @@ const runAllChildren = (
   context: RuntimeContext,
   runtime: ParallelNodeRuntime,
   caps: CategorySemaphores,
-  gate?: FailFastGate
+  gate?: FailFastGate,
 ): Effect.Effect<Option.Option<RuntimeNodeResult>[], never, WorktreeService> =>
-  Effect.forEach(
-    children,
-    (child) => runChildCapped(child, context, runtime, caps, gate),
-    { concurrency: context.maxParallelNodes ?? "unbounded" }
-  );
+  Effect.forEach(children, (child) => runChildCapped(child, context, runtime, caps, gate), {
+    concurrency: context.maxParallelNodes ?? "unbounded",
+  });
 
-const parallelEvidence = (
-  nodeId: string,
-  results: RuntimeNodeResult[],
-  failed: RuntimeNodeResult[]
-): string[] => {
+const parallelEvidence = (nodeId: string, results: RuntimeNodeResult[], failed: RuntimeNodeResult[]): string[] => {
   if (failed.length === 0) {
-    return [
-      `parallel node '${nodeId}' completed ${results.length} child nodes`,
-    ];
+    return [`parallel node '${nodeId}' completed ${results.length} child nodes`];
   }
   return [
     `parallel node '${nodeId}' failed with ${failed.length} failed child nodes`,
@@ -301,18 +248,11 @@ const parallelEvidence = (
   ];
 };
 
-const parallelOutput = (
-  children: PlannedWorkflowNode[],
-  results: RuntimeNodeResult[]
-): string => {
-  const outputsByNode = new Map(
-    results.map((result) => [result.nodeId, result.output])
-  );
+const parallelOutput = (children: PlannedWorkflowNode[], results: RuntimeNodeResult[]): string => {
+  const outputsByNode = new Map(results.map((result) => [result.nodeId, result.output]));
   return JSON.stringify({
     children: Object.fromEntries(
-      children
-        .filter((child) => outputsByNode.has(child.id))
-        .map((child) => [child.id, outputsByNode.get(child.id)])
+      children.filter((child) => outputsByNode.has(child.id)).map((child) => [child.id, outputsByNode.get(child.id)]),
     ),
   });
 };
@@ -320,7 +260,7 @@ const parallelOutput = (
 const aggregateParallelResult = (
   nodeId: string,
   children: PlannedWorkflowNode[],
-  settled: Option.Option<RuntimeNodeResult>[]
+  settled: Option.Option<RuntimeNodeResult>[],
 ): NodeAttemptResult => {
   const results = settled.filter(Option.isSome).map((result) => result.value);
   const failed = results.filter((result) => result.status === "failed");
@@ -334,7 +274,7 @@ const aggregateParallelResult = (
 const parallelNodeProgram = (
   node: PlannedWorkflowNode,
   context: RuntimeContext,
-  runtime: ParallelNodeRuntime
+  runtime: ParallelNodeRuntime,
 ): Effect.Effect<NodeAttemptResult, never, WorktreeService> => {
   const children = node.children ?? [];
   if (children.length === 0) {
@@ -352,22 +292,16 @@ const parallelNodeProgram = (
       context,
       node.id,
       children,
-      failFast ? linkedAbort.controller.signal : context.signal
+      failFast ? linkedAbort.controller.signal : context.signal,
     );
-    const gate = failFast
-      ? makeFailFastGate(linkedAbort.controller)
-      : undefined;
+    const gate = failFast ? makeFailFastGate(linkedAbort.controller) : undefined;
     for (const child of children) {
       runtime.markNodeReady(childContext, child.id);
     }
     const caps = yield* makeCategorySemaphores(childContext);
-    const settled = yield* runAllChildren(
-      children,
-      childContext,
-      runtime,
-      caps,
-      gate
-    ).pipe(Effect.ensuring(Effect.sync(linkedAbort.cleanup)));
+    const settled = yield* runAllChildren(children, childContext, runtime, caps, gate).pipe(
+      Effect.ensuring(Effect.sync(linkedAbort.cleanup)),
+    );
     return aggregateParallelResult(node.id, children, settled);
   });
 };
@@ -375,11 +309,6 @@ const parallelNodeProgram = (
 export const executeParallelNode = async (
   node: PlannedWorkflowNode,
   context: RuntimeContext,
-  runtime: ParallelNodeRuntime
+  runtime: ParallelNodeRuntime,
 ): Promise<NodeAttemptResult> =>
-  await Effect.runPromise(
-    Effect.provide(
-      parallelNodeProgram(node, context, runtime),
-      WorktreeServiceLive
-    )
-  );
+  await Effect.runPromise(Effect.provide(parallelNodeProgram(node, context, runtime), WorktreeServiceLive));

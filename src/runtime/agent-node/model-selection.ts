@@ -19,10 +19,7 @@ interface TokenSizing {
   estimatedTokens: number;
 }
 
-const tokenSizing = (
-  estimatedTokens: number,
-  budget?: PipelineConfig["token_budget"]
-): Partial<TokenSizing> =>
+const tokenSizing = (estimatedTokens: number, budget?: PipelineConfig["token_budget"]): Partial<TokenSizing> =>
   budget === undefined ? {} : { budget, estimatedTokens };
 
 const selectedCandidates = (models: string[]): Option.Option<string>[] =>
@@ -31,18 +28,14 @@ const selectedCandidates = (models: string[]): Option.Option<string>[] =>
 const noCandidateFitsBudget = (
   node: PlannedWorkflowNode,
   models: string[],
-  budget?: PipelineConfig["token_budget"]
-): boolean =>
-  budget !== undefined &&
-  node.models !== undefined &&
-  node.models.length > 0 &&
-  models.length === 0;
+  budget?: PipelineConfig["token_budget"],
+): boolean => budget !== undefined && node.models !== undefined && node.models.length > 0 && models.length === 0;
 
 export const decideNodeModel = (
   prompt: string,
   node: PlannedWorkflowNode,
   availableModels?: ReadonlySet<string>,
-  budget?: PipelineConfig["token_budget"]
+  budget?: PipelineConfig["token_budget"],
 ): NodeModelDecision => {
   const estimatedTokens = estimateTokens(prompt);
   const candidates = selectNodeModelCandidates(node, {
@@ -70,9 +63,6 @@ export const fallbackNote = (input: {
   result: AgentResult;
 }): string => {
   const { failed, next, result } = input;
-  const detail =
-    result.stderr === undefined || result.stderr.length === 0
-      ? ""
-      : `: ${result.stderr}`;
+  const detail = result.stderr === undefined || result.stderr.length === 0 ? "" : `: ${result.stderr}`;
   return `model ${modelLabel(failed)} failed (infra exit ${result.exitCode}${detail}); falling back to ${modelLabel(next)}`;
 };

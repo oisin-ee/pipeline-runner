@@ -1,9 +1,6 @@
 import { Context, Effect, Layer } from "effect";
 
-import {
-  OpencodeServerStartupError,
-  openOpencodeServer,
-} from "../opencode-server";
+import { OpencodeServerStartupError, openOpencodeServer } from "../opencode-server";
 import type { OpencodeServerHandle } from "../opencode-server";
 
 export type OpenOpencodeRuntimeServer = (opts: {
@@ -25,10 +22,7 @@ export class OpencodeRuntimeServerService extends Context.Service<
 const startupMessage = (error: OpencodeServerStartupError): string =>
   `${error.message}. Confirm the opencode binary is installed and recent enough to expose 'opencode serve', or set OPENCODE_SERVER_URL to an already-running server.`;
 
-const startServer = async (input: {
-  signal?: AbortSignal;
-  worktreePath: string;
-}): Promise<OpencodeServerHandle> => {
+const startServer = async (input: { signal?: AbortSignal; worktreePath: string }): Promise<OpencodeServerHandle> => {
   try {
     return await openOpencodeServer({
       directory: input.worktreePath,
@@ -53,13 +47,10 @@ const openRuntimeServer = async (input: {
   return await openServer(input);
 };
 
-export const OpencodeRuntimeServerServiceLive = Layer.succeed(
-  OpencodeRuntimeServerService,
-  {
-    open: (input) =>
-      Effect.tryPromise({
-        catch: (error) => error,
-        try: async () => await openRuntimeServer(input),
-      }),
-  }
-);
+export const OpencodeRuntimeServerServiceLive = Layer.succeed(OpencodeRuntimeServerService, {
+  open: (input) =>
+    Effect.tryPromise({
+      catch: (error) => error,
+      try: async () => await openRuntimeServer(input),
+    }),
+});

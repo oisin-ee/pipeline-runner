@@ -1,37 +1,25 @@
 import { describe, expect, it } from "vitest";
 
-import {
-  baseGateRuntimeFields,
-  gateNodeStateStore,
-} from "../../../tests/gate-test-context";
+import { baseGateRuntimeFields, gateNodeStateStore } from "../../../tests/gate-test-context";
 import { parsePipelineConfigParts } from "../../config/load";
 import { compileWorkflowPlan } from "../../planning/compile";
 import type { RuntimeObservabilityEvent } from "../actor-ids";
-import type {
-  AcceptanceCriterion,
-  ChangedFilesGateSpec,
-  PipelineRuntimeEvent,
-  RuntimeContext,
-} from "../contracts";
+import type { AcceptanceCriterion, ChangedFilesGateSpec, PipelineRuntimeEvent, RuntimeContext } from "../contracts";
 import { NodeStateStore } from "../node-state-store";
 import { acceptanceUnmetCriteria } from "./kinds/acceptance/acceptance";
 import { evaluateChangedFilesGate } from "./kinds/changed-files/changed-files";
 import { evaluateNodeGates } from "./orchestrator";
 
-const changedFilesContext = (
-  files: string[]
-): Pick<RuntimeContext, "nodeStateStore"> =>
+const changedFilesContext = (files: string[]): Pick<RuntimeContext, "nodeStateStore"> =>
   ({
     nodeStateStore: new NodeStateStore({
-      nodeSnapshots: new Map([
-        ["node-a", { files: new Set(files), fingerprints: new Map() }],
-      ]),
+      nodeSnapshots: new Map([["node-a", { files: new Set(files), fingerprints: new Map() }]]),
     }),
   }) satisfies Pick<RuntimeContext, "nodeStateStore">;
 
 const directGateRuntimeContext = (
   observability: RuntimeObservabilityEvent[],
-  reporterEvents: PipelineRuntimeEvent[]
+  reporterEvents: PipelineRuntimeEvent[],
 ): RuntimeContext => {
   const config = parsePipelineConfigParts(
     {
@@ -67,7 +55,7 @@ runners:
     capabilities: { native_subagents: false }
 `,
     },
-    "/tmp/direct-gates-test"
+    "/tmp/direct-gates-test",
   );
   const plan = compileWorkflowPlan(config);
 
@@ -141,7 +129,7 @@ describe("runtime gates", () => {
       acceptanceUnmetCriteria(expected, [
         { evidence: ["ok"], id: "A", verdict: "PASS" },
         { evidence: ["fine"], id: "B", verdict: "PASS" },
-      ])
+      ]),
     ).toEqual([]);
   });
 
@@ -169,13 +157,8 @@ describe("runtime gates", () => {
       kind: "changed_files",
     };
 
-    expect(
-      evaluateChangedFilesGate(gate, "changed:node-a", "node-a", context)
-    ).toEqual({
-      evidence: [
-        "denied changes: README.md",
-        "changes outside allow list: README.md",
-      ],
+    expect(evaluateChangedFilesGate(gate, "changed:node-a", "node-a", context)).toEqual({
+      evidence: ["denied changes: README.md", "changes outside allow list: README.md"],
       gateId: "changed:node-a",
       kind: "changed_files",
       nodeId: "node-a",
@@ -211,16 +194,9 @@ describe("runtime gates", () => {
       kind: "changed_files",
     };
 
-    const result = evaluateChangedFilesGate(
-      gate,
-      "changed:node-a",
-      "node-a",
-      context
-    );
+    const result = evaluateChangedFilesGate(gate, "changed:node-a", "node-a", context);
     expect(result.passed).toBe(true);
-    expect(
-      result.evidence.some((line) => line.includes("outside allow list"))
-    ).toBe(false);
+    expect(result.evidence.some((line) => line.includes("outside allow list"))).toBe(false);
   });
 
   it("excludes supervisor run-state but still gates real disallowed source changes", () => {
@@ -237,12 +213,7 @@ describe("runtime gates", () => {
       kind: "changed_files",
     };
 
-    const result = evaluateChangedFilesGate(
-      gate,
-      "changed:node-a",
-      "node-a",
-      context
-    );
+    const result = evaluateChangedFilesGate(gate, "changed:node-a", "node-a", context);
 
     // README.md is the only genuine violation; no .pipeline run-state leaks in.
     expect(result.passed).toBe(false);
@@ -260,17 +231,10 @@ describe("runtime gates", () => {
       kind: "changed_files",
     };
 
-    const result = evaluateChangedFilesGate(
-      gate,
-      "changed:node-a",
-      "node-a",
-      context
-    );
+    const result = evaluateChangedFilesGate(gate, "changed:node-a", "node-a", context);
 
     expect(result.passed).toBe(false);
-    expect(result.evidence).toEqual([
-      "missing required changes matching: src/**, **/*.test.ts",
-    ]);
+    expect(result.evidence).toEqual(["missing required changes matching: src/**, **/*.test.ts"]);
   });
 
   it("passes when only allowed source and supervisor run-state changed", () => {
@@ -285,12 +249,7 @@ describe("runtime gates", () => {
       kind: "changed_files",
     };
 
-    const result = evaluateChangedFilesGate(
-      gate,
-      "changed:node-a",
-      "node-a",
-      context
-    );
+    const result = evaluateChangedFilesGate(gate, "changed:node-a", "node-a", context);
 
     expect(result).toEqual({
       evidence: ["changed files: src/app.ts"],
@@ -319,10 +278,7 @@ describe("runtime gates", () => {
 
     expect(results).toEqual([
       {
-        evidence: [
-          "denied changes: README.md",
-          "missing required changes matching: src/**",
-        ],
+        evidence: ["denied changes: README.md", "missing required changes matching: src/**"],
         gateId: "changed-policy",
         kind: "changed_files",
         nodeId: "node-a",
@@ -339,10 +295,7 @@ describe("runtime gates", () => {
         type: "gate.start",
       },
       {
-        evidence: [
-          "denied changes: README.md",
-          "missing required changes matching: src/**",
-        ],
+        evidence: ["denied changes: README.md", "missing required changes matching: src/**"],
         gateId: "changed-policy",
         kind: "changed_files",
         nodeId: "node-a",

@@ -26,10 +26,7 @@ vi.mock("execa", () => ({
 }));
 
 vi.mock("../src/run-state/git-refs", () => ({
-  prepareRunnerGitWorkspace: vi.fn(
-    (_payload: unknown, options?: { cwd?: string }) =>
-      options?.cwd ?? "/workspace"
-  ),
+  prepareRunnerGitWorkspace: vi.fn((_payload: unknown, options?: { cwd?: string }) => options?.cwd ?? "/workspace"),
 }));
 
 afterEach(() => {
@@ -61,18 +58,14 @@ describe("runner-lifecycle workflow.start", () => {
       "hook.finish",
       "hook.result",
     ]);
-    expect(
-      hookResultEvents(batches).map((event) => event.hookResult?.event)
-    ).toEqual(["workflow.start"]);
+    expect(hookResultEvents(batches).map((event) => event.hookResult?.event)).toEqual(["workflow.start"]);
   });
 
   it("returns a failing exit code when the workflow.start hook fails", async () => {
     const { dir, payloadPath, schedulePath } = writeRunnerCommandFixture();
     writeLifecycleConfig(dir, ["workflow.start"]);
     const batches: unknown[][] = [];
-    execaMock.mockImplementation(
-      commandHookResult({ failEvent: "workflow.start" })
-    );
+    execaMock.mockImplementation(commandHookResult({ failEvent: "workflow.start" }));
 
     const exitCode = await runRunnerLifecycle({
       cwd: dir,
@@ -84,9 +77,7 @@ describe("runner-lifecycle workflow.start", () => {
     });
 
     expect(exitCode).toBe(1);
-    expect(
-      hookResultEvents(batches).map((event) => event.hookResult?.status)
-    ).toEqual(["fail"]);
+    expect(hookResultEvents(batches).map((event) => event.hookResult?.status)).toEqual(["fail"]);
   });
 
   describe("PIPE-94.5: createRun upsert on workflow.start", () => {
@@ -123,9 +114,7 @@ describe("runner-lifecycle workflow.start", () => {
       // The raw schedule is persisted so `moka resume` can rebuild the graph.
       expect(request.schedule).toContain("schedule_id: run-pipe945");
       // The persisted manifest's node map is built FROM nodeIds — real nodes.
-      const manifest = await Effect.runPromise(
-        store.readRun({ runId: "run-pipe945" })
-      );
+      const manifest = await Effect.runPromise(store.readRun({ runId: "run-pipe945" }));
       expect(Object.keys(manifest?.nodes ?? {})).toEqual(["command"]);
     });
 
@@ -151,7 +140,7 @@ describe("runner-lifecycle workflow.start", () => {
           runId: "run-idempotent",
           schedule: "schedule_id: run-idempotent",
           target: "remote",
-        })
+        }),
       );
 
       const captured: CreateRunRequest[] = [];
@@ -175,9 +164,7 @@ describe("runner-lifecycle workflow.start", () => {
       // Exactly one manifest survives, with the real node list intact.
       const runs = await Effect.runPromise(store.listRuns());
       expect(runs).toHaveLength(1);
-      const manifest = await Effect.runPromise(
-        store.readRun({ runId: "run-idempotent" })
-      );
+      const manifest = await Effect.runPromise(store.readRun({ runId: "run-idempotent" }));
       expect(Object.keys(manifest?.nodes ?? {})).toEqual(["command"]);
     });
 
@@ -205,9 +192,7 @@ describe("runner-lifecycle workflow.start", () => {
           // No upsertRunRecord — exercises the real default guard path.
           stderr: {
             write: (chunk: string | Uint8Array) => {
-              stderrLines.push(
-                typeof chunk === "string" ? chunk : chunk.toString()
-              );
+              stderrLines.push(typeof chunk === "string" ? chunk : chunk.toString());
               return true;
             },
           },

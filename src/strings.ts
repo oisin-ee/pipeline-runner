@@ -3,14 +3,8 @@ export interface UniqueStringsOptions {
   sort?: boolean;
 }
 
-export const uniqueStrings = (
-  values: string[],
-  options: UniqueStringsOptions = {}
-): string[] => {
-  const input =
-    options.filterEmpty === true
-      ? values.filter((value) => value.length > 0)
-      : values;
+export const uniqueStrings = (values: string[], options: UniqueStringsOptions = {}): string[] => {
+  const input = options.filterEmpty === true ? values.filter((value) => value.length > 0) : values;
   const unique = [...new Set(input)];
   return options.sort === true ? unique.toSorted() : unique;
 };
@@ -41,11 +35,7 @@ const generatedId = (value: string, fallbackPrefix: string): string => {
  * against `usedIds` by appending an incrementing numeric suffix. Mutates
  * `usedIds` to reserve the chosen id.
  */
-export const uniqueGeneratedId = (
-  value: string,
-  usedIds: Set<string>,
-  fallbackPrefix: string
-): string => {
+export const uniqueGeneratedId = (value: string, usedIds: Set<string>, fallbackPrefix: string): string => {
   const base = generatedId(value, fallbackPrefix);
   let candidate = base;
   let suffix = 2;

@@ -6,12 +6,7 @@ import { parse } from "yaml";
 
 const REPO_ROOT = process.cwd();
 const OKTETO_PATH = join(REPO_ROOT, "okteto.yml");
-const RUNNER_MANIFEST_PATH = join(
-  REPO_ROOT,
-  "k8s",
-  "runner-dev",
-  "deployment.yaml"
-);
+const RUNNER_MANIFEST_PATH = join(REPO_ROOT, "k8s", "runner-dev", "deployment.yaml");
 const DOCS_DIR = join(REPO_ROOT, "docs");
 const SECRET_AUTH_CREDENTIAL_RE = /secret|auth|credential/iu;
 const CAVEAT_LIMITATION_WARNING_RE = /caveat|limitation|warning/iu;
@@ -86,10 +81,14 @@ describe("Okteto runner recipe", () => {
     const manifest = parse(manifestYaml);
 
     expect(isRecord(manifest)).toBe(true);
-    expect((manifest as Record<string, unknown>).kind).toBe("Deployment");
+    if (!isRecord(manifest)) {
+      return;
+    }
+    expect(manifest.kind).toBe("Deployment");
 
-    const podSpec = (manifest as { spec?: { template?: { spec?: unknown } } })
-      .spec?.template?.spec;
+    const spec = isRecord(manifest.spec) ? manifest.spec : {};
+    const template = isRecord(spec.template) ? spec.template : {};
+    const podSpec = isRecord(template.spec) ? template.spec : undefined;
     expect(isRecord(podSpec)).toBe(true);
     if (!isRecord(podSpec)) {
       return;
@@ -98,22 +97,21 @@ describe("Okteto runner recipe", () => {
     expect(podSpec.serviceAccountName).toBe("pipeline-runner");
     expect(podSpec.imagePullSecrets).toEqual([{ name: "ghcr-pull-secret" }]);
 
-    const containers = podSpec.containers as
-      | Record<string, unknown>[]
-      | undefined;
-    const runnerContainer = containers?.find((c) => c.name === "runner");
+    const containers = Array.isArray(podSpec.containers) ? podSpec.containers.filter(isRecord) : [];
+    const runnerContainer = containers.find((c) => c.name === "runner");
     expect(runnerContainer).toBeDefined();
-    expect(runnerContainer?.image).toBe(
-      "ghcr.io/oisin-ee/pipeline-runner:latest"
-    );
-    expect(runnerContainer?.workingDir).toBe("/workspace/oisin-pipeline");
-    expect(runnerContainer?.env).toEqual(
+    if (runnerContainer === undefined) {
+      return;
+    }
+    expect(runnerContainer.image).toBe("ghcr.io/oisin-ee/pipeline-runner:latest");
+    expect(runnerContainer.workingDir).toBe("/workspace/oisin-pipeline");
+    expect(runnerContainer.env).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
           name: "CODEX_AUTH_PER_PROJECT_ACCOUNTS",
           value: "0",
         }),
-      ])
+      ]),
     );
 
     // Runner secrets + their auth/env and mount paths.
@@ -134,25 +132,21 @@ describe("Okteto runner recipe", () => {
 
     const docs = readMarkdownDocs(DOCS_DIR).join("\n---\n");
 
-    expect(
-      docs.includes("mise run dev"),
-      "runner docs should show how to start the okteto runner inner loop"
-    ).toBe(true);
-    expect(
-      docs.includes("okteto up runner"),
-      "runner docs should reference the okteto up runner inner loop"
-    ).toBe(true);
+    expect(docs.includes("mise run dev"), "runner docs should show how to start the okteto runner inner loop").toBe(
+      true,
+    );
+    expect(docs.includes("okteto up runner"), "runner docs should reference the okteto up runner inner loop").toBe(
+      true,
+    );
     expect(
       docs.includes("moka run --entrypoint quick"),
-      "runner docs should show how to run the quick entrypoint inside the pod"
+      "runner docs should show how to run the quick entrypoint inside the pod",
     ).toBe(true);
-    expect(
-      SECRET_AUTH_CREDENTIAL_RE.test(docs),
-      "runner docs should mention required secrets/auth/credentials"
-    ).toBe(true);
-    expect(
-      CAVEAT_LIMITATION_WARNING_RE.test(docs),
-      "runner docs should include a caveat, limitation, or warning"
-    ).toBe(true);
+    expect(SECRET_AUTH_CREDENTIAL_RE.test(docs), "runner docs should mention required secrets/auth/credentials").toBe(
+      true,
+    );
+    expect(CAVEAT_LIMITATION_WARNING_RE.test(docs), "runner docs should include a caveat, limitation, or warning").toBe(
+      true,
+    );
   });
 });

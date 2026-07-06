@@ -19,13 +19,11 @@ describe("OpenCode ecosystem manifest", () => {
       default_stack_direct: true,
       state_authority: "pipeline",
     });
-    expect(manifest.official_dependencies.map((item) => item.id)).toEqual([
-      "@opencode-ai/plugin",
-      "@opencode-ai/sdk",
+    expect(manifest.official_dependencies.map((item) => item.id)).toEqual(["@opencode-ai/plugin", "@opencode-ai/sdk"]);
+    expect(manifest.official_dependencies.map((item) => item.dependency_scope)).toEqual([
+      "package-code-when-needed",
+      "package-code-when-needed",
     ]);
-    expect(
-      manifest.official_dependencies.map((item) => item.dependency_scope)
-    ).toEqual(["package-code-when-needed", "package-code-when-needed"]);
 
     expect(manifest.ecosystem_code.map((item) => item.id)).toEqual([
       "pipeline-goal-context",
@@ -38,33 +36,25 @@ describe("OpenCode ecosystem manifest", () => {
       "opencode-mem",
       "cupcake",
     ]);
-    expect(manifest.ecosystem_code.map((item) => item.default_stack)).toEqual(
-      manifest.ecosystem_code.map(() => true)
+    expect(manifest.ecosystem_code.map((item) => item.default_stack)).toEqual(manifest.ecosystem_code.map(() => true));
+    expect(manifest.ecosystem_code.find((item) => item.id === "dcp-code")).toEqual(
+      expect.objectContaining({ name: "DCP code" }),
     );
-    expect(
-      manifest.ecosystem_code.find((item) => item.id === "dcp-code")
-    ).toEqual(expect.objectContaining({ name: "DCP code" }));
-    expect(
-      manifest.ecosystem_code.find(
-        (item) => item.id === "pipeline-goal-context"
-      )
-    ).toEqual(
+    expect(manifest.ecosystem_code.find((item) => item.id === "pipeline-goal-context")).toEqual(
       expect.objectContaining({
         plugin: expect.objectContaining({
           kind: "local",
           target_path: ".opencode/plugins/pipeline-goal-context.ts",
         }),
-      })
+      }),
     );
-    expect(
-      manifest.ecosystem_code.find((item) => item.id === "opencode-plugin-otel")
-    ).toEqual(
+    expect(manifest.ecosystem_code.find((item) => item.id === "opencode-plugin-otel")).toEqual(
       expect.objectContaining({
         plugin: expect.objectContaining({
           kind: "npm",
           package: "@devtheops/opencode-plugin-otel@1.1.0",
         }),
-      })
+      }),
     );
   });
 
@@ -83,13 +73,11 @@ describe("OpenCode ecosystem manifest", () => {
       "playwright",
       "neon",
     ]);
-    expect(
-      manifest.mcp_backends.find((backend) => backend.id === "pipeline-gateway")
-    ).toEqual(
+    expect(manifest.mcp_backends.find((backend) => backend.id === "pipeline-gateway")).toEqual(
       expect.objectContaining({
         credentials: ["PIPELINE_MCP_GATEWAY_AUTHORIZATION"],
         required: true,
-      })
+      }),
     );
     expect(manifest.skills.map((skill) => skill.id)).toEqual([
       "pipe",
@@ -127,8 +115,6 @@ describe("OpenCode ecosystem manifest", () => {
   it("parses the checked-in manifest through the exported schema", () => {
     const source = readFileSync(OPENCODE_ECOSYSTEM_MANIFEST_PATH, "utf-8");
 
-    expect(parseOpenCodeEcosystemManifest(source)).toEqual(
-      DEFAULT_OPENCODE_ECOSYSTEM_MANIFEST
-    );
+    expect(parseOpenCodeEcosystemManifest(source)).toEqual(DEFAULT_OPENCODE_ECOSYSTEM_MANIFEST);
   });
 });

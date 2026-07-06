@@ -26,12 +26,12 @@ const SCHEDULE_FILE_MIGRATION_RE = /remove --schedule-file.*Moka DB/iu;
 // Helpers
 // ---------------------------------------------------------------------------
 
-const node = (
-  id: string,
-  index: number,
-  needs: string[] = [],
-  dependents: string[] = []
-): WorkflowScheduleNode => ({ dependents, id, index, needs });
+const node = (id: string, index: number, needs: string[] = [], dependents: string[] = []): WorkflowScheduleNode => ({
+  dependents,
+  id,
+  index,
+  needs,
+});
 
 const passedResult = (nodeId: string, output = `output-of-${nodeId}`) => ({
   attempts: 1,
@@ -60,24 +60,20 @@ describe("computeReadyNodeIds", () => {
 
   it("does not make a dependent ready when its need failed and no override", () => {
     const nodes = [node("a", 0), node("b", 1, ["a"])];
-    const completed = [
-      { ...passedResult("a"), exitCode: 1, status: "failed" as const },
-    ];
+    const completed = [{ ...passedResult("a"), exitCode: 1, status: "failed" as const }];
     expect(computeReadyNodeIds({ completed, nodes })).toEqual([]);
   });
 
   it("uses shouldContinueAfterNodeResult to override the default failure-blocking", () => {
     const nodes = [node("a", 0), node("b", 1, ["a"])];
-    const completed = [
-      { ...passedResult("a"), exitCode: 1, status: "failed" as const },
-    ];
+    const completed = [{ ...passedResult("a"), exitCode: 1, status: "failed" as const }];
     // Treat all results as continuing — even failures unblock dependents.
     expect(
       computeReadyNodeIds({
         completed,
         nodes,
         shouldContinueAfterNodeResult: () => true,
-      })
+      }),
     ).toEqual(["b"]);
   });
 
@@ -105,9 +101,7 @@ describe("computeReadyNodeIds", () => {
 describe("buildNextNodeEnvelope", () => {
   const RUN_ID = "test-run-001";
 
-  const criteria: AcceptanceCriterion[] = [
-    { id: "ac-1", text: "Output contains the word hello" },
-  ];
+  const criteria: AcceptanceCriterion[] = [{ id: "ac-1", text: "Output contains the word hello" }];
 
   const nodes = [node("setup", 0), node("work", 1, ["setup"])];
 
@@ -153,9 +147,7 @@ describe("buildNextNodeEnvelope", () => {
     expect(envelope?.nodeId).toBe("work");
     expect(envelope?.prompt).toBe("Do the main work");
     expect(envelope?.criteria).toEqual(criteria);
-    expect(envelope?.upstreamOutputs).toEqual([
-      { nodeId: "setup", output: "setup completed ok" },
-    ]);
+    expect(envelope?.upstreamOutputs).toEqual([{ nodeId: "setup", output: "setup completed ok" }]);
     expect(envelope?.runId).toBe(RUN_ID);
   });
 
@@ -228,9 +220,7 @@ describe("buildNextNodeEnvelope", () => {
 
     expect(envelope?.nodeId).toBe("c");
     // "c" directly needs "b" only — "a" is a transitive ancestor and excluded.
-    expect(envelope?.upstreamOutputs).toEqual([
-      { nodeId: "b", output: "b-output" },
-    ]);
+    expect(envelope?.upstreamOutputs).toEqual([{ nodeId: "b", output: "b-output" }]);
   });
 });
 
@@ -242,22 +232,11 @@ describe("registerNextNodeSubcommand", () => {
     const next = program.command("next");
     registerNextNodeSubcommand(next);
 
-    const nodeCommand = next.commands.find(
-      (command) => command.name() === "node"
-    );
+    const nodeCommand = next.commands.find((command) => command.name() === "node");
     expect(nodeCommand?.helpInformation()).not.toContain("--schedule-file");
 
     await expect(
-      program.parseAsync(
-        [
-          "next",
-          "node",
-          "run-with-schedule",
-          "--schedule-file",
-          "schedule.yaml",
-        ],
-        { from: "user" }
-      )
+      program.parseAsync(["next", "node", "run-with-schedule", "--schedule-file", "schedule.yaml"], { from: "user" }),
     ).rejects.toThrow(UNKNOWN_SCHEDULE_FILE_OPTION_RE);
     expect(stderr.join("")).toMatch(SCHEDULE_FILE_MIGRATION_RE);
   });
@@ -339,7 +318,7 @@ describe("buildNextNodeEnvelopeFromRunStore", () => {
           runId,
           schedule: persistedScheduleYaml(),
           target: "local",
-        })
+        }),
       );
 
       const envelope = await Effect.runPromise(
@@ -349,7 +328,7 @@ describe("buildNextNodeEnvelopeFromRunStore", () => {
           runControlStore,
           runId,
           worktreePath: workspaceRoot,
-        })
+        }),
       );
 
       expect(envelope).toEqual({
@@ -376,7 +355,7 @@ describe("buildNextNodeEnvelopeFromRunStore", () => {
           nodeIds: ["pkg-default"],
           runId,
           target: "local",
-        })
+        }),
       );
 
       await expect(
@@ -387,8 +366,8 @@ describe("buildNextNodeEnvelopeFromRunStore", () => {
             runControlStore,
             runId,
             worktreePath: workspaceRoot,
-          })
-        )
+          }),
+        ),
       ).rejects.toThrow(MISSING_PERSISTED_SCHEDULE_RE);
     } finally {
       rmSync(workspaceRoot, { force: true, recursive: true });

@@ -32,7 +32,7 @@ contexts:
       cluster: orbstack
 current-context: momokaya
 users: []
-`.trimStart()
+`.trimStart(),
 );
 
 afterAll(() => {
@@ -41,27 +41,16 @@ afterAll(() => {
 
 describe("resolveKubeConfig", () => {
   it("defaults to the kubeconfig's current-context when kubeContext is not set", () => {
-    const kubeConfig = resolveKubeConfig(
-      { kubeconfigPath: KUBECONFIG_PATH },
-      {}
-    );
+    const kubeConfig = resolveKubeConfig({ kubeconfigPath: KUBECONFIG_PATH }, {});
     expect(kubeConfig.getCurrentContext()).toBe("momokaya");
   });
 
   it("selects the requested context out of a kubeconfig with multiple contexts", () => {
-    const kubeConfig = resolveKubeConfig(
-      { kubeContext: "orbstack", kubeconfigPath: KUBECONFIG_PATH },
-      {}
-    );
+    const kubeConfig = resolveKubeConfig({ kubeContext: "orbstack", kubeconfigPath: KUBECONFIG_PATH }, {});
     expect(kubeConfig.getCurrentContext()).toBe("orbstack");
   });
 
   it("throws when kubeContext names a context absent from the kubeconfig", () => {
-    expect(() =>
-      resolveKubeConfig(
-        { kubeContext: "does-not-exist", kubeconfigPath: KUBECONFIG_PATH },
-        {}
-      )
-    ).toThrow();
+    expect(() => resolveKubeConfig({ kubeContext: "does-not-exist", kubeconfigPath: KUBECONFIG_PATH }, {})).toThrow();
   });
 });

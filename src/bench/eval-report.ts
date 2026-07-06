@@ -1,3 +1,12 @@
+import {
+  booleanValue,
+  mutableArray,
+  numberValue,
+  parseJsonWithSchema,
+  requiredString,
+  struct,
+} from "../schema-boundary";
+
 /**
  * PIPE-83.3/83.6: eval harness scoring. Aggregates per-task run outcomes for a
  * flat single-agent baseline vs the full pipeline (and ablations) into a
@@ -8,13 +17,20 @@
  * EvalRunResult per task+variant); this module turns them into the report. Pure
  * and deterministic — no model calls.
  */
-export interface EvalRunResult {
-  costTokens: number;
-  resolved: boolean;
-  task: string;
-  variant: string;
-  wallMs: number;
-}
+const evalRunResultSchema = struct({
+  costTokens: numberValue(),
+  resolved: booleanValue(),
+  task: requiredString,
+  variant: requiredString,
+  wallMs: numberValue(),
+});
+
+const evalRunResultsSchema = mutableArray(evalRunResultSchema);
+
+export type EvalRunResult = typeof evalRunResultSchema.Type;
+
+export const parseEvalRunResultsJson = (source: string): EvalRunResult[] =>
+  parseJsonWithSchema(evalRunResultsSchema, source);
 
 export interface VariantSummary {
   avgWallMs: number;
@@ -30,10 +46,7 @@ export interface EvalReport {
   variants: VariantSummary[];
 }
 
-const summarizeVariant = (
-  variant: string,
-  runs: EvalRunResult[]
-): VariantSummary => {
+const summarizeVariant = (variant: string, runs: EvalRunResult[]): VariantSummary => {
   const resolved = runs.filter((r) => r.resolved).length;
   const totalWall = runs.reduce((sum, r) => sum + r.wallMs, 0);
   return {
@@ -53,20 +66,17 @@ export const buildEvalReport = (results: EvalRunResult[]): EvalReport => {
     variants: variants.map((variant) =>
       summarizeVariant(
         variant,
-        results.filter((r) => r.variant === variant)
-      )
+        results.filter((r) => r.variant === variant),
+      ),
     ),
   };
 };
 
 export const renderEvalReport = (report: EvalReport): string => {
-  const lines = [
-    `Eval over ${report.tasks} task(s):`,
-    "variant | resolved | rate | tokens | avg ms",
-  ];
+  const lines = [`Eval over ${report.tasks} task(s):`, "variant | resolved | rate | tokens | avg ms"];
   for (const v of report.variants) {
     lines.push(
-      `${v.variant} | ${v.resolved}/${v.count} | ${(v.resolutionRate * 100).toFixed(0)}% | ${v.totalCostTokens} | ${v.avgWallMs}`
+      `${v.variant} | ${v.resolved}/${v.count} | ${(v.resolutionRate * 100).toFixed(0)}% | ${v.totalCostTokens} | ${v.avgWallMs}`,
     );
   }
   return lines.join("\n");

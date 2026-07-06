@@ -14,28 +14,21 @@ export interface ClaudeSettingsProjection {
   permissions?: { allow?: string[] };
 }
 
-export type ClaudeSettingsMergeResult =
-  | { content: string; ok: true }
-  | { errors: ParseError[]; ok: false };
+export type ClaudeSettingsMergeResult = { content: string; ok: true } | { errors: ParseError[]; ok: false };
 
 const applyMcpServersProjection = (
   content: string,
   parsed: Record<string, unknown>,
-  projection: ClaudeSettingsProjection
+  projection: ClaudeSettingsProjection,
 ): string =>
   Object.entries(projection.mcpServers ?? {}).reduce(
-    (nextContent, [name, server]) =>
-      setIfMissing(nextContent, parsed, ["mcpServers", name], server),
-    content
+    (nextContent, [name, server]) => setIfMissing(nextContent, parsed, ["mcpServers", name], server),
+    content,
   );
 
-const projectedAllowList = (projection: ClaudeSettingsProjection): string[] =>
-  projection.permissions?.allow ?? [];
+const projectedAllowList = (projection: ClaudeSettingsProjection): string[] => projection.permissions?.allow ?? [];
 
-const unionPreservingOrder = (
-  existing: string[],
-  extra: string[]
-): string[] => {
+const unionPreservingOrder = (existing: string[], extra: string[]): string[] => {
   const merged = [...existing];
   for (const entry of extra) {
     if (!merged.includes(entry)) {
@@ -54,33 +47,24 @@ const permissionAllowList = (parsed: Record<string, unknown>): string[] => {
     return [];
   }
   const { allow } = permissions;
-  return Array.isArray(allow)
-    ? allow.filter((entry): entry is string => typeof entry === "string")
-    : [];
+  return Array.isArray(allow) ? allow.filter((entry): entry is string => typeof entry === "string") : [];
 };
 
 const applyPermissionsAllow = (
   content: string,
   parsed: Record<string, unknown>,
-  projection: ClaudeSettingsProjection
+  projection: ClaudeSettingsProjection,
 ): string => {
   const existing = permissionAllowList(parsed);
   const merged = unionPreservingOrder(existing, projectedAllowList(projection));
-  return sameOrderedList(existing, merged)
-    ? content
-    : applyJsonEdit(content, ["permissions", "allow"], merged);
+  return sameOrderedList(existing, merged) ? content : applyJsonEdit(content, ["permissions", "allow"], merged);
 };
 
 const applyClaudeProjection = (
   currentText: string,
   parsed: Record<string, unknown>,
-  projection: ClaudeSettingsProjection
-): string =>
-  applyPermissionsAllow(
-    applyMcpServersProjection(currentText, parsed, projection),
-    parsed,
-    projection
-  );
+  projection: ClaudeSettingsProjection,
+): string => applyPermissionsAllow(applyMcpServersProjection(currentText, parsed, projection), parsed, projection);
 
 // Merge the generated Claude settings projection into an existing
 // `.claude/settings.json` without clobbering user-owned keys. Mirrors
@@ -88,7 +72,7 @@ const applyClaudeProjection = (
 // `permissions.allow` list is unioned, while every other user key is preserved.
 export const mergeClaudeSettings = (
   currentText = "",
-  projection: ClaudeSettingsProjection
+  projection: ClaudeSettingsProjection,
 ): ClaudeSettingsMergeResult => {
   if (currentText === "") {
     return { content: formatJson(projection), ok: true };
@@ -100,9 +84,7 @@ export const mergeClaudeSettings = (
   }
 
   return {
-    content: ensureTrailingNewline(
-      applyClaudeProjection(currentText, parsed.value, projection)
-    ),
+    content: ensureTrailingNewline(applyClaudeProjection(currentText, parsed.value, projection)),
     ok: true,
   };
 };

@@ -1,17 +1,15 @@
-import { Effect, Option } from "effect";
+import { Array, String } from "effect";
+import * as Effect from "effect/Effect";
+import * as Option from "effect/Option";
 import * as R from "effect/Record";
-import { z } from "zod";
+import * as Schema from "effect/Schema";
 
 import { compileArgoExecutionGraph } from "../argo-graph";
 import { loadMokaDbUrl } from "../moka-global-config";
 import type { MokaRunStatus } from "../run-control/contracts";
 import { withRunControlStoreScoped } from "../run-control/run-control-store";
 import { RunnerCommandPayloadValidationError } from "../runner-command-contract";
-import type {
-  PipelineRuntimeResult,
-  RuntimeFailure,
-  RuntimeNodeResult,
-} from "../runtime/contracts";
+import type { PipelineRuntimeResult, RuntimeFailure, RuntimeNodeResult } from "../runtime/contracts";
 import { resolveDurableStore } from "../runtime/durable-store/acquisition";
 import { dispatchHooks } from "../runtime/hooks";
 import {
@@ -22,19 +20,12 @@ import {
 } from "../runtime/services/runner-command-io-service";
 import type { OutputStream } from "../runtime/services/runner-command-io-service";
 import { finalizeWorkflowLifecycle } from "../runtime/workflow-lifecycle";
+import { parseResultWithSchema, requiredString, struct } from "../schema-boundary";
 import { createRunnerLifecycleContextEffect } from "./lifecycle-context";
 import type { RunnerLifecycleContext } from "./lifecycle-context";
-import {
-  requireScheduleFileForFileSource,
-  scheduleSourceFields,
-} from "./schedule-source-options";
+import { requireScheduleFileForFileSource, scheduleSourceFields } from "./schedule-source-options";
 
-type FetchLike = (
-  input: RequestInfo | URL,
-  init?: RequestInit
-) => Promise<Response>;
-
-export type RunnerFinalizeOptions = z.input<typeof runnerFinalizeOptionsSchema>;
+type FetchLike = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
 
 const EXIT_PASS = 0;
 const EXIT_FAIL = 1;
@@ -45,15 +36,30 @@ const ARGO_STOP_SHUTDOWN_MESSAGE_PATTERNS = [
   /^workflow shutdown with strategy:\s+Stop$/u,
 ];
 
-const argoFailureSchema = z
-  .object({
-    message: z.string().optional(),
-  })
-  .passthrough();
+const argoFailureSchema = struct({
+  message: Schema.optional(Schema.String),
+});
 
-const argoFailuresSchema = z.array(argoFailureSchema);
+const argoFailures = Schema.mutable(Schema.Array(argoFailureSchema));
+const argoFailuresJson = Schema.fromJsonString(argoFailures);
 
-type ArgoFailure = z.infer<typeof argoFailureSchema>;
+type ArgoFailure = typeof argoFailureSchema.Type;
+
+class RunnerFinalizeError extends Schema.TaggedErrorClass<RunnerFinalizeError>()("RunnerFinalizeError", {
+  message: Schema.String,
+}) {}
+
+const errorWithMessage = struct({
+  message: Schema.String,
+});
+
+const isErrorWithMessage = Schema.is(errorWithMessage);
+const isRunnerCommandPayloadValidationError = Schema.is(RunnerCommandPayloadValidationError);
+
+const errorMessage = (error: unknown): string => (isErrorWithMessage(error) ? error.message : globalThis.String(error));
+
+const isValidationExitError = (error: unknown): boolean =>
+  isRunnerCommandPayloadValidationError(error) || Schema.isSchemaError(error);
 
 const dynamicFinalizerRunStatus = (input: {
   failed?: RuntimeNodeResult;
@@ -66,46 +72,32 @@ const dynamicFinalizerRunStatus = (input: {
   if (input.failed) {
     return "failed";
   }
-  if (input.missing.length > 0) {
-    return "blocked";
-  }
-  return "passed";
+  return Array.match(input.missing, {
+    onEmpty: () => "passed",
+    onNonEmpty: () => "blocked",
+  });
 };
 
 const isArgoStopShutdownFailure = (failure: ArgoFailure): boolean => {
   const message = failure.message ?? "";
-  return ARGO_STOP_SHUTDOWN_MESSAGE_PATTERNS.some((pattern) =>
-    pattern.test(message)
-  );
+  return ARGO_STOP_SHUTDOWN_MESSAGE_PATTERNS.some((pattern) => pattern.test(message));
 };
 
 const parseArgoFailures = (
-  rawFailures: string
-):
-  | { data: ArgoFailure[]; success: true }
-  | { message: string; success: false } => {
-  try {
-    const parsed: unknown = JSON.parse(rawFailures);
-    const result = argoFailuresSchema.safeParse(parsed);
-    return result.success
-      ? { data: result.data, success: true }
-      : {
-          message: `Argo failures must be workflow.failures JSON: ${result.error.message}`,
-          success: false,
-        };
-  } catch (error) {
-    return {
-      message: `Argo failures must be workflow.failures JSON: ${
-        error instanceof Error ? error.message : String(error)
-      }`,
-      success: false,
-    };
-  }
+  rawFailures: string,
+): { data: ArgoFailure[]; success: true } | { message: string; success: false } => {
+  const result = parseResultWithSchema(argoFailuresJson, rawFailures, {
+    onExcessProperty: "preserve",
+  });
+  return result.ok
+    ? { data: result.value, success: true }
+    : {
+        message: `Argo failures must be workflow.failures JSON: ${result.error.message}`,
+        success: false,
+      };
 };
 
-const argoFailuresFromJson = (
-  rawFailures: Option.Option<string>
-): ArgoFailure[] =>
+const argoFailuresFromJson = (rawFailures: Option.Option<string>): ArgoFailure[] =>
   Option.match(rawFailures, {
     onNone: () => [],
     onSome: (value) => {
@@ -113,19 +105,12 @@ const argoFailuresFromJson = (
       if (result.success) {
         return result.data;
       }
-      throw new z.ZodError([
-        {
-          code: "custom",
-          message: result.message,
-          path: ["argoFailures"],
-        },
-      ]);
+      throw new RunnerFinalizeError({ message: result.message });
     },
   });
 
-const hasArgoStopShutdownFailure = (
-  rawFailures: Option.Option<string>
-): boolean => argoFailuresFromJson(rawFailures).some(isArgoStopShutdownFailure);
+const hasArgoStopShutdownFailure = (rawFailures: Option.Option<string>): boolean =>
+  argoFailuresFromJson(rawFailures).some(isArgoStopShutdownFailure);
 
 const finalizerOutcome = (input: {
   argoFailures: Option.Option<string>;
@@ -137,46 +122,102 @@ const finalizerOutcome = (input: {
   return input.argoStatus === "Succeeded" ? "PASS" : "FAIL";
 };
 
-const validateArgoFailures = (
-  options: { argoFailures?: string },
-  ctx: z.RefinementCtx
-): void => {
-  if (options.argoFailures === undefined || options.argoFailures.length === 0) {
-    return;
-  }
-  const result = parseArgoFailures(options.argoFailures);
-  if (!result.success) {
-    ctx.addIssue({
-      code: "custom",
-      message: result.message,
-      path: ["argoFailures"],
-    });
-  }
+const validateArgoFailures = (options: { argoFailures?: string }) => {
+  return Option.match(Option.fromUndefinedOr(options.argoFailures), {
+    onNone: () => true,
+    onSome: (failures) => {
+      if (String.isEmpty(failures)) {
+        return true;
+      }
+      const result = parseArgoFailures(failures);
+      return result.success ? true : { issue: result.message, path: ["argoFailures"] };
+    },
+  });
 };
 
-const runnerFinalizeOptionsSchema = z
-  .object({
-    argoFailures: z.string().min(1).optional(),
-    argoStatus: z.string().min(1),
-    cwd: z.string().min(1).optional(),
-    env: z.record(z.string(), z.string().optional()).optional(),
-    fetch: z
-      .custom<FetchLike>((value) => typeof value === "function")
-      .optional(),
-    payloadFile: z.string().min(1),
-    ...scheduleSourceFields,
-    stderr: z.custom<OutputStream>((value) => isOutputStream(value)).optional(),
-  })
-  .strict()
-  .superRefine(validateArgoFailures)
-  .superRefine(requireScheduleFileForFileSource);
+const isFilterIssue = (
+  result: boolean | { issue: string; path: readonly PropertyKey[] },
+): result is { issue: string; path: readonly PropertyKey[] } => result !== true;
 
-const finalizerRunIdEffect = (
-  context: RunnerLifecycleContext["context"]
-): Effect.Effect<string, Error> =>
-  context.runId !== undefined && context.runId.length > 0
-    ? Effect.succeed(context.runId)
-    : Effect.fail(new Error("Dynamic finalizer requires context.runId."));
+const fetchLike = Schema.declare<FetchLike>((value): value is FetchLike => typeof value === "function");
+const outputStream = Schema.declare<OutputStream>(isOutputStream);
+
+const runnerFinalizeOptionsSchema = struct({
+  argoFailures: Schema.optional(requiredString),
+  argoStatus: requiredString,
+  cwd: Schema.optional(requiredString),
+  env: Schema.optional(Schema.Record(Schema.String, Schema.UndefinedOr(Schema.String))),
+  fetch: Schema.optional(fetchLike),
+  payloadFile: requiredString,
+  ...scheduleSourceFields,
+  stderr: Schema.optional(outputStream),
+}).check(
+  Schema.makeFilter(
+    (options) => {
+      const issues = [validateArgoFailures(options), requireScheduleFileForFileSource(options)].filter(isFilterIssue);
+      return Array.match(issues, {
+        onEmpty: () => true,
+        onNonEmpty: (values) => values,
+      });
+    },
+    {
+      description: "Finalize options must reference valid failure and schedule sources.",
+      identifier: "RunnerFinalizeOptionsConsistency",
+      title: "Runner finalize options consistency",
+    },
+  ),
+);
+
+export type RunnerFinalizeOptions = typeof runnerFinalizeOptionsSchema.Encoded;
+
+const finalizerRunIdEffect = (context: RunnerLifecycleContext["context"]): Effect.Effect<string, RunnerFinalizeError> =>
+  Option.match(Option.filter(Option.fromUndefinedOr(context.runId), String.isNonEmpty), {
+    onNone: () =>
+      Effect.fail(
+        new RunnerFinalizeError({
+          message: "Dynamic finalizer requires context.runId.",
+        }),
+      ),
+    onSome: Effect.succeed,
+  });
+
+interface FinalizerExecutionResult {
+  completed: RuntimeNodeResult[];
+  failure?: RuntimeFailure;
+  outcome: PipelineRuntimeResult["outcome"];
+}
+
+const passedFinalizerExecution = (completed: RuntimeNodeResult[]): FinalizerExecutionResult => ({
+  completed,
+  outcome: "PASS",
+});
+
+const missingFinalizerExecution = (
+  completed: RuntimeNodeResult[],
+  missingNodeIds: readonly string[],
+): FinalizerExecutionResult => ({
+  completed,
+  failure: {
+    evidence: [`missing durable results: ${missingNodeIds.join(", ")}`],
+    gate: "dynamic-finalizer",
+    reason: "dynamic run finished before all DB-scheduled nodes passed",
+  },
+  outcome: "FAIL",
+});
+
+const failedFinalizerExecution = (
+  completed: RuntimeNodeResult[],
+  failed: RuntimeNodeResult,
+): FinalizerExecutionResult => ({
+  completed,
+  failure: {
+    evidence: failed.evidence,
+    gate: failed.nodeId,
+    nodeId: failed.nodeId,
+    reason: `node '${failed.nodeId}' failed`,
+  },
+  outcome: "FAIL",
+});
 
 const finalizerExecutionEffect = (input: {
   argoFailures?: string;
@@ -184,14 +225,7 @@ const finalizerExecutionEffect = (input: {
   context: RunnerLifecycleContext["context"];
   scheduleSource: "db" | "file";
   worktreePath: string;
-}): Effect.Effect<
-  {
-    completed: RuntimeNodeResult[];
-    failure?: RuntimeFailure;
-    outcome: PipelineRuntimeResult["outcome"];
-  },
-  unknown
-> => {
+}): Effect.Effect<FinalizerExecutionResult, unknown> => {
   const outcome = finalizerOutcome({
     argoFailures: Option.fromNullishOr(input.argoFailures),
     argoStatus: input.argoStatus,
@@ -220,7 +254,7 @@ const finalizerExecutionEffect = (input: {
           at: new Date().toISOString(),
           runId,
           status,
-        })
+        }),
       );
       if (outcome === "CANCELLED") {
         return {
@@ -229,47 +263,27 @@ const finalizerExecutionEffect = (input: {
         };
       }
       if (failed) {
-        return {
-          completed,
-          failure: {
-            evidence: failed.evidence,
-            gate: failed.nodeId,
-            nodeId: failed.nodeId,
-            reason: `node '${failed.nodeId}' failed`,
-          },
-          outcome: "FAIL" as const,
-        };
+        return failedFinalizerExecution(completed, failed);
       }
-      if (missing.length > 0) {
-        return {
-          completed,
-          failure: {
-            evidence: [`missing durable results: ${missing.join(", ")}`],
-            gate: "dynamic-finalizer",
-            reason: "dynamic run finished before all DB-scheduled nodes passed",
-          },
-          outcome: "FAIL" as const,
-        };
-      }
-      return { completed, outcome: "PASS" as const };
-    })
+      return Array.match(missing, {
+        onEmpty: () => passedFinalizerExecution(completed),
+        onNonEmpty: (missingNodeIds) => missingFinalizerExecution(completed, missingNodeIds),
+      });
+    }),
   );
 };
 
 const finalizeErrorExitCode = (error: unknown, stderr: OutputStream) => {
-  const message = error instanceof Error ? error.message : String(error);
+  const message = errorMessage(error);
   stderr.write(`${message}\n`);
-  return error instanceof RunnerCommandPayloadValidationError ||
-    error instanceof z.ZodError
-    ? EXIT_VALIDATION
-    : EXIT_STARTUP;
+  return isValidationExitError(error) ? EXIT_VALIDATION : EXIT_STARTUP;
 };
 
 const runnerFinalizeRuntimeResult = (
   context: RunnerLifecycleContext["context"],
   outcome: PipelineRuntimeResult["outcome"],
   nodes: PipelineRuntimeResult["nodes"],
-  failure?: RuntimeFailure
+  failure?: RuntimeFailure,
 ): PipelineRuntimeResult => ({
   agentInvocations: [],
   failureDetails: failure ? [failure] : [],
@@ -284,12 +298,11 @@ const runnerFinalizeRuntimeResult = (
 
 const runRunnerFinalizeEffect = (
   options: RunnerFinalizeOptions,
-  stderr: OutputStream
+  stderr: OutputStream,
 ): Effect.Effect<number, never, RunnerCommandIoService> =>
   Effect.gen(function* effectBody() {
     const io = yield* RunnerCommandIoService;
-    const { compiled, context, payload, sink, worktreePath } =
-      yield* createRunnerLifecycleContextEffect(options);
+    const { compiled, context, payload, sink, worktreePath } = yield* createRunnerLifecycleContextEffect(options);
     const execution = yield* finalizerExecutionEffect({
       argoFailures: options.argoFailures,
       argoStatus: options.argoStatus,
@@ -302,14 +315,11 @@ const runRunnerFinalizeEffect = (
       try: async () =>
         await finalizeWorkflowLifecycle(
           {
-            buildResult: (outcome, nodes, failure) =>
-              runnerFinalizeRuntimeResult(context, outcome, nodes, failure),
+            buildResult: (outcome, nodes, failure) => runnerFinalizeRuntimeResult(context, outcome, nodes, failure),
             runWorkflowHook: async (event, failure) =>
-              Option.fromNullishOr(
-                await dispatchHooks(context, event, failure)
-              ),
+              Option.fromNullishOr(await dispatchHooks(context, event, failure)),
           },
-          execution
+          execution,
         ),
     });
     if (lifecycle.result.outcome === "PASS") {
@@ -328,17 +338,7 @@ const runRunnerFinalizeEffect = (
     }
     yield* flushAndReport(sink, stderr);
     return lifecycle.result.outcome === "PASS" ? EXIT_PASS : EXIT_FAIL;
-  }).pipe(
-    Effect.catch((error) =>
-      Effect.sync(() => finalizeErrorExitCode(error, stderr))
-    )
-  );
+  }).pipe(Effect.catch((error) => Effect.sync(() => finalizeErrorExitCode(error, stderr))));
 
-export const runRunnerFinalize = async (
-  rawOptions: Partial<RunnerFinalizeOptions> = {}
-): Promise<number> =>
-  await runValidatedRunnerCommand(
-    runnerFinalizeOptionsSchema,
-    rawOptions,
-    runRunnerFinalizeEffect
-  );
+export const runRunnerFinalize = async (rawOptions: Partial<RunnerFinalizeOptions> = {}): Promise<number> =>
+  await runValidatedRunnerCommand(runnerFinalizeOptionsSchema, rawOptions, runRunnerFinalizeEffect);

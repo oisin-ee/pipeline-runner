@@ -1,10 +1,4 @@
-import {
-  bigserial,
-  jsonb,
-  primaryKey,
-  text,
-  timestamp,
-} from "drizzle-orm/pg-core";
+import { bigserial, jsonb, primaryKey, text, timestamp } from "drizzle-orm/pg-core";
 
 import { mokaPostgresSchema } from "../../runtime/durable-store/postgres/schema";
 import type { MokaRunControlEvent, MokaRunManifest } from "../contracts";
@@ -29,26 +23,19 @@ import type { MokaRunControlEvent, MokaRunManifest } from "../contracts";
  * Tables live in the shared `moka` substrate schema alongside the durable store.
  */
 export const runControlRun = mokaPostgresSchema.table("moka_run_control_run", {
-  createdAt: timestamp("created_at", { withTimezone: true })
-    .defaultNow()
-    .notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   manifest: jsonb("manifest").$type<MokaRunManifest>().notNull(),
   runId: text("run_id").primaryKey(),
 });
 
-export const runControlEvent = mokaPostgresSchema.table(
-  "moka_run_control_event",
-  {
-    event: jsonb("event").$type<MokaRunControlEvent>().notNull(),
-    recordedAt: timestamp("recorded_at", { withTimezone: true })
-      .defaultNow()
-      .notNull(),
-    runId: text("run_id")
-      .notNull()
-      .references(() => runControlRun.runId),
-    seq: bigserial("seq", { mode: "number" }).primaryKey(),
-  }
-);
+export const runControlEvent = mokaPostgresSchema.table("moka_run_control_event", {
+  event: jsonb("event").$type<MokaRunControlEvent>().notNull(),
+  recordedAt: timestamp("recorded_at", { withTimezone: true }).defaultNow().notNull(),
+  runId: text("run_id")
+    .notNull()
+    .references(() => runControlRun.runId),
+  seq: bigserial("seq", { mode: "number" }).primaryKey(),
+});
 
 export const runControlNodeSession = mokaPostgresSchema.table(
   "moka_run_control_node_session",
@@ -59,7 +46,7 @@ export const runControlNodeSession = mokaPostgresSchema.table(
       .references(() => runControlRun.runId),
     sessionId: text("session_id").notNull(),
   },
-  (table) => [primaryKey({ columns: [table.runId, table.nodeId] })]
+  (table) => [primaryKey({ columns: [table.runId, table.nodeId] })],
 );
 
 export const runControlNodeArtifact = mokaPostgresSchema.table(
@@ -69,12 +56,10 @@ export const runControlNodeArtifact = mokaPostgresSchema.table(
     contentType: text("content_type"),
     name: text("name").notNull(),
     nodeId: text("node_id").notNull(),
-    recordedAt: timestamp("recorded_at", { withTimezone: true })
-      .defaultNow()
-      .notNull(),
+    recordedAt: timestamp("recorded_at", { withTimezone: true }).defaultNow().notNull(),
     runId: text("run_id")
       .notNull()
       .references(() => runControlRun.runId),
   },
-  (table) => [primaryKey({ columns: [table.runId, table.nodeId, table.name] })]
+  (table) => [primaryKey({ columns: [table.runId, table.nodeId, table.name] })],
 );

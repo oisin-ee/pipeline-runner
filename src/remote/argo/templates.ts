@@ -1,10 +1,6 @@
 import type { ArgoExecutableTask } from "../../argo-graph";
 import { DEFAULT_RUNNER_TASK_DESCRIPTOR_PATH } from "../../runner-command/task-descriptor";
-import type {
-  ArgoWorkflowTemplate,
-  ArgoWorkflowVolumeMount,
-  ParsedBuildRunnerArgoWorkflowOptions,
-} from "./model";
+import type { ArgoWorkflowTemplate, ArgoWorkflowVolumeMount, ParsedBuildRunnerArgoWorkflowOptions } from "./model";
 import type { RunnerContainerPolicyOptions } from "./policy";
 import {
   RUNNER_WORKFLOW_PAYLOAD_PATH,
@@ -20,14 +16,11 @@ const READY_NODE_IDS_PATH = "/tmp/moka-ready-node-ids.json";
 export const READY_NODE_IDS_PARAMETER = "ready-node-ids";
 
 type RunnerTemplateOptions = RunnerContainerPolicyOptions &
-  Pick<
-    ParsedBuildRunnerArgoWorkflowOptions,
-    "image" | "imagePullPolicy" | "resources"
-  >;
+  Pick<ParsedBuildRunnerArgoWorkflowOptions, "image" | "imagePullPolicy" | "resources">;
 
 export const runnerLifecycleTemplate = (
   options: ParsedBuildRunnerArgoWorkflowOptions,
-  volumeMounts: ArgoWorkflowVolumeMount[]
+  volumeMounts: ArgoWorkflowVolumeMount[],
 ): ArgoWorkflowTemplate => ({
   activeDeadlineSeconds: runnerTemplateDeadlineSeconds(),
   container: {
@@ -54,17 +47,11 @@ export const runnerLifecycleTemplate = (
 export const dynamicPreScheduleTemplate = (
   phase: "generate-schedule" | "pre-planning" | "pre-research",
   options: RunnerTemplateOptions,
-  volumeMounts: ArgoWorkflowVolumeMount[]
+  volumeMounts: ArgoWorkflowVolumeMount[],
 ): ArgoWorkflowTemplate => ({
   activeDeadlineSeconds: runnerTemplateDeadlineSeconds(),
   container: {
-    args: [
-      "runner-pre-schedule",
-      "--phase",
-      phase,
-      "--payload-file",
-      RUNNER_WORKFLOW_PAYLOAD_PATH,
-    ],
+    args: ["runner-pre-schedule", "--phase", phase, "--payload-file", RUNNER_WORKFLOW_PAYLOAD_PATH],
     env: runnerContainerEnv(options),
     image: options.image,
     imagePullPolicy: options.imagePullPolicy,
@@ -78,7 +65,7 @@ export const dynamicPreScheduleTemplate = (
 
 export const dynamicReadyWaveSelectorTemplate = (
   options: RunnerTemplateOptions,
-  volumeMounts: ArgoWorkflowVolumeMount[]
+  volumeMounts: ArgoWorkflowVolumeMount[],
 ): ArgoWorkflowTemplate => ({
   activeDeadlineSeconds: runnerTemplateDeadlineSeconds(),
   container: {
@@ -110,7 +97,7 @@ export const dynamicReadyWaveSelectorTemplate = (
 
 export const dynamicRunnerCommandTemplate = (
   options: RunnerTemplateOptions,
-  volumeMounts: ArgoWorkflowVolumeMount[]
+  volumeMounts: ArgoWorkflowVolumeMount[],
 ): ArgoWorkflowTemplate => ({
   activeDeadlineSeconds: runnerTemplateDeadlineSeconds(),
   container: {
@@ -140,7 +127,7 @@ export const dynamicRunnerCommandTemplate = (
 export const runnerCommandTemplate = (
   task: ArgoExecutableTask,
   options: ParsedBuildRunnerArgoWorkflowOptions,
-  volumeMounts: ArgoWorkflowVolumeMount[]
+  volumeMounts: ArgoWorkflowVolumeMount[],
 ): ArgoWorkflowTemplate => ({
   activeDeadlineSeconds: runnerTemplateDeadlineSeconds(),
   container: {
@@ -172,7 +159,7 @@ export const runnerCommandTemplate = (
 
 export const dynamicRunnerFinalizerTemplate = (
   options: RunnerTemplateOptions,
-  volumeMounts: ArgoWorkflowVolumeMount[]
+  volumeMounts: ArgoWorkflowVolumeMount[],
 ): ArgoWorkflowTemplate => ({
   activeDeadlineSeconds: runnerTemplateDeadlineSeconds(),
   container: {
@@ -199,7 +186,7 @@ export const dynamicRunnerFinalizerTemplate = (
 
 export const runnerFinalizerTemplate = (
   options: ParsedBuildRunnerArgoWorkflowOptions,
-  volumeMounts: ArgoWorkflowVolumeMount[]
+  volumeMounts: ArgoWorkflowVolumeMount[],
 ): ArgoWorkflowTemplate => ({
   activeDeadlineSeconds: runnerTemplateDeadlineSeconds(),
   container: {

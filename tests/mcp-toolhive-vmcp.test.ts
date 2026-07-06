@@ -1,11 +1,12 @@
+import * as Schema from "effect/Schema";
 import { describe, expect, it } from "vitest";
 import { parse } from "yaml";
-import { z } from "zod";
 
 import { parsePipelineConfigParts } from "../src/config";
 import type { PipelineConfigParts } from "../src/config";
 import { resolveRepoLocalBackendSpecs } from "../src/mcp/repo-local-backends";
 import { renderToolHiveVmcpInventory } from "../src/mcp/toolhive-vmcp";
+import { parseWithSchema, struct } from "../src/schema-boundary";
 
 const PARTS: PipelineConfigParts = {
   pipeline: `
@@ -71,18 +72,19 @@ runners:
       output_formats: [text]
 `,
 };
-const inventoryYamlSchema = z.object({
-  backends: z.array(
-    z.object({
-      name: z.string(),
-      transport: z.string().optional(),
-      url: z.string().optional(),
-    })
+const inventoryYamlSchema = struct({
+  backends: Schema.mutable(
+    Schema.Array(
+      struct({
+        name: Schema.String,
+        transport: Schema.optional(Schema.String),
+        url: Schema.optional(Schema.String),
+      }),
+    ),
   ),
 });
 
-const parseInventoryYaml = (source: string) =>
-  inventoryYamlSchema.parse(parse(source));
+const parseInventoryYaml = (source: string) => parseWithSchema(inventoryYamlSchema, parse(source));
 
 describe("ToolHive vMCP inventory rendering", () => {
   it("renders deterministic backend config for every declared backend", () => {
@@ -116,14 +118,14 @@ describe("ToolHive vMCP inventory rendering", () => {
         },
         name: "serena",
         type: "stdio",
-      })
+      }),
     );
     expect(inventory.backends).toContainEqual(
       expect.objectContaining({
         locality: "shared-remote",
         name: "context7",
         type: "entry",
-      })
+      }),
     );
   });
 
@@ -146,16 +148,12 @@ describe("ToolHive vMCP inventory rendering", () => {
     });
     const parsed = parseInventoryYaml(inventory.yaml);
 
-    expect(
-      parsed.backends.find((backend) => backend.name === "qdrant")
-    ).toEqual({
+    expect(parsed.backends.find((backend) => backend.name === "qdrant")).toEqual({
       name: "qdrant",
       transport: "streamable-http",
       url: "http://127.0.0.1:20222/mcp/",
     });
-    expect(
-      inventory.backends.find((backend) => backend.name === "qdrant")
-    ).toMatchObject({
+    expect(inventory.backends.find((backend) => backend.name === "qdrant")).toMatchObject({
       name: "qdrant",
       workloadName: "oisin-pipeline-qdrant",
     });

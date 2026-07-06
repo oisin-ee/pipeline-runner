@@ -1,11 +1,7 @@
 import { Option } from "effect";
 
 import type { BacklogTaskRecord } from "./backlog-task-store";
-import {
-  compareTaskIds,
-  predecessorIds,
-  scopedTicketIds,
-} from "./ticket-graph";
+import { compareTaskIds, predecessorIds, scopedTicketIds } from "./ticket-graph";
 import type { TicketGraph } from "./ticket-graph";
 
 const PRIORITY_RANK = {
@@ -23,20 +19,12 @@ export interface TicketSelectionOptions {
 }
 
 const hasIncompleteChildren = (graph: TicketGraph, taskId: string): boolean =>
-  (graph.childrenByParentId.get(taskId) ?? []).some(
-    (child) => child.status !== "Done"
-  );
+  (graph.childrenByParentId.get(taskId) ?? []).some((child) => child.status !== "Done");
 
-const isReadyTicket = (
-  graph: TicketGraph,
-  task: BacklogTaskRecord,
-  options: TicketSelectionOptions
-): boolean =>
+const isReadyTicket = (graph: TicketGraph, task: BacklogTaskRecord, options: TicketSelectionOptions): boolean =>
   task.status === "To Do" &&
   (options.includeParents === true || !hasIncompleteChildren(graph, task.id)) &&
-  predecessorIds(graph, task.id).every(
-    (dependencyId) => graph.tasksById.get(dependencyId)?.status === "Done"
-  );
+  predecessorIds(graph, task.id).every((dependencyId) => graph.tasksById.get(dependencyId)?.status === "Done");
 
 const rootIds = (graph: TicketGraph): string[] =>
   scopedTicketIds(graph)
@@ -44,9 +32,7 @@ const rootIds = (graph: TicketGraph): string[] =>
     .toSorted(compareTaskIds);
 
 const childIds = (graph: TicketGraph, id: string): string[] =>
-  [...(graph.childrenByParentId.get(id) ?? [])]
-    .map((task) => task.id)
-    .toSorted(compareTaskIds);
+  [...(graph.childrenByParentId.get(id) ?? [])].map((task) => task.id).toSorted(compareTaskIds);
 
 const bfsIds = (graph: TicketGraph, roots: readonly string[]): string[] => {
   const result: string[] = [];
@@ -79,39 +65,30 @@ const dfsIds = (graph: TicketGraph, roots: readonly string[]): string[] => {
 const traversalIds = (
   graph: TicketGraph,
   rootId: Option.Option<string>,
-  strategy: Option.Option<TicketSelectionStrategy>
+  strategy: Option.Option<TicketSelectionStrategy>,
 ): string[] => {
   const roots = Option.isSome(rootId) ? [rootId.value] : rootIds(graph);
-  return Option.isSome(strategy) && strategy.value === "dfs"
-    ? dfsIds(graph, roots)
-    : bfsIds(graph, roots);
+  return Option.isSome(strategy) && strategy.value === "dfs" ? dfsIds(graph, roots) : bfsIds(graph, roots);
 };
 
-const priorityRank = (task: BacklogTaskRecord): number =>
-  PRIORITY_RANK[task.priority ?? "medium"];
+const priorityRank = (task: BacklogTaskRecord): number => PRIORITY_RANK[task.priority ?? "medium"];
 
-const ordinal = (task: BacklogTaskRecord): number =>
-  task.ordinal ?? Number.MAX_SAFE_INTEGER;
+const ordinal = (task: BacklogTaskRecord): number => task.ordinal ?? Number.MAX_SAFE_INTEGER;
 
-const compareReadyTickets = (
-  a: BacklogTaskRecord,
-  b: BacklogTaskRecord
-): number =>
-  priorityRank(a) - priorityRank(b) ||
-  ordinal(a) - ordinal(b) ||
-  compareTaskIds(a.id, b.id);
+const compareReadyTickets = (a: BacklogTaskRecord, b: BacklogTaskRecord): number =>
+  priorityRank(a) - priorityRank(b) || ordinal(a) - ordinal(b) || compareTaskIds(a.id, b.id);
 
 const orderByTraversal = (
   graph: TicketGraph,
   ready: readonly BacklogTaskRecord[],
-  options: TicketSelectionOptions
+  options: TicketSelectionOptions,
 ): BacklogTaskRecord[] => {
   const remaining = new Map(ready.map((task) => [task.id, task]));
   const ordered: BacklogTaskRecord[] = [];
   for (const id of traversalIds(
     graph,
     Option.fromUndefinedOr(options.rootId),
-    Option.fromUndefinedOr(options.strategy)
+    Option.fromUndefinedOr(options.strategy),
   )) {
     const task = remaining.get(id);
     if (task !== undefined) {
@@ -122,10 +99,7 @@ const orderByTraversal = (
   return [...ordered, ...[...remaining.values()].toSorted(compareReadyTickets)];
 };
 
-export const selectReadyTickets = (
-  graph: TicketGraph,
-  options: TicketSelectionOptions = {}
-): BacklogTaskRecord[] => {
+export const selectReadyTickets = (graph: TicketGraph, options: TicketSelectionOptions = {}): BacklogTaskRecord[] => {
   const ready = scopedTicketIds(graph, options.rootId)
     .map((id) => graph.tasksById.get(id))
     .filter((task): task is BacklogTaskRecord => task !== undefined)
@@ -139,6 +113,5 @@ export const selectReadyTickets = (
 
 export const selectNextTicket = (
   graph: TicketGraph,
-  options: TicketSelectionOptions = {}
-): Option.Option<BacklogTaskRecord> =>
-  Option.fromUndefinedOr(selectReadyTickets(graph, options)[0]);
+  options: TicketSelectionOptions = {},
+): Option.Option<BacklogTaskRecord> => Option.fromUndefinedOr(selectReadyTickets(graph, options)[0]);

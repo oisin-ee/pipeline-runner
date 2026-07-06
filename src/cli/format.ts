@@ -1,8 +1,5 @@
 // fallow-ignore-file complexity
-import type {
-  PipelineRuntimeEvent,
-  PipelineRuntimeResult,
-} from "../pipeline-runtime";
+import type { PipelineRuntimeEvent, PipelineRuntimeResult } from "../pipeline-runtime";
 
 const LINE_RE = /\r?\n/u;
 const isNonEmptyString = (value: string): boolean => value !== "";
@@ -24,10 +21,7 @@ interface DoctorResult {
   warnings?: DoctorCheck[];
 }
 
-const formatAgentProgress = (
-  event: PipelineRuntimeEvent,
-  state: TerminalRuntimeRendererState
-): string => {
+const formatAgentProgress = (event: PipelineRuntimeEvent, state: TerminalRuntimeRendererState): string => {
   switch (event.type) {
     case "agent.start": {
       state.attempts.set(event.nodeId, event.attempt);
@@ -39,23 +33,17 @@ const formatAgentProgress = (
     }
     case "hook.start": {
       return `Hook starting: ${event.hookId} event=${event.event}${
-        event.nodeId !== undefined && event.nodeId !== ""
-          ? ` node=${event.nodeId}`
-          : ""
+        event.nodeId !== undefined && event.nodeId !== "" ? ` node=${event.nodeId}` : ""
       }`;
     }
     case "hook.finish": {
       return `Hook ${event.passed ? "passed" : "failed"}: ${event.hookId}${
-        event.reason !== undefined && event.reason !== ""
-          ? ` (${event.reason})`
-          : ""
+        event.reason !== undefined && event.reason !== "" ? ` (${event.reason})` : ""
       }`;
     }
     case "hook.result": {
       return `Hook result: ${event.hookId} ${event.status}${
-        event.summary !== undefined && event.summary !== ""
-          ? ` (${event.summary})`
-          : ""
+        event.summary !== undefined && event.summary !== "" ? ` (${event.summary})` : ""
       }`;
     }
     default: {
@@ -64,18 +52,12 @@ const formatAgentProgress = (
   }
 };
 
-const formatKnownAttempt = (
-  state: TerminalRuntimeRendererState,
-  nodeId: string
-): string => {
+const formatKnownAttempt = (state: TerminalRuntimeRendererState, nodeId: string): string => {
   const attempt = state.attempts.get(nodeId);
   return attempt === undefined ? "" : ` attempt=${attempt}`;
 };
 
-const formatCheckProgress = (
-  event: PipelineRuntimeEvent,
-  state: TerminalRuntimeRendererState
-): string => {
+const formatCheckProgress = (event: PipelineRuntimeEvent, state: TerminalRuntimeRendererState): string => {
   switch (event.type) {
     case "gate.start": {
       return `Gate starting: ${event.nodeId}/${event.gateId}${formatKnownAttempt(state, event.nodeId)}`;
@@ -83,9 +65,7 @@ const formatCheckProgress = (
     case "gate.finish": {
       return [
         `Gate ${event.passed ? "passed" : "failed"}: ${event.nodeId}/${event.gateId}${formatKnownAttempt(state, event.nodeId)}`,
-        event.reason !== undefined && event.reason !== ""
-          ? `reason=${event.reason}`
-          : "",
+        event.reason !== undefined && event.reason !== "" ? `reason=${event.reason}` : "",
         ...(event.evidence ?? []).map((item) => `evidence=${item}`),
       ]
         .filter(isNonEmptyString)
@@ -96,9 +76,7 @@ const formatCheckProgress = (
     }
     case "artifact.check.finish": {
       return `Artifact check ${event.passed ? "passed" : "failed"}: ${event.nodeId}/${event.path}${
-        event.reason !== undefined && event.reason !== ""
-          ? ` (${event.reason})`
-          : ""
+        event.reason !== undefined && event.reason !== "" ? ` (${event.reason})` : ""
       }`;
     }
     default: {
@@ -114,10 +92,7 @@ const formatRuntimeEventOutput = (output: unknown): string => {
   return JSON.stringify(output);
 };
 
-const formatWorkflowProgress = (
-  event: PipelineRuntimeEvent,
-  state: TerminalRuntimeRendererState
-): string => {
+const formatWorkflowProgress = (event: PipelineRuntimeEvent, state: TerminalRuntimeRendererState): string => {
   switch (event.type) {
     case "workflow.planned": {
       return `Pipeline planned: ${event.workflowId} (${event.nodes.map((node) => node.id).join(" -> ")})`;
@@ -129,12 +104,8 @@ const formatWorkflowProgress = (
       state.attempts.set(event.nodeId, event.attempt);
       return [
         `Node starting: ${event.nodeId}`,
-        event.runnerId !== undefined && event.runnerId !== ""
-          ? `runner=${event.runnerId}`
-          : "",
-        event.profile !== undefined && event.profile !== ""
-          ? `profile=${event.profile}`
-          : "",
+        event.runnerId !== undefined && event.runnerId !== "" ? `runner=${event.runnerId}` : "",
+        event.profile !== undefined && event.profile !== "" ? `profile=${event.profile}` : "",
         `attempt=${event.attempt}`,
       ]
         .filter(isNonEmptyString)
@@ -167,9 +138,7 @@ const formatRepairProgress = (event: PipelineRuntimeEvent): string => {
   switch (event.type) {
     case "output.repair": {
       return `Output repair ${event.passed ? "passed" : "failed"}: ${event.nodeId} attempt=${event.attempt}${
-        event.reason !== undefined && event.reason !== ""
-          ? ` (${event.reason})`
-          : ""
+        event.reason !== undefined && event.reason !== "" ? ` (${event.reason})` : ""
       }`;
     }
     default: {
@@ -191,7 +160,7 @@ const formatObservabilityProgress = (event: PipelineRuntimeEvent): string => {
 
 export const formatRuntimeProgressMessage = (
   event: PipelineRuntimeEvent,
-  state: TerminalRuntimeRendererState = { attempts: new Map() }
+  state: TerminalRuntimeRendererState = { attempts: new Map() },
 ): string =>
   [
     formatWorkflowProgress(event, state),
@@ -204,7 +173,7 @@ export const formatRuntimeProgressMessage = (
 export const createTerminalRuntimeReporter = (
   write: (message: string) => void = (message) => {
     console.log(message);
-  }
+  },
 ): ((event: PipelineRuntimeEvent) => void) => {
   const state: TerminalRuntimeRendererState = { attempts: new Map() };
   return (event) => {
@@ -219,15 +188,10 @@ export const formatDoctorResult = (result: DoctorResult): string => {
   const warnings = result.warnings ?? [];
   const lines = [
     `Doctor: ${result.passed ? "PASS" : "FAIL"}`,
-    ...result.checks.map(
-      (check) =>
-        `- ${check.passed ? "PASS" : "FAIL"} ${check.name}: ${check.detail}`
-    ),
+    ...result.checks.map((check) => `- ${check.passed ? "PASS" : "FAIL"} ${check.name}: ${check.detail}`),
   ];
   if (warnings.length > 0) {
-    lines.push(
-      ...warnings.map((check) => `- WARN ${check.name}: ${check.detail}`)
-    );
+    lines.push(...warnings.map((check) => `- WARN ${check.name}: ${check.detail}`));
   }
   return lines.join("\n");
 };
@@ -246,11 +210,7 @@ const truncateMiddle = (text: string, maxLength: number): string => {
   return `${text.slice(0, keep)}\n... truncated ...\n${text.slice(-keep)}`;
 };
 
-const appendIndentedSection = (
-  lines: string[],
-  label: string,
-  values: string[]
-): void => {
+const appendIndentedSection = (lines: string[], label: string, values: string[]): void => {
   const text = values.filter(isNonEmptyString).join("\n").trim();
   if (text === "") {
     return;
@@ -282,7 +242,7 @@ export const formatRuntimeFailure = (result: PipelineRuntimeResult): string => {
     lines.push(
       failure.nodeId !== undefined && failure.nodeId !== ""
         ? `- ${failure.nodeId}: ${failure.reason}`
-        : `- ${failure.reason}`
+        : `- ${failure.reason}`,
     );
     appendIndentedSection(lines, "Evidence", failure.evidence);
     const node =
@@ -290,9 +250,7 @@ export const formatRuntimeFailure = (result: PipelineRuntimeResult): string => {
         ? result.nodes.find((item) => item.nodeId === failure.nodeId)
         : undefined;
     if (node !== undefined) {
-      lines.push(
-        `  Node: status=${node.status} attempts=${node.attempts} exit=${node.exitCode}`
-      );
+      lines.push(`  Node: status=${node.status} attempts=${node.attempts} exit=${node.exitCode}`);
       appendIndentedSection(lines, "Node evidence", node.evidence);
       appendIndentedSection(lines, "Node output", [node.output]);
     }
@@ -302,10 +260,8 @@ export const formatRuntimeFailure = (result: PipelineRuntimeResult): string => {
     for (const gate of result.gates) {
       lines.push(
         `  - ${gate.nodeId}/${gate.gateId}: ${gate.passed ? "PASS" : "FAIL"}${
-          gate.reason !== undefined && gate.reason !== ""
-            ? ` (${gate.reason})`
-            : ""
-        }`
+          gate.reason !== undefined && gate.reason !== "" ? ` (${gate.reason})` : ""
+        }`,
       );
       appendIndentedSection(lines, "Gate evidence", gate.evidence);
     }

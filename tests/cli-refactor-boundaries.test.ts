@@ -10,11 +10,7 @@ import {
   formatRuntimeProgressMessage,
   formatRuntimeResult,
 } from "../src/cli/format";
-import {
-  addMokaSubmitOptions,
-  buildMokaSubmitInputFromCli,
-  parseImagePullPolicy,
-} from "../src/cli/submit-options";
+import { addMokaSubmitOptions, buildMokaSubmitInputFromCli, parseImagePullPolicy } from "../src/cli/submit-options";
 import { loadPackagePipelineConfig } from "../src/config";
 
 const ROOT = process.cwd();
@@ -52,9 +48,7 @@ const GLOBAL_CONFIG = {
 
 describe("PIPE-45.9 CLI app service boundaries", () => {
   it("keeps src/cli/program.ts thin and moves app services to owned modules", () => {
-    const missingOwners = CLI_APP_SERVICE_FILES.filter(
-      (path) => !existsSync(join(ROOT, path))
-    );
+    const missingOwners = CLI_APP_SERVICE_FILES.filter((path) => !existsSync(join(ROOT, path)));
     const programText = readFileSync(join(ROOT, "src/cli/program.ts"), "utf-8");
     const programLines = programText.split("\n").length;
 
@@ -217,7 +211,7 @@ describe("PIPE-65 CLI formatting behavior", () => {
         nodeIds: ["research", "verify"],
         type: "workflow.start",
         workflowId: "root",
-      })
+      }),
     ).toBe("Pipeline starting: root (research -> verify)");
 
     expect(
@@ -227,19 +221,15 @@ describe("PIPE-65 CLI formatting behavior", () => {
         profile: "pipeline-researcher",
         runnerId: "opencode",
         type: "node.start",
-      })
-    ).toBe(
-      "Node starting: research runner=opencode profile=pipeline-researcher attempt=2"
-    );
+      }),
+    ).toBe("Node starting: research runner=opencode profile=pipeline-researcher attempt=2");
   });
 });
 
 describe("PIPE-65 moka submit option normalization", () => {
   it("keeps submit command options registered on the existing CLI surface", () => {
     const command = addMokaSubmitOptions(new Command("submit"));
-    const optionNames = new Set(
-      command.options.map((option) => option.long).filter(Boolean)
-    );
+    const optionNames = new Set(command.options.map((option) => option.long).filter(Boolean));
 
     expect(optionNames).toEqual(
       new Set([
@@ -266,7 +256,7 @@ describe("PIPE-65 moka submit option normalization", () => {
         "--image",
         "--image-pull-policy",
         "--image-pull-secret",
-      ])
+      ]),
     );
   });
 

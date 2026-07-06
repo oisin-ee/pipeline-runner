@@ -10,14 +10,12 @@ export class CommandExecutor extends Context.Service<
     readonly execute: (
       command: string[],
       context: CommandExecutionContext,
-      options?: CommandExecutionOptions
+      options?: CommandExecutionOptions,
     ) => Effect.Effect<NodeAttemptResult, unknown>;
   }
 >()("CommandExecutor") {}
 
 export const CommandExecutorLive = Layer.succeed(CommandExecutor, {
   execute: (command, context, options) =>
-    Effect.tryPromise(
-      async () => await executeCommand(command, context, options)
-    ),
+    Effect.tryPromise(async () => await executeCommand(command, context, options)),
 });

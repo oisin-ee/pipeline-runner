@@ -1,41 +1,32 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { Data, Option } from "effect";
+import * as Data from "effect/Data";
+import * as Option from "effect/Option";
+import { isSuccess } from "effect/Result";
+import * as Schema from "effect/Schema";
 import { parseDocument, stringify } from "yaml";
-import { z } from "zod";
 
 import { validatePipelineConfig, workflowSchema } from "../config";
 import type { PipelineConfig, SchedulingRole } from "../config";
+import { configIssuesFromSchemaIssues } from "../config/schemas";
 import { ensurePipelineWorkspaceIgnore } from "../run-control/workspace";
-import type {
-  AgentResult,
-  RunnerExecutionOptions,
-  RunnerLaunchPlan,
-} from "../runner";
+import type { AgentResult, RunnerExecutionOptions, RunnerLaunchPlan } from "../runner";
 import { createRunnerLaunchPlan } from "../runner";
 import { normalizeRunnerOutput } from "../runner-output";
 import { runLaunchPlan } from "../runner/subprocess";
 import { loadBacklogPlanningContext } from "../schedule/backlog-context";
 import { baselineScheduleArtifact } from "../schedule/baseline";
-import {
-  addGeneratedImplementationCoverage,
-  hasDownstreamCoverage,
-} from "../schedule/passes/coverage";
+import { addGeneratedImplementationCoverage, hasDownstreamCoverage } from "../schedule/passes/coverage";
 import { integrateParallelWriteFanout } from "../schedule/passes/drain-merge";
 import { canonicalizeGeneratedScheduleIds } from "../schedule/passes/ids";
 import { SCHEDULE_PASS_ORDER } from "../schedule/passes/index";
 import { applyNodeCatalogModelFallbacks } from "../schedule/passes/models";
-import {
-  appendPullRequestDelivery,
-  shouldAppendPullRequestDelivery,
-} from "../schedule/passes/open-pull-request";
+import { appendPullRequestDelivery, shouldAppendPullRequestDelivery } from "../schedule/passes/open-pull-request";
 import { namespaceScheduleWorkflows } from "../schedule/passes/references";
 import { plannerPrompt, plannerRepairPrompt } from "../schedule/prompts";
-import {
-  isImplementationNode,
-  isWriteCapableParallelChild,
-} from "../schedule/scheduling-roles";
+import { isImplementationNode, isWriteCapableParallelChild } from "../schedule/scheduling-roles";
+import { parseResultWithSchema, regexString, requiredString, struct } from "../schema-boundary";
 import { uniqueGeneratedId } from "../strings";
 import type { TicketPlan } from "../tickets/ticket-plan";
 import { compileWorkflowPlan } from "./compile";
@@ -62,20 +53,30 @@ const SCHEDULE_BUILTINS = [
 // a single result, satisfying the worktree-isolation requirement: drain-merge
 // integrates the children.
 const PARALLEL_MERGE_BUILTINS = new Set(["drain-merge"]);
-const scheduleArtifactSchema = z
-  .object({
-    generated_at: z.string().datetime(),
-    kind: z.literal(SCHEDULE_KIND),
-    root_workflow: z.string().regex(ID_RE),
-    schedule_id: z.string().regex(SCHEDULE_ID_RE),
-    source_entrypoint: z.string().regex(ID_RE),
-    task: z.string().min(1),
-    version: z.literal(1),
-    workflows: z.record(z.string().regex(ID_RE), workflowSchema),
-  })
-  .strict();
+const dateTimeString = requiredString.check(
+  Schema.makeFilter<string>(
+    (value) =>
+      isSuccess(Schema.decodeUnknownResult(Schema.DateTimeUtcFromString)(value)) || "must be an ISO datetime string",
+    {
+      description: "ISO datetime string accepted by Effect DateTime parsing.",
+      identifier: "ScheduleArtifactDateTimeString",
+      title: "Schedule artifact datetime string",
+    },
+  ),
+);
 
-export type ScheduleArtifact = z.infer<typeof scheduleArtifactSchema>;
+const scheduleArtifactSchema = struct({
+  generated_at: dateTimeString,
+  kind: Schema.Literal(SCHEDULE_KIND),
+  root_workflow: regexString(ID_RE),
+  schedule_id: regexString(SCHEDULE_ID_RE),
+  source_entrypoint: regexString(ID_RE),
+  task: requiredString,
+  version: Schema.Literal(1),
+  workflows: Schema.Record(regexString(ID_RE), workflowSchema),
+});
+
+export type ScheduleArtifact = typeof scheduleArtifactSchema.Type;
 
 export interface CompiledScheduleArtifact {
   config: PipelineConfig;
@@ -86,10 +87,7 @@ export interface CompiledScheduleArtifact {
 export interface GenerateScheduleOptions {
   config: PipelineConfig;
   entrypointId: string;
-  executor?: (
-    plan: RunnerLaunchPlan,
-    options: RunnerExecutionOptions
-  ) => AgentResult | Promise<AgentResult>;
+  executor?: (plan: RunnerLaunchPlan, options: RunnerExecutionOptions) => AgentResult | Promise<AgentResult>;
   generatedAt?: Date;
   phaseContext?: SchedulePhaseContext;
   pullRequestDeliveryRequested?: boolean;
@@ -148,12 +146,8 @@ export interface SchedulePhaseContext {
  * the same predicate workUnitDependencyIssues applies after generation — so the
  * planner prompt context and downstream validation stay consistent.
  */
-export const pruneOutOfScopeDependencies = (
-  context: SchedulePlanningContext
-): SchedulePlanningContext => {
-  const inScope = new Set(
-    [...context.parentWorkUnits, ...context.workUnits].map((unit) => unit.id)
-  );
+export const pruneOutOfScopeDependencies = (context: SchedulePlanningContext): SchedulePlanningContext => {
+  const inScope = new Set([...context.parentWorkUnits, ...context.workUnits].map((unit) => unit.id));
   const prune = (unit: BacklogWorkUnit): BacklogWorkUnit =>
     unit.dependencies
       ? {
@@ -167,9 +161,7 @@ export const pruneOutOfScopeDependencies = (
   };
 };
 
-export class ScheduleArtifactError extends Data.TaggedError(
-  "ScheduleArtifactError"
-)<{
+export class ScheduleArtifactError extends Data.TaggedError("ScheduleArtifactError")<{
   readonly message: string;
 }> {
   constructor(message: string) {
@@ -177,51 +169,44 @@ export class ScheduleArtifactError extends Data.TaggedError(
   }
 }
 
-export const parseScheduleArtifact = (
-  source: string,
-  sourcePath = "schedule.yaml"
-): ScheduleArtifact => {
+export const parseScheduleArtifact = (source: string, sourcePath = "schedule.yaml"): ScheduleArtifact => {
   const document = parseDocument(source, {
     prettyErrors: false,
     uniqueKeys: true,
   });
   if (document.errors.length > 0) {
     throw new ScheduleArtifactError(
-      `Failed to parse ${sourcePath}: ${document.errors.map((err) => err.message).join("; ")}`
+      `Failed to parse ${sourcePath}: ${document.errors.map((err) => err.message).join("; ")}`,
     );
   }
 
-  const parsed = scheduleArtifactSchema.safeParse(document.toJS());
-  if (!parsed.success) {
+  const parsed = parseResultWithSchema(scheduleArtifactSchema, document.toJS(), {
+    onExcessProperty: "error",
+  });
+  if (!parsed.ok) {
+    const issues = configIssuesFromSchemaIssues(parsed.issues);
     throw new ScheduleArtifactError(
       [
         `Invalid schedule artifact ${sourcePath}:`,
-        ...parsed.error.issues.map((issue) =>
-          issue.path.length > 0
-            ? `- ${issue.path.join(".")}: ${issue.message}`
-            : `- ${issue.message}`
+        ...issues.map((issue) =>
+          issue.path !== undefined && issue.path !== "" ? `- ${issue.path}: ${issue.message}` : `- ${issue.message}`,
         ),
-      ].join("\n")
+      ].join("\n"),
     );
   }
-  return parsed.data;
+  return parsed.value;
 };
 
 export const compileScheduleArtifact = (
   config: PipelineConfig,
   artifact: ScheduleArtifact,
-  projectRoot?: string
+  projectRoot?: string,
 ): CompiledScheduleArtifact => {
   if (!Object.hasOwn(artifact.workflows, artifact.root_workflow)) {
-    throw new ScheduleArtifactError(
-      `schedule root workflow '${artifact.root_workflow}' is not declared`
-    );
+    throw new ScheduleArtifactError(`schedule root workflow '${artifact.root_workflow}' is not declared`);
   }
 
-  const { scheduledWorkflows, workflowId } = namespaceScheduleWorkflows(
-    artifact,
-    ScheduleArtifactError
-  );
+  const { scheduledWorkflows, workflowId } = namespaceScheduleWorkflows(artifact, ScheduleArtifactError);
 
   const mergedConfig: PipelineConfig = validatePipelineConfig(
     {
@@ -232,7 +217,7 @@ export const compileScheduleArtifact = (
       },
     },
     projectRoot,
-    { allowMissingLintFileReferences: true }
+    { allowMissingLintFileReferences: true },
   );
   return {
     config: mergedConfig,
@@ -243,7 +228,7 @@ export const compileScheduleArtifact = (
 
 const ticketPlanTaskWorkUnit = (
   task: TicketPlan["tickets"][number] | NonNullable<TicketPlan["epic"]>,
-  localIds: ReadonlyMap<string, string> = new Map()
+  localIds: ReadonlyMap<string, string> = new Map(),
 ): BacklogWorkUnit => ({
   acceptance_criteria: task.acceptance_criteria.map((criterion, index) => ({
     id: `${task.key}-ac-${index + 1}`,
@@ -262,22 +247,18 @@ const ticketPlanTaskWorkUnit = (
 });
 
 export const ticketPlanPlanningContext = (
-  plan: TicketPlan
+  plan: TicketPlan,
 ): Pick<SchedulePlanningContext, "parentWorkUnits" | "workUnits"> => {
-  const localIds = new Map(
-    plan.tickets.map((ticket) => [ticket.key, ticket.key])
-  );
+  const localIds = new Map(plan.tickets.map((ticket) => [ticket.key, ticket.key]));
   return {
     parentWorkUnits: plan.epic ? [ticketPlanTaskWorkUnit(plan.epic)] : [],
-    workUnits: plan.tickets.map((ticket) =>
-      ticketPlanTaskWorkUnit(ticket, localIds)
-    ),
+    workUnits: plan.tickets.map((ticket) => ticketPlanTaskWorkUnit(ticket, localIds)),
   };
 };
 
 const mergePhasePlanningContext = (
   base: SchedulePlanningContext,
-  phaseContext: SchedulePhaseContext | void
+  phaseContext: SchedulePhaseContext | void,
 ): SchedulePlanningContext => {
   const planned =
     phaseContext?.ticketPlan === undefined
@@ -285,9 +266,7 @@ const mergePhasePlanningContext = (
       : ticketPlanPlanningContext(phaseContext.ticketPlan);
   return {
     parentWorkUnits: [...base.parentWorkUnits, ...planned.parentWorkUnits],
-    ...(phaseContext?.research === undefined
-      ? {}
-      : { research: phaseContext.research }),
+    ...(phaseContext?.research === undefined ? {} : { research: phaseContext.research }),
     workUnits: [...base.workUnits, ...planned.workUnits],
   };
 };
@@ -298,37 +277,19 @@ export const schedulePlanningContext = (input: {
   worktreePath: string;
 }): SchedulePlanningContext =>
   pruneOutOfScopeDependencies(
-    mergePhasePlanningContext(
-      loadBacklogPlanningContext(input.task, input.worktreePath),
-      input.phaseContext
-    )
+    mergePhasePlanningContext(loadBacklogPlanningContext(input.task, input.worktreePath), input.phaseContext),
   );
 
 const assertSchedulePassOrder = (): void => {
-  const expected = [
-    "coverage",
-    "drain-merge",
-    "delivery",
-    "models",
-    "ids",
-    "references",
-  ] as const;
+  const expected = ["coverage", "drain-merge", "delivery", "models", "ids", "references"] as const;
   if (SCHEDULE_PASS_ORDER.join("\0") !== expected.join("\0")) {
     throw new ScheduleArtifactError("Schedule pass order is misconfigured");
   }
 };
 
-const persistScheduleArtifact = (
-  worktreePath: string,
-  artifact: ScheduleArtifact
-): string => {
+const persistScheduleArtifact = (worktreePath: string, artifact: ScheduleArtifact): string => {
   ensurePipelineWorkspaceIgnore(worktreePath);
-  const relativePath = join(
-    ".pipeline",
-    "runs",
-    artifact.schedule_id,
-    "schedule.yaml"
-  );
+  const relativePath = join(".pipeline", "runs", artifact.schedule_id, "schedule.yaml");
   const fullPath = join(worktreePath, relativePath);
   mkdirSync(join(worktreePath, ".pipeline", "runs", artifact.schedule_id), {
     recursive: true,
@@ -337,46 +298,37 @@ const persistScheduleArtifact = (
   return relativePath;
 };
 
-export const scheduleArtifactPath = (
-  worktreePath: string,
-  scheduleId: string
-): string =>
+export const scheduleArtifactPath = (worktreePath: string, scheduleId: string): string =>
   join(worktreePath, ".pipeline", "runs", scheduleId, "schedule.yaml");
 
 const profileIdForSchedulingRole = (
   config: PipelineConfig,
   role: SchedulingRole,
-  preferredIds: readonly string[]
+  preferredIds: readonly string[],
 ): string | void => {
   const matchingIds = Object.entries(config.profiles)
     .filter(([, profile]) => profile.scheduling_roles?.includes(role) === true)
     .map(([id]) => id);
-  return (
-    preferredIds.find((id) => matchingIds.includes(id)) ??
-    matchingIds.toSorted()[0]
-  );
+  return preferredIds.find((id) => matchingIds.includes(id)) ?? matchingIds.toSorted()[0];
 };
 
 const ticketPlanScheduleArtifact = (
   baseline: ScheduleArtifact,
   config: PipelineConfig,
   planningContext: SchedulePlanningContext,
-  phaseContext: SchedulePhaseContext | void
+  phaseContext: SchedulePhaseContext | void,
 ): ScheduleArtifact | void => {
-  if (
-    phaseContext?.ticketPlan === undefined ||
-    planningContext.workUnits.length === 0
-  ) {
+  if (phaseContext?.ticketPlan === undefined || planningContext.workUnits.length === 0) {
     return;
   }
   const implementationProfile = profileIdForSchedulingRole(
     config,
     "implementation",
-    PREFERRED_IMPLEMENTATION_PROFILE_IDS
+    PREFERRED_IMPLEMENTATION_PROFILE_IDS,
   );
   if (implementationProfile === undefined) {
     throw new ScheduleArtifactError(
-      "Cannot generate TicketPlan schedule: no profile declares scheduling role 'implementation'"
+      "Cannot generate TicketPlan schedule: no profile declares scheduling role 'implementation'",
     );
   }
   const usedIds = new Set<string>();
@@ -384,7 +336,7 @@ const ticketPlanScheduleArtifact = (
     planningContext.workUnits.map((unit) => [
       unit.id,
       uniqueGeneratedId(`${unit.id}-implement`, usedIds, "work-implement"),
-    ])
+    ]),
   );
   const nodes: WorkflowNode[] = planningContext.workUnits.map((unit) => {
     const needs = (unit.dependencies ?? []).flatMap((id) => {
@@ -411,16 +363,11 @@ const ticketPlanScheduleArtifact = (
   };
 };
 
-const requireSchedulePlannerProfile = (
-  plannerProfile: string | void,
-  entrypointId: string
-): string => {
+const requireSchedulePlannerProfile = (plannerProfile: string | void, entrypointId: string): string => {
   if (plannerProfile !== undefined && plannerProfile.length > 0) {
     return plannerProfile;
   }
-  throw new ScheduleArtifactError(
-    `schedule '${entrypointId}' requires planner_profile`
-  );
+  throw new ScheduleArtifactError(`schedule '${entrypointId}' requires planner_profile`);
 };
 
 const requireSchedulePlannerSource = (source: string): string => {
@@ -434,7 +381,7 @@ const scheduleArtifactAfterRepair = (
   repair: ScheduleRepairResult,
   baseline: ScheduleArtifact,
   initialFailure: ScheduleArtifactError,
-  initialSource: string
+  initialSource: string,
 ): ScheduleArtifact => {
   if (repair.kind === "accepted") {
     return repair.artifact;
@@ -451,7 +398,7 @@ const scheduleArtifactAfterRepair = (
       repair.latestFailure.message,
       "Planner repair output:",
       repair.latestSource,
-    ].join("\n")
+    ].join("\n"),
   );
 };
 
@@ -471,10 +418,8 @@ const normalizeGeneratedScheduleSource = (source: string): string => {
 
 const parseGeneratedSchedule = (
   source: string,
-  sourcePath: string
-):
-  | { artifact: ScheduleArtifact; ok: true }
-  | { error: ScheduleArtifactError; ok: false } => {
+  sourcePath: string,
+): { artifact: ScheduleArtifact; ok: true } | { error: ScheduleArtifactError; ok: false } => {
   const parseableSource = normalizeGeneratedScheduleSource(source);
   try {
     return {
@@ -486,9 +431,7 @@ const parseGeneratedSchedule = (
       throw error;
     }
     return {
-      error: new ScheduleArtifactError(
-        `${error.message}\nPlanner output:\n${source}`
-      ),
+      error: new ScheduleArtifactError(`${error.message}\nPlanner output:\n${source}`),
       ok: false,
     };
   }
@@ -501,14 +444,12 @@ const plannerFailureMessage = (
     stderr?: string;
     stdout: string;
     timedOut?: boolean;
-  }
+  },
 ): string => {
   const stderr = result.stderr?.trim() ?? "";
   const stdout = result.stdout.trim();
   const details = [
-    result.timedOut === true
-      ? "timed out waiting for scheduler subprocess"
-      : undefined,
+    result.timedOut === true ? "timed out waiting for scheduler subprocess" : undefined,
     stderr.length > 0 ? `stderr:\n${stderr}` : undefined,
     stdout.length > 0 ? `stdout:\n${stdout}` : undefined,
   ].filter((value): value is string => value !== undefined);
@@ -520,7 +461,7 @@ const runSchedulePlanner = async (
   plannerProfile: string,
   prompt: string,
   options: GenerateScheduleOptions,
-  nodeId = "schedule-plan"
+  nodeId = "schedule-plan",
 ): Promise<string> => {
   const executor = options.executor ?? runLaunchPlan;
   const plan = createRunnerLaunchPlan(options.config, {
@@ -531,9 +472,7 @@ const runSchedulePlanner = async (
   });
   const result = await executor(plan, {});
   if (result.exitCode !== 0) {
-    throw new ScheduleArtifactError(
-      plannerFailureMessage(plannerProfile, result)
-    );
+    throw new ScheduleArtifactError(plannerFailureMessage(plannerProfile, result));
   }
   return normalizeRunnerOutput(plan, result.stdout).output.trim();
 };
@@ -541,10 +480,8 @@ const runSchedulePlanner = async (
 const runSchedulePlannerSource = async (
   plannerProfile: string,
   prompt: string,
-  options: GenerateScheduleOptions
-): Promise<
-  { ok: true; source: string } | { error: ScheduleArtifactError; ok: false }
-> => {
+  options: GenerateScheduleOptions,
+): Promise<{ ok: true; source: string } | { error: ScheduleArtifactError; ok: false }> => {
   try {
     return {
       ok: true,
@@ -566,7 +503,7 @@ const runScheduleRepair = async (
   },
   latestFailure: ScheduleArtifactError,
   latestSource: string,
-  attempt: number
+  attempt: number,
 ): Promise<string | void> => {
   try {
     return await runSchedulePlanner(
@@ -578,7 +515,7 @@ const runScheduleRepair = async (
         source: latestSource,
       }),
       input.options,
-      "schedule-plan-repair"
+      "schedule-plan-repair",
     );
   } catch (error) {
     if (error instanceof ScheduleArtifactError) {
@@ -602,17 +539,14 @@ interface WorkflowNodeIssueContext {
 const registerContainmentEdge = (
   parent: WorkflowNode,
   child: WorkflowNode,
-  index: Map<string, WorkflowNode[]>
+  index: Map<string, WorkflowNode[]>,
 ): void => {
   const dependents = index.get(child.id) ?? [];
   dependents.push(parent);
   index.set(child.id, dependents);
 };
 
-const addParallelContainmentEdges = (
-  nodes: WorkflowNode[],
-  index: Map<string, WorkflowNode[]>
-): void => {
+const addParallelContainmentEdges = (nodes: WorkflowNode[], index: Map<string, WorkflowNode[]>): void => {
   for (const node of nodes) {
     if (node.kind !== "parallel") {
       continue;
@@ -624,25 +558,14 @@ const addParallelContainmentEdges = (
   }
 };
 
-const dependentsByNeedWithContainment = (
-  nested: WorkflowNode[],
-  flat: WorkflowNode[]
-): Map<string, WorkflowNode[]> => {
+const dependentsByNeedWithContainment = (nested: WorkflowNode[], flat: WorkflowNode[]): Map<string, WorkflowNode[]> => {
   const index = dependentsByNeed(flat);
   addParallelContainmentEdges(nested, index);
   return index;
 };
 
-const hasDownstreamDrainMerge = (
-  nodeId: string,
-  index: Map<string, WorkflowNode[]>
-): boolean =>
-  hasReachableDependent(
-    nodeId,
-    index,
-    (node) =>
-      node.kind === "builtin" && PARALLEL_MERGE_BUILTINS.has(node.builtin)
-  );
+const hasDownstreamDrainMerge = (nodeId: string, index: Map<string, WorkflowNode[]>): boolean =>
+  hasReachableDependent(nodeId, index, (node) => node.kind === "builtin" && PARALLEL_MERGE_BUILTINS.has(node.builtin));
 
 const generatedRootWorkflowIssues = (artifact: ScheduleArtifact): string[] => {
   const workflowIds = Object.keys(artifact.workflows);
@@ -651,58 +574,43 @@ const generatedRootWorkflowIssues = (artifact: ScheduleArtifact): string[] => {
     issues.push("generated schedules must use root_workflow 'root'");
   }
   if (workflowIds.length !== 1 || !Object.hasOwn(artifact.workflows, "root")) {
-    issues.push(
-      "generated schedules must embed exactly one task-specific workflow named 'root'"
-    );
+    issues.push("generated schedules must embed exactly one task-specific workflow named 'root'");
   }
   return issues;
 };
 
-const backlogWorkUnitTaskContext = (
-  unit: BacklogWorkUnit
-): NonNullable<WorkflowNode["task_context"]> => ({
-  ...(unit.acceptance_criteria.length > 0
-    ? { acceptance_criteria: unit.acceptance_criteria }
-    : {}),
-  ...(unit.description !== undefined && unit.description.length > 0
-    ? { description: unit.description }
-    : {}),
+const backlogWorkUnitTaskContext = (unit: BacklogWorkUnit): NonNullable<WorkflowNode["task_context"]> => ({
+  ...(unit.acceptance_criteria.length > 0 ? { acceptance_criteria: unit.acceptance_criteria } : {}),
+  ...(unit.description !== undefined && unit.description.length > 0 ? { description: unit.description } : {}),
   id: unit.id,
-  ...(unit.title !== undefined && unit.title.length > 0
-    ? { title: unit.title }
-    : {}),
+  ...(unit.title !== undefined && unit.title.length > 0 ? { title: unit.title } : {}),
 });
 
 const hydrateWorkflowNodeTaskContext = (
   node: WorkflowNode,
-  contexts: Map<string, NonNullable<WorkflowNode["task_context"]>>
+  contexts: Map<string, NonNullable<WorkflowNode["task_context"]>>,
 ): WorkflowNode => {
   const contextId = node.task_context?.id;
-  const context =
-    contextId !== undefined && contextId.length > 0
-      ? contexts.get(contextId)
-      : undefined;
-  const hydrated =
-    context === undefined ? node : { ...node, task_context: context };
+  const context = contextId !== undefined && contextId.length > 0 ? contexts.get(contextId) : undefined;
+  const hydrated = context === undefined ? node : { ...node, task_context: context };
   if (hydrated.kind !== "parallel") {
     return hydrated;
   }
   return {
     ...hydrated,
-    nodes: hydrated.nodes.map((child) =>
-      hydrateWorkflowNodeTaskContext(child, contexts)
-    ),
+    nodes: hydrated.nodes.map((child) => hydrateWorkflowNodeTaskContext(child, contexts)),
   };
 };
 
 const hydrateScheduleTaskContexts = (
   artifact: ScheduleArtifact,
-  planningContext: SchedulePlanningContext
+  planningContext: SchedulePlanningContext,
 ): ScheduleArtifact => {
   const contexts = new Map(
-    [...planningContext.parentWorkUnits, ...planningContext.workUnits].map(
-      (unit) => [unit.id, backlogWorkUnitTaskContext(unit)]
-    )
+    [...planningContext.parentWorkUnits, ...planningContext.workUnits].map((unit) => [
+      unit.id,
+      backlogWorkUnitTaskContext(unit),
+    ]),
   );
   if (contexts.size === 0) {
     return artifact;
@@ -714,18 +622,14 @@ const hydrateScheduleTaskContexts = (
         id,
         {
           ...workflow,
-          nodes: workflow.nodes.map((node) =>
-            hydrateWorkflowNodeTaskContext(node, contexts)
-          ),
+          nodes: workflow.nodes.map((node) => hydrateWorkflowNodeTaskContext(node, contexts)),
         },
-      ])
+      ]),
     ),
   };
 };
 
-const nodesByAssignedWorkUnit = (
-  nodes: WorkflowNode[]
-): Map<string, WorkflowNode[]> => {
+const nodesByAssignedWorkUnit = (nodes: WorkflowNode[]): Map<string, WorkflowNode[]> => {
   const grouped = new Map<string, WorkflowNode[]>();
   for (const node of nodes) {
     const id = node.task_context?.id;
@@ -740,13 +644,11 @@ const nodesByAssignedWorkUnit = (
 };
 
 const flattenWorkflowNodes = (nodes: WorkflowNode[]): WorkflowNode[] =>
-  flattenNodes(nodes, (node) =>
-    node.kind === "parallel" ? node.nodes : undefined
-  );
+  flattenNodes(nodes, (node) => (node.kind === "parallel" ? node.nodes : undefined));
 
 const workflowNodeIssues = (
   artifact: ScheduleArtifact,
-  collectIssues: (context: WorkflowNodeIssueContext) => string[]
+  collectIssues: (context: WorkflowNodeIssueContext) => string[],
 ): string[] =>
   Object.entries(artifact.workflows).flatMap(([workflowId, workflow]) => {
     const nodes = flattenWorkflowNodes(workflow.nodes);
@@ -757,33 +659,20 @@ const workflowNodeIssues = (
     });
   });
 
-const implementationCoverageIssues = (
-  config: PipelineConfig,
-  artifact: ScheduleArtifact
-): string[] =>
+const implementationCoverageIssues = (config: PipelineConfig, artifact: ScheduleArtifact): string[] =>
   workflowNodeIssues(artifact, ({ dependentsByNeed, nodes, workflowId }) =>
     nodes
       .filter((node) => isImplementationNode(config, node))
-      .filter(
-        (node) => !hasDownstreamCoverage(config, node.id, dependentsByNeed)
-      )
-      .map(
-        (node) =>
-          `implementation node '${workflowId}.${node.id}' is without downstream verification or review`
-      )
+      .filter((node) => !hasDownstreamCoverage(config, node.id, dependentsByNeed))
+      .map((node) => `implementation node '${workflowId}.${node.id}' is without downstream verification or review`),
   );
 
-const unsafeParallelWorktreeIssues = (
-  config: PipelineConfig,
-  artifact: ScheduleArtifact
-): string[] =>
+const unsafeParallelWorktreeIssues = (config: PipelineConfig, artifact: ScheduleArtifact): string[] =>
   workflowNodeIssues(artifact, ({ dependentsByNeed, nodes, workflowId }) =>
     nodes
       .filter((node) => node.kind === "parallel")
       .flatMap((node) => {
-        const writeCapable = node.nodes.filter((child) =>
-          isWriteCapableParallelChild(config, child)
-        );
+        const writeCapable = node.nodes.filter((child) => isWriteCapableParallelChild(config, child));
         if (writeCapable.length <= 1) {
           return [];
         }
@@ -793,89 +682,64 @@ const unsafeParallelWorktreeIssues = (
         return [
           `parallel node '${workflowId}.${node.id}' has write-capable children sharing a worktree without isolated worktree roots or drain-merge integration`,
         ];
-      })
+      }),
   );
 
 const workUnitDependencyIssues = (
   config: PipelineConfig,
   artifact: ScheduleArtifact,
-  workUnits: BacklogWorkUnit[]
+  workUnits: BacklogWorkUnit[],
 ): string[] => {
   if (workUnits.length === 0) {
     return [];
   }
   const workUnitIds = new Set(workUnits.map((unit) => unit.id));
   const dependenciesByUnit = new Map(
-    workUnits.map((unit) => [
-      unit.id,
-      (unit.dependencies ?? []).filter((id) => workUnitIds.has(id)),
-    ])
+    workUnits.map((unit) => [unit.id, (unit.dependencies ?? []).filter((id) => workUnitIds.has(id))]),
   );
-  return Object.entries(artifact.workflows).flatMap(
-    ([workflowId, workflow]) => {
-      const nodes = flattenWorkflowNodes(workflow.nodes);
-      const index = dependentsByNeedWithContainment(workflow.nodes, nodes);
-      const nodesByWorkUnit = nodesByAssignedWorkUnit(nodes);
-      return nodes
-        .filter((node) => isImplementationNode(config, node))
-        .flatMap((node) => {
-          const dependentId = node.task_context?.id;
-          if (dependentId === undefined || dependentId.length === 0) {
-            return [];
-          }
-          return (dependenciesByUnit.get(dependentId) ?? []).flatMap(
-            (prerequisiteId) => {
-              const prerequisiteNodes =
-                nodesByWorkUnit.get(prerequisiteId) ?? [];
-              const hasDependencyPath = prerequisiteNodes.some((source) =>
-                hasReachableDependent(
-                  source.id,
-                  index,
-                  (candidate) => candidate.id === node.id
-                )
-              );
-              return hasDependencyPath
-                ? []
-                : [
-                    `work unit dependency edge missing in '${workflowId}': '${dependentId}' node '${node.id}' must depend on prerequisite '${prerequisiteId}' nodes ${prerequisiteNodes.map((prerequisite) => `'${prerequisite.id}'`).join(", ")}`,
-                  ];
-            }
+  return Object.entries(artifact.workflows).flatMap(([workflowId, workflow]) => {
+    const nodes = flattenWorkflowNodes(workflow.nodes);
+    const index = dependentsByNeedWithContainment(workflow.nodes, nodes);
+    const nodesByWorkUnit = nodesByAssignedWorkUnit(nodes);
+    return nodes
+      .filter((node) => isImplementationNode(config, node))
+      .flatMap((node) => {
+        const dependentId = node.task_context?.id;
+        if (dependentId === undefined || dependentId.length === 0) {
+          return [];
+        }
+        return (dependenciesByUnit.get(dependentId) ?? []).flatMap((prerequisiteId) => {
+          const prerequisiteNodes = nodesByWorkUnit.get(prerequisiteId) ?? [];
+          const hasDependencyPath = prerequisiteNodes.some((source) =>
+            hasReachableDependent(source.id, index, (candidate) => candidate.id === node.id),
           );
+          return hasDependencyPath
+            ? []
+            : [
+                `work unit dependency edge missing in '${workflowId}': '${dependentId}' node '${node.id}' must depend on prerequisite '${prerequisiteId}' nodes ${prerequisiteNodes.map((prerequisite) => `'${prerequisite.id}'`).join(", ")}`,
+              ];
         });
-    }
-  );
+      });
+  });
 };
 
-const allWorkflowNodes = (
-  workflows: ScheduleArtifact["workflows"]
-): WorkflowNode[] =>
-  Object.values(workflows).flatMap((workflow) =>
-    flattenWorkflowNodes(workflow.nodes)
-  );
+const allWorkflowNodes = (workflows: ScheduleArtifact["workflows"]): WorkflowNode[] =>
+  Object.values(workflows).flatMap((workflow) => flattenWorkflowNodes(workflow.nodes));
 
-const missingAssignedWorkUnitIssues = (
-  artifact: ScheduleArtifact,
-  workUnits: BacklogWorkUnit[]
-): string[] => {
+const missingAssignedWorkUnitIssues = (artifact: ScheduleArtifact, workUnits: BacklogWorkUnit[]): string[] => {
   if (workUnits.length === 0) {
     return [];
   }
   const assigned = new Set(
     allWorkflowNodes(artifact.workflows)
       .map((node) => node.task_context?.id)
-      .filter((id): id is string => id !== undefined && id.length > 0)
+      .filter((id): id is string => id !== undefined && id.length > 0),
   );
-  const missing = workUnits
-    .map((unit) => unit.id)
-    .filter((id) => !assigned.has(id));
-  return missing.length > 0
-    ? [`missing assigned backlog work units: ${missing.join(", ")}`]
-    : [];
+  const missing = workUnits.map((unit) => unit.id).filter((id) => !assigned.has(id));
+  return missing.length > 0 ? [`missing assigned backlog work units: ${missing.join(", ")}`] : [];
 };
 
-const unsupportedGeneratedBuiltinIssues = (
-  artifact: ScheduleArtifact
-): string[] => {
+const unsupportedGeneratedBuiltinIssues = (artifact: ScheduleArtifact): string[] => {
   const allowed = new Set<string>(SCHEDULE_BUILTINS);
   return allWorkflowNodes(artifact.workflows).flatMap((node) => {
     const nodeBuiltinIssues =
@@ -889,36 +753,29 @@ const unsupportedGeneratedBuiltinIssues = (
         ? [
             `unsupported generated builtin gate '${gate.builtin}' on node '${node.id}' gate '${gate.id}'. Allowed builtins: ${SCHEDULE_BUILTINS.join(", ")}`,
           ]
-        : []
+        : [],
     );
     return [...nodeBuiltinIssues, ...gateBuiltinIssues];
   });
 };
 
 const generatedBuiltinsSupported = (
-  artifact: ScheduleArtifact
+  artifact: ScheduleArtifact,
 ): { ok: true } | { error: ScheduleArtifactError; ok: false } => {
   const issues = unsupportedGeneratedBuiltinIssues(artifact);
   return issues.length === 0
     ? { ok: true }
     : {
         error: new ScheduleArtifactError(
-          [
-            "Invalid generated schedule:",
-            ...issues.map((issue) => `- ${issue}`),
-          ].join("\n")
+          ["Invalid generated schedule:", ...issues.map((issue) => `- ${issue}`)].join("\n"),
         ),
         ok: false,
       };
 };
 
 const acceptedGeneratedSchedule = (
-  parsed:
-    | { artifact: ScheduleArtifact; ok: true }
-    | { error: ScheduleArtifactError; ok: false }
-):
-  | { artifact: ScheduleArtifact; ok: true }
-  | { error: ScheduleArtifactError; ok: false } => {
+  parsed: { artifact: ScheduleArtifact; ok: true } | { error: ScheduleArtifactError; ok: false },
+): { artifact: ScheduleArtifact; ok: true } | { error: ScheduleArtifactError; ok: false } => {
   if (!parsed.ok) {
     return parsed;
   }
@@ -935,23 +792,12 @@ const repairInvalidScheduleArtifact = async (input: {
 }): Promise<ScheduleRepairResult> => {
   let latestFailure = input.initialFailure;
   let latestSource = input.initialSource;
-  for (
-    let attempt = 1;
-    attempt <= SCHEDULE_PLANNER_REPAIR_ATTEMPTS;
-    attempt += 1
-  ) {
-    const repairedSource = await runScheduleRepair(
-      input,
-      latestFailure,
-      latestSource,
-      attempt
-    );
+  for (let attempt = 1; attempt <= SCHEDULE_PLANNER_REPAIR_ATTEMPTS; attempt += 1) {
+    const repairedSource = await runScheduleRepair(input, latestFailure, latestSource, attempt);
     if (repairedSource === undefined || repairedSource.length === 0) {
       return { kind: "fallback" };
     }
-    const repaired = acceptedGeneratedSchedule(
-      parseGeneratedSchedule(repairedSource, "planner repair output")
-    );
+    const repaired = acceptedGeneratedSchedule(parseGeneratedSchedule(repairedSource, "planner repair output"));
     if (repaired.ok) {
       return { artifact: repaired.artifact, kind: "accepted" };
     }
@@ -965,30 +811,17 @@ const planScheduleArtifact = async (
   baseline: ScheduleArtifact,
   plannerProfile: string | void,
   options: GenerateScheduleOptions,
-  planningContext: SchedulePlanningContext
+  planningContext: SchedulePlanningContext,
 ): Promise<ScheduleArtifact> => {
-  const requiredPlannerProfile = requireSchedulePlannerProfile(
-    plannerProfile,
-    options.entrypointId
-  );
+  const requiredPlannerProfile = requireSchedulePlannerProfile(plannerProfile, options.entrypointId);
   const ticketPlanFallback = ticketPlanScheduleArtifact(
     baseline,
     options.config,
     planningContext,
-    options.phaseContext
+    options.phaseContext,
   );
-  const prompt = plannerPrompt(
-    options.entrypointId,
-    options.task,
-    baseline,
-    options.config,
-    planningContext
-  );
-  const sourceResult = await runSchedulePlannerSource(
-    requiredPlannerProfile,
-    prompt,
-    options
-  );
+  const prompt = plannerPrompt(options.entrypointId, options.task, baseline, options.config, planningContext);
+  const sourceResult = await runSchedulePlannerSource(requiredPlannerProfile, prompt, options);
   if (!sourceResult.ok) {
     if (ticketPlanFallback !== undefined) {
       return ticketPlanFallback;
@@ -997,9 +830,7 @@ const planScheduleArtifact = async (
   }
   const source = requireSchedulePlannerSource(sourceResult.source);
 
-  const initial = acceptedGeneratedSchedule(
-    parseGeneratedSchedule(source, "planner output")
-  );
+  const initial = acceptedGeneratedSchedule(parseGeneratedSchedule(source, "planner output"));
   if (initial.ok) {
     return initial.artifact;
   }
@@ -1011,18 +842,13 @@ const planScheduleArtifact = async (
     options,
     plannerProfile: requiredPlannerProfile,
   });
-  return scheduleArtifactAfterRepair(
-    repair,
-    ticketPlanFallback ?? baseline,
-    initial.error,
-    source
-  );
+  return scheduleArtifactAfterRepair(repair, ticketPlanFallback ?? baseline, initial.error, source);
 };
 
 const validateScheduleArtifact = (
   config: PipelineConfig,
   artifact: ScheduleArtifact,
-  planningContext: SchedulePlanningContext
+  planningContext: SchedulePlanningContext,
 ): void => {
   const issues = [
     ...generatedRootWorkflowIssues(artifact),
@@ -1033,33 +859,22 @@ const validateScheduleArtifact = (
     ...unsafeParallelWorktreeIssues(config, artifact),
   ];
   if (issues.length > 0) {
-    throw new ScheduleArtifactError(
-      [
-        "Invalid generated schedule:",
-        ...issues.map((issue) => `- ${issue}`),
-      ].join("\n")
-    );
+    throw new ScheduleArtifactError(["Invalid generated schedule:", ...issues.map((issue) => `- ${issue}`)].join("\n"));
   }
 };
 
 export const generateScheduleArtifactInMemory = async (
-  options: GenerateScheduleOptions
+  options: GenerateScheduleOptions,
 ): Promise<GenerateScheduleInMemoryResult> => {
   if (!Object.hasOwn(options.config.entrypoints, options.entrypointId)) {
-    throw new ScheduleArtifactError(
-      `entrypoint '${options.entrypointId}' is not a scheduled entrypoint`
-    );
+    throw new ScheduleArtifactError(`entrypoint '${options.entrypointId}' is not a scheduled entrypoint`);
   }
   const entrypoint = options.config.entrypoints[options.entrypointId];
   if (!("schedule" in entrypoint)) {
-    throw new ScheduleArtifactError(
-      `entrypoint '${options.entrypointId}' is not a scheduled entrypoint`
-    );
+    throw new ScheduleArtifactError(`entrypoint '${options.entrypointId}' is not a scheduled entrypoint`);
   }
   if (!Object.hasOwn(options.config.schedules, entrypoint.schedule)) {
-    throw new ScheduleArtifactError(
-      `schedule policy '${entrypoint.schedule}' is not declared`
-    );
+    throw new ScheduleArtifactError(`schedule policy '${entrypoint.schedule}' is not declared`);
   }
   const policy = options.config.schedules[entrypoint.schedule];
 
@@ -1076,12 +891,7 @@ export const generateScheduleArtifactInMemory = async (
     task: options.task,
     worktreePath: options.worktreePath,
   });
-  const generatedArtifact = await planScheduleArtifact(
-    baseline,
-    policy.planner_profile,
-    options,
-    planningContext
-  );
+  const generatedArtifact = await planScheduleArtifact(baseline, policy.planner_profile, options, planningContext);
   assertSchedulePassOrder();
   // Generated schedules are normalized through auditable passes in this order:
   // coverage -> drain-merge -> delivery -> models -> IDs -> references.
@@ -1099,15 +909,12 @@ export const generateScheduleArtifactInMemory = async (
           }),
           integrateParallelWriteFanout(
             options.config,
-            addGeneratedImplementationCoverage(
-              options.config,
-              generatedArtifact
-            )
-          )
-        )
-      )
+            addGeneratedImplementationCoverage(options.config, generatedArtifact),
+          ),
+        ),
+      ),
     ),
-    planningContext
+    planningContext,
   );
   validateScheduleArtifact(options.config, artifact, planningContext);
   compileScheduleArtifact(options.config, artifact, options.worktreePath);
@@ -1117,9 +924,7 @@ export const generateScheduleArtifactInMemory = async (
   };
 };
 
-export const generateScheduleArtifact = async (
-  options: GenerateScheduleOptions
-): Promise<GenerateScheduleResult> => {
+export const generateScheduleArtifact = async (options: GenerateScheduleOptions): Promise<GenerateScheduleResult> => {
   const result = await generateScheduleArtifactInMemory(options);
   return {
     artifact: result.artifact,

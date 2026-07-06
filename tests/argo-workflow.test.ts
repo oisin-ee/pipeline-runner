@@ -3,12 +3,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { afterAll, describe, expect, it } from "vitest";
-import { z } from "zod";
 
-import {
-  ArgoGraphCompilerError,
-  compileArgoExecutionGraph,
-} from "../src/argo-graph";
+import { ArgoGraphCompilerError, compileArgoExecutionGraph } from "../src/argo-graph";
 import {
   buildDynamicRunnerArgoWorkflowManifest,
   buildRunnerArgoWorkflowManifest,
@@ -18,6 +14,7 @@ import {
 import type { PipelineConfig } from "../src/config";
 import { loadPipelineConfig, parsePipelineConfigParts } from "../src/config";
 import { compileWorkflowPlan } from "../src/planning/compile";
+import { parseWithSchema } from "../src/schema-boundary";
 
 const DEFAULT_PROJECT = mkdtempSync(join(tmpdir(), "argo-workflow-"));
 const DEFAULT_CONFIG = loadPipelineConfig(DEFAULT_PROJECT, {
@@ -28,23 +25,40 @@ afterAll(() => {
   rmSync(DEFAULT_PROJECT, { force: true, recursive: true });
 });
 
+const configWithWorkflow = (
+  config: PipelineConfig,
+  workflowId: string,
+  nodes: PipelineConfig["workflows"][string]["nodes"],
+): PipelineConfig => ({
+  ...config,
+  default_workflow: workflowId,
+  workflows: {
+    ...config.workflows,
+    [workflowId]: { nodes },
+  },
+});
+
 const plan = () => {
-  const config: PipelineConfig = structuredClone(DEFAULT_CONFIG);
-  config.default_workflow = "argo";
-  config.workflows.argo = {
-    nodes: [
-      { command: ["echo", "one"], id: "one", kind: "command" },
-      { command: ["echo", "two"], id: "two", kind: "command", needs: ["one"] },
-      {
-        command: ["echo", "three"],
-        id: "three",
-        kind: "command",
-        needs: ["one"],
-      },
-    ],
-  };
+  const config = configWithWorkflow(DEFAULT_CONFIG, "argo", [
+    { command: ["echo", "one"], id: "one", kind: "command" },
+    { command: ["echo", "two"], id: "two", kind: "command", needs: ["one"] },
+    {
+      command: ["echo", "three"],
+      id: "three",
+      kind: "command",
+      needs: ["one"],
+    },
+  ]);
   return compileWorkflowPlan(config, "argo");
 };
+
+const agentConfigWithWorkflow = (
+  workflowId: string,
+  nodes: PipelineConfig["workflows"][string]["nodes"],
+): PipelineConfig => configWithWorkflow(agentConfig(), workflowId, nodes);
+
+const expectValidRunnerArgoWorkflowManifest = (manifest: unknown): ReturnType<typeof buildRunnerArgoWorkflowManifest> =>
+  parseWithSchema(runnerArgoWorkflowManifestSchema, manifest);
 
 const BASE_OPTIONS = {
   brokerAuth: {
@@ -60,8 +74,7 @@ const BASE_OPTIONS = {
 };
 
 const RUNNER_RETRY_STRATEGY = {
-  expression:
-    "lastRetry.status == 'Error' || (lastRetry.exitCode != '0' && lastRetry.exitCode != '1')",
+  expression: "lastRetry.status == 'Error' || (lastRetry.exitCode != '0' && lastRetry.exitCode != '1')",
   limit: "3",
   retryPolicy: "Always",
 };
@@ -78,29 +91,24 @@ const ARGO_OWNER_FILES = [
   "src/remote/argo/templates.ts",
 ] as const;
 
-const retryStrategyForTemplate = (
-  manifest: ReturnType<typeof buildRunnerArgoWorkflowManifest>,
-  templateName: string
-) =>
+const retryStrategyForTemplate = (manifest: ReturnType<typeof buildRunnerArgoWorkflowManifest>, templateName: string) =>
   Object.getOwnPropertyDescriptor(
-    manifest.spec.templates.find(
-      (template) => template.name === templateName
-    ) ?? {},
-    "retryStrategy"
+    manifest.spec.templates.find((template) => template.name === templateName) ?? {},
+    "retryStrategy",
   )?.value;
 
+const hasArrayItems = (values: readonly unknown[]): boolean => values.values().next().done === false;
+
 const runnerContainersPreserveImageEntrypoint = (
-  manifest: ReturnType<typeof buildRunnerArgoWorkflowManifest>
+  manifest: ReturnType<typeof buildRunnerArgoWorkflowManifest>,
 ): boolean => {
   const containers = manifest.spec.templates.flatMap((template) =>
-    template.container === undefined ? [] : [template.container]
+    template.container === undefined ? [] : [template.container],
   );
 
   return (
-    containers.length > 0 &&
-    containers.every(
-      (container) => container.args.length > 0 && !("command" in container)
-    )
+    hasArrayItems(containers) &&
+    containers.every((container) => hasArrayItems(container.args) && !("command" in container))
   );
 };
 
@@ -118,7 +126,7 @@ describe("runner Argo Workflow manifest", () => {
       workflowId: "schedule-run-1-root",
     });
 
-    expect(runnerArgoWorkflowManifestSchema.parse(manifest)).toEqual(manifest);
+    expect(expectValidRunnerArgoWorkflowManifest(manifest)).toEqual(manifest);
     expect(manifest.spec.volumes).toEqual([
       {
         configMap: {
@@ -131,9 +139,7 @@ describe("runner Argo Workflow manifest", () => {
     expect(JSON.stringify(manifest)).not.toContain("runner-schedule");
     expect(JSON.stringify(manifest)).not.toContain("runner-task-descriptor");
 
-    const entrypoint = manifest.spec.templates.find(
-      (template) => template.name === "pipeline"
-    );
+    const entrypoint = manifest.spec.templates.find((template) => template.name === "pipeline");
     expect(entrypoint?.steps?.flat().map((step) => step.name)).toEqual([
       "pre-research",
       "pre-planning",
@@ -141,9 +147,7 @@ describe("runner Argo Workflow manifest", () => {
       "drain-ready-waves",
     ]);
 
-    const selector = manifest.spec.templates.find(
-      (template) => template.name === "select-ready-wave"
-    );
+    const selector = manifest.spec.templates.find((template) => template.name === "select-ready-wave");
     expect(selector?.outputs?.parameters).toEqual([
       {
         name: "ready-node-ids",
@@ -151,17 +155,14 @@ describe("runner Argo Workflow manifest", () => {
       },
     ]);
 
-    const drain = manifest.spec.templates.find(
-      (template) => template.name === "drain-ready-waves"
-    );
+    const drain = manifest.spec.templates.find((template) => template.name === "drain-ready-waves");
     expect(drain?.steps?.[1]?.[0]).toMatchObject({
       arguments: {
         parameters: [{ name: "node-id", value: "{{item}}" }],
       },
       name: "run-ready-node",
       template: "runner-command",
-      withParam:
-        "{{steps.select-ready-wave.outputs.parameters.ready-node-ids}}",
+      withParam: "{{steps.select-ready-wave.outputs.parameters.ready-node-ids}}",
     });
     expect(drain?.steps?.[2]?.[0]).toMatchObject({
       name: "drain-next-wave",
@@ -176,8 +177,8 @@ describe("runner Argo Workflow manifest", () => {
         buildRunnerArgoWorkflowManifest({
           ...BASE_OPTIONS,
           plan: plan(),
-        })
-      )
+        }),
+      ),
     ).toBe(true);
     expect(
       runnerContainersPreserveImageEntrypoint(
@@ -191,27 +192,16 @@ describe("runner Argo Workflow manifest", () => {
           namespace: "workflow-namespace",
           payloadConfigMapName: "pipeline-payload-run-1",
           workflowId: "schedule-run-1-root",
-        })
-      )
+        }),
+      ),
     ).toBe(true);
   });
 
   it("keeps rendering pure and separates Argo policy owners", () => {
-    const missingOwnerFiles = ARGO_OWNER_FILES.filter(
-      (path) => !existsSync(join(process.cwd(), path))
-    );
-    const rendererSource = readFileSync(
-      join(process.cwd(), "src/argo-workflow.ts"),
-      "utf-8"
-    );
-    const policySource = readFileSync(
-      join(process.cwd(), "src/remote/argo/policy.ts"),
-      "utf-8"
-    );
-    const storageSource = readFileSync(
-      join(process.cwd(), "src/remote/argo/storage.ts"),
-      "utf-8"
-    );
+    const missingOwnerFiles = ARGO_OWNER_FILES.filter((path) => !existsSync(join(process.cwd(), path)));
+    const rendererSource = readFileSync(join(process.cwd(), "src/argo-workflow.ts"), "utf-8");
+    const policySource = readFileSync(join(process.cwd(), "src/remote/argo/policy.ts"), "utf-8");
+    const storageSource = readFileSync(join(process.cwd(), "src/remote/argo/storage.ts"), "utf-8");
 
     expect(missingOwnerFiles).toEqual([]);
     expect(rendererSource).not.toContain("@kubernetes/client-node");
@@ -241,7 +231,7 @@ describe("runner Argo Workflow manifest", () => {
       },
     });
 
-    expect(runnerArgoWorkflowManifestSchema.parse(manifest)).toEqual(manifest);
+    expect(expectValidRunnerArgoWorkflowManifest(manifest)).toEqual(manifest);
 
     expect(manifest).toMatchInlineSnapshot(`
       {
@@ -1318,13 +1308,13 @@ describe("runner Argo Workflow manifest", () => {
     `);
   });
 
-  it("returns a Zod-validated Argo Workflow resource", () => {
+  it("returns an Effect Schema-validated Argo Workflow resource", () => {
     const manifest = buildRunnerArgoWorkflowManifest({
       ...BASE_OPTIONS,
       plan: plan(),
     });
 
-    expect(runnerArgoWorkflowManifestSchema.parse(manifest)).toEqual(manifest);
+    expect(expectValidRunnerArgoWorkflowManifest(manifest)).toEqual(manifest);
     expect(manifest).toMatchObject({
       apiVersion: "argoproj.io/v1alpha1",
       kind: "Workflow",
@@ -1346,9 +1336,7 @@ describe("runner Argo Workflow manifest", () => {
       plan: plan(),
     });
 
-    const runnerTemplates = manifest.spec.templates.filter(
-      (template) => template.container !== undefined
-    );
+    const runnerTemplates = manifest.spec.templates.filter((template) => template.container !== undefined);
     expect(runnerTemplates.length).toBeGreaterThan(0);
     for (const template of runnerTemplates) {
       const env = template.container?.env ?? [];
@@ -1367,15 +1355,11 @@ describe("runner Argo Workflow manifest", () => {
       plan: plan(),
     });
 
-    const runnerTemplates = manifest.spec.templates.filter(
-      (template) => template.container !== undefined
-    );
+    const runnerTemplates = manifest.spec.templates.filter((template) => template.container !== undefined);
     expect(runnerTemplates.length).toBeGreaterThan(0);
     for (const template of runnerTemplates) {
       const env = template.container?.env ?? [];
-      expect(env).not.toContainEqual(
-        expect.objectContaining({ name: "MOKA_DB_URL" })
-      );
+      expect(env).not.toContainEqual(expect.objectContaining({ name: "MOKA_DB_URL" }));
     }
   });
 
@@ -1389,9 +1373,7 @@ describe("runner Argo Workflow manifest", () => {
       plan: plan(),
     });
 
-    const runnerTemplates = manifest.spec.templates.filter(
-      (template) => template.container !== undefined
-    );
+    const runnerTemplates = manifest.spec.templates.filter((template) => template.container !== undefined);
     expect(runnerTemplates.length).toBeGreaterThan(0);
     for (const template of runnerTemplates) {
       const env = template.container?.env ?? [];
@@ -1414,9 +1396,7 @@ describe("runner Argo Workflow manifest", () => {
       plan: plan(),
     });
 
-    const runnerTemplates = manifest.spec.templates.filter(
-      (template) => template.container !== undefined
-    );
+    const runnerTemplates = manifest.spec.templates.filter((template) => template.container !== undefined);
     expect(runnerTemplates.length).toBeGreaterThan(0);
     for (const template of runnerTemplates) {
       const env = template.container?.env ?? [];
@@ -1438,15 +1418,11 @@ describe("runner Argo Workflow manifest", () => {
       plan: plan(),
     });
 
-    const runnerTemplates = manifest.spec.templates.filter(
-      (template) => template.container !== undefined
-    );
+    const runnerTemplates = manifest.spec.templates.filter((template) => template.container !== undefined);
     expect(runnerTemplates.length).toBeGreaterThan(0);
     for (const template of runnerTemplates) {
       const env = template.container?.env ?? [];
-      expect(env).not.toContainEqual(
-        expect.objectContaining({ name: "PIPELINE_MCP_GATEWAY_AUTHORIZATION" })
-      );
+      expect(env).not.toContainEqual(expect.objectContaining({ name: "PIPELINE_MCP_GATEWAY_AUTHORIZATION" }));
     }
   });
 
@@ -1461,9 +1437,7 @@ describe("runner Argo Workflow manifest", () => {
       plan: plan(),
     });
 
-    const runnerTemplates = manifest.spec.templates.filter(
-      (template) => template.container !== undefined
-    );
+    const runnerTemplates = manifest.spec.templates.filter((template) => template.container !== undefined);
     expect(runnerTemplates.length).toBeGreaterThan(0);
     for (const template of runnerTemplates) {
       const env = template.container?.env ?? [];
@@ -1498,8 +1472,8 @@ describe("runner Argo Workflow manifest", () => {
           ...optionsWithoutBrokerAuth,
           plan: plan(),
         },
-      ])
-    ).toThrow(z.ZodError);
+      ]),
+    ).toThrow(/brokerAuth/u);
   });
 
   it("compiles planner dependencies into Argo DAG task dependencies", () => {
@@ -1508,15 +1482,9 @@ describe("runner Argo Workflow manifest", () => {
       plan: plan(),
     });
 
-    const dag = manifest.spec.templates.find(
-      (template) => template.name === "pipeline"
-    )?.dag;
+    const dag = manifest.spec.templates.find((template) => template.name === "pipeline")?.dag;
 
-    expect(
-      Object.fromEntries(
-        (dag?.tasks ?? []).map((task) => [task.name, task.dependencies ?? []])
-      )
-    ).toEqual({
+    expect(Object.fromEntries((dag?.tasks ?? []).map((task) => [task.name, task.dependencies ?? []]))).toEqual({
       "node-one": ["workflow-start"],
       "node-three": ["workflow-start", "node-one"],
       "node-two": ["workflow-start", "node-one"],
@@ -1530,16 +1498,10 @@ describe("runner Argo Workflow manifest", () => {
       plan: plan(),
     });
 
-    const dag = manifest.spec.templates.find(
-      (template) => template.name === "pipeline"
-    )?.dag;
+    const dag = manifest.spec.templates.find((template) => template.name === "pipeline")?.dag;
     const startTask = dag?.tasks.find((task) => task.name === "workflow-start");
-    const nodeTasks = (dag?.tasks ?? []).filter((task) =>
-      task.name.startsWith("node-")
-    );
-    const startTemplate = manifest.spec.templates.find(
-      (template) => template.name === startTask?.template
-    )?.container;
+    const nodeTasks = (dag?.tasks ?? []).filter((task) => task.name.startsWith("node-"));
+    const startTemplate = manifest.spec.templates.find((template) => template.name === startTask?.template)?.container;
 
     expect(startTask).toMatchObject({
       name: "workflow-start",
@@ -1555,11 +1517,7 @@ describe("runner Argo Workflow manifest", () => {
       "/etc/pipeline/schedule.yaml",
     ]);
     expect(nodeTasks).toHaveLength(3);
-    expect(
-      nodeTasks.every(
-        (task) => task.dependencies?.includes("workflow-start") === true
-      )
-    ).toBe(true);
+    expect(nodeTasks.every((task) => task.dependencies?.includes("workflow-start") === true)).toBe(true);
     expect(manifest.spec.onExit).toBe("pipeline-finalizer");
   });
 
@@ -1569,21 +1527,11 @@ describe("runner Argo Workflow manifest", () => {
       plan: plan(),
     });
 
-    expect(retryStrategyForTemplate(manifest, "workflow-start")).toEqual(
-      RUNNER_RETRY_STRATEGY
-    );
-    expect(retryStrategyForTemplate(manifest, "task-one")).toEqual(
-      RUNNER_RETRY_STRATEGY
-    );
-    expect(retryStrategyForTemplate(manifest, "task-two")).toEqual(
-      RUNNER_RETRY_STRATEGY
-    );
-    expect(retryStrategyForTemplate(manifest, "task-three")).toEqual(
-      RUNNER_RETRY_STRATEGY
-    );
-    expect(
-      retryStrategyForTemplate(manifest, "pipeline-finalizer")
-    ).toBeUndefined();
+    expect(retryStrategyForTemplate(manifest, "workflow-start")).toEqual(RUNNER_RETRY_STRATEGY);
+    expect(retryStrategyForTemplate(manifest, "task-one")).toEqual(RUNNER_RETRY_STRATEGY);
+    expect(retryStrategyForTemplate(manifest, "task-two")).toEqual(RUNNER_RETRY_STRATEGY);
+    expect(retryStrategyForTemplate(manifest, "task-three")).toEqual(RUNNER_RETRY_STRATEGY);
+    expect(retryStrategyForTemplate(manifest, "pipeline-finalizer")).toBeUndefined();
 
     const rendered = stringifyRunnerArgoWorkflow(manifest);
     expect(rendered).toContain("retryStrategy:\n");
@@ -1596,7 +1544,7 @@ describe("runner Argo Workflow manifest", () => {
     expect(rendered).toContain("lastRetry.exitCode != '1'");
     const finalizerTemplate = rendered.slice(
       rendered.indexOf("name: pipeline-finalizer"),
-      rendered.indexOf("\n  volumes:")
+      rendered.indexOf("\n  volumes:"),
     );
     expect(finalizerTemplate).not.toContain("retryStrategy:");
   });
@@ -1610,16 +1558,8 @@ describe("runner Argo Workflow manifest", () => {
     // A hung pod stays Running forever and never trips retryStrategy; the
     // deadline is the only guard that turns an unbounded hang into a bounded,
     // retryable failure. It must cover the lifecycle, every node, and finalize.
-    for (const templateName of [
-      "workflow-start",
-      "task-one",
-      "task-two",
-      "task-three",
-      "pipeline-finalizer",
-    ]) {
-      const template = manifest.spec.templates.find(
-        (candidate) => candidate.name === templateName
-      );
+    for (const templateName of ["workflow-start", "task-one", "task-two", "task-three", "pipeline-finalizer"]) {
+      const template = manifest.spec.templates.find((candidate) => candidate.name === templateName);
       expect(template?.activeDeadlineSeconds).toBe(5400);
     }
   });
@@ -1629,9 +1569,7 @@ describe("runner Argo Workflow manifest", () => {
       ...BASE_OPTIONS,
       plan: plan(),
     });
-    const taskTemplate = manifest.spec.templates.find(
-      (template) => template.name === "task-one"
-    );
+    const taskTemplate = manifest.spec.templates.find((template) => template.name === "task-one");
 
     expect(taskTemplate).toBeDefined();
     const schemaProbe = {
@@ -1639,16 +1577,12 @@ describe("runner Argo Workflow manifest", () => {
       spec: {
         ...manifest.spec,
         templates: manifest.spec.templates.map((template) =>
-          template.name === "task-one"
-            ? { ...template, retryStrategy: RUNNER_RETRY_STRATEGY }
-            : template
+          template.name === "task-one" ? { ...template, retryStrategy: RUNNER_RETRY_STRATEGY } : template,
         ),
       },
     };
 
-    expect(runnerArgoWorkflowManifestSchema.parse(schemaProbe)).toEqual(
-      schemaProbe
-    );
+    expect(expectValidRunnerArgoWorkflowManifest(schemaProbe)).toEqual(schemaProbe);
   });
 
   it("passes explicit argv to each runner-command task template", () => {
@@ -1662,16 +1596,10 @@ describe("runner Argo Workflow manifest", () => {
       plan: plan(),
     });
 
-    const runner = manifest.spec.templates.find(
-      (template) => template.name === "task-one"
-    )?.container;
-    const dag = manifest.spec.templates.find(
-      (template) => template.name === "pipeline"
-    )?.dag;
+    const runner = manifest.spec.templates.find((template) => template.name === "task-one")?.container;
+    const dag = manifest.spec.templates.find((template) => template.name === "pipeline")?.dag;
 
-    expect(manifest.spec.imagePullSecrets).toEqual([
-      { name: "image-pull-secret" },
-    ]);
+    expect(manifest.spec.imagePullSecrets).toEqual([{ name: "image-pull-secret" }]);
     expect(dag?.tasks.find((task) => task.name === "node-one")).toMatchObject({
       name: "node-one",
       template: "task-one",
@@ -1684,16 +1612,12 @@ describe("runner Argo Workflow manifest", () => {
       "/etc/pipeline/schedule.yaml",
     ]);
     expect(Object.hasOwn(runner ?? {}, "command")).toBe(false);
-    expect(runner?.env).toEqual(
-      expect.arrayContaining([
-        { name: "CODEX_AUTH_PER_PROJECT_ACCOUNTS", value: "0" },
-      ])
-    );
+    expect(runner?.env).toEqual(expect.arrayContaining([{ name: "CODEX_AUTH_PER_PROJECT_ACCOUNTS", value: "0" }]));
     expect(runner?.env ?? []).not.toEqual(
       expect.arrayContaining([
         expect.objectContaining({ name: "PIPELINE_WORKFLOW_ID" }),
         expect.objectContaining({ name: "PIPELINE_TASK_ID" }),
-      ])
+      ]),
     );
     expect(runner?.volumeMounts).toEqual(
       expect.arrayContaining([
@@ -1703,13 +1627,13 @@ describe("runner Argo Workflow manifest", () => {
         expect.objectContaining({ mountPath: "/etc/pipeline/event-auth" }),
         expect.objectContaining({ mountPath: "/etc/pipeline/git-credentials" }),
         expect.objectContaining({ mountPath: "/root/.config/gh/hosts.yml" }),
-      ])
+      ]),
     );
     expect(runner?.volumeMounts).toEqual(
       expect.not.arrayContaining([
         expect.objectContaining({ mountPath: "/root/.gitconfig" }),
         expect.objectContaining({ mountPath: "/root/.git-credentials" }),
-      ])
+      ]),
     );
     expect(manifest.spec.volumes).toEqual(
       expect.arrayContaining([
@@ -1720,22 +1644,17 @@ describe("runner Argo Workflow manifest", () => {
             secretName: "git-credentials-secret",
           }),
         }),
-      ])
+      ]),
     );
-    expect(
-      manifest.spec.volumes.find(
-        (volume) => volume.name === "runner-git-credentials"
-      )?.secret
-    ).not.toMatchObject({ items: expect.anything(), optional: true });
+    expect(manifest.spec.volumes.find((volume) => volume.name === "runner-git-credentials")?.secret).not.toMatchObject({
+      items: expect.anything(),
+      optional: true,
+    });
     expect(manifest.spec.volumes).toEqual(
-      expect.not.arrayContaining([
-        expect.objectContaining({ emptyDir: expect.anything() }),
-      ])
+      expect.not.arrayContaining([expect.objectContaining({ emptyDir: expect.anything() })]),
     );
     expect(manifest.spec.templates).toEqual(
-      expect.not.arrayContaining([
-        expect.objectContaining({ initContainers: expect.anything() }),
-      ])
+      expect.not.arrayContaining([expect.objectContaining({ initContainers: expect.anything() })]),
     );
     expect(runner).not.toHaveProperty("outputs");
     expect(manifest.spec.onExit).toBe("pipeline-finalizer");
@@ -1747,15 +1666,9 @@ describe("runner Argo Workflow manifest", () => {
       plan: plan(),
     });
 
-    const finalizer = manifest.spec.templates.find(
-      (template) => template.name === "pipeline-finalizer"
-    )?.container;
+    const finalizer = manifest.spec.templates.find((template) => template.name === "pipeline-finalizer")?.container;
 
-    expect(finalizer?.env).toEqual(
-      expect.arrayContaining([
-        { name: "CODEX_AUTH_PER_PROJECT_ACCOUNTS", value: "0" },
-      ])
-    );
+    expect(finalizer?.env).toEqual(expect.arrayContaining([{ name: "CODEX_AUTH_PER_PROJECT_ACCOUNTS", value: "0" }]));
   });
 
   it("does not use the GitHub auth Secret for git credentials", () => {
@@ -1766,9 +1679,7 @@ describe("runner Argo Workflow manifest", () => {
     });
 
     expect(manifest.spec.volumes).toEqual(
-      expect.not.arrayContaining([
-        expect.objectContaining({ name: "runner-git-credentials" }),
-      ])
+      expect.not.arrayContaining([expect.objectContaining({ name: "runner-git-credentials" })]),
     );
   });
 
@@ -1779,14 +1690,10 @@ describe("runner Argo Workflow manifest", () => {
       plan: plan(),
     });
 
-    const runner = manifest.spec.templates.find(
-      (template) => template.name === "task-one"
-    )?.container;
+    const runner = manifest.spec.templates.find((template) => template.name === "task-one")?.container;
 
     expect(runner?.volumeMounts).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ mountPath: "/root/.npmrc" }),
-      ])
+      expect.arrayContaining([expect.objectContaining({ mountPath: "/root/.npmrc" })]),
     );
     expect(manifest.spec.volumes).toEqual(
       expect.arrayContaining([
@@ -1797,7 +1704,7 @@ describe("runner Argo Workflow manifest", () => {
             secretName: "npm-registry-auth-secret",
           }),
         }),
-      ])
+      ]),
     );
   });
 
@@ -1808,9 +1715,7 @@ describe("runner Argo Workflow manifest", () => {
     });
 
     expect(manifest.spec.volumes).toEqual(
-      expect.not.arrayContaining([
-        expect.objectContaining({ name: "npm-registry-auth" }),
-      ])
+      expect.not.arrayContaining([expect.objectContaining({ name: "npm-registry-auth" })]),
     );
   });
 
@@ -1867,23 +1772,13 @@ runners:
     });
 
     const dag = manifest.spec.templates.find((t) => t.name === "pipeline")?.dag;
-    const planTemplate = manifest.spec.templates.find(
-      (t) => t.name === "task-plan"
-    );
-    const implTemplate = manifest.spec.templates.find(
-      (t) => t.name === "task-impl"
-    );
+    const planTemplate = manifest.spec.templates.find((t) => t.name === "task-plan");
+    const implTemplate = manifest.spec.templates.find((t) => t.name === "task-impl");
 
     // Both agent nodes appear as runner-command tasks in the DAG
-    expect(dag?.tasks.map((t) => t.name)).toEqual([
-      "workflow-start",
-      "node-plan",
-      "node-impl",
-    ]);
+    expect(dag?.tasks.map((t) => t.name)).toEqual(["workflow-start", "node-plan", "node-impl"]);
     // impl depends on plan in the Argo DAG
-    expect(
-      dag?.tasks.find((t) => t.name === "node-impl")?.dependencies
-    ).toEqual(["workflow-start", "node-plan"]);
+    expect(dag?.tasks.find((t) => t.name === "node-impl")?.dependencies).toEqual(["workflow-start", "node-plan"]);
     // All runner-command templates use the same moka runner-command args
     expect(planTemplate?.container?.args).toEqual([
       "runner-command",
@@ -1892,31 +1787,23 @@ runners:
       "--schedule-file",
       "/etc/pipeline/schedule.yaml",
     ]);
-    expect(implTemplate?.container?.args).toEqual(
-      planTemplate?.container?.args
-    );
+    expect(implTemplate?.container?.args).toEqual(planTemplate?.container?.args);
     // task-descriptor subPath encodes the nodeId so the runner can load context
     expect(
-      planTemplate?.container?.volumeMounts.find(
-        (vm) => vm.mountPath === "/etc/pipeline/task.json"
-      )?.subPath
+      planTemplate?.container?.volumeMounts.find((vm) => vm.mountPath === "/etc/pipeline/task.json")?.subPath,
     ).toBe("node-plan.json");
     expect(
-      implTemplate?.container?.volumeMounts.find(
-        (vm) => vm.mountPath === "/etc/pipeline/task.json"
-      )?.subPath
+      implTemplate?.container?.volumeMounts.find((vm) => vm.mountPath === "/etc/pipeline/task.json")?.subPath,
     ).toBe("node-impl.json");
     // schedule payload is mounted — runner loads agent profile from it via nodeId
-    expect(
-      planTemplate?.container?.volumeMounts.some(
-        (vm) => vm.mountPath === "/etc/pipeline/schedule.yaml"
-      )
-    ).toBe(true);
+    expect(planTemplate?.container?.volumeMounts.some((vm) => vm.mountPath === "/etc/pipeline/schedule.yaml")).toBe(
+      true,
+    );
   });
 
   it("rejects invalid hand-shaped Workflow resources", () => {
     expect(() =>
-      runnerArgoWorkflowManifestSchema.parse({
+      expectValidRunnerArgoWorkflowManifest({
         apiVersion: "argoproj.io/v1alpha1",
         kind: "Workflow",
         metadata: { namespace: "workflow-namespace" },
@@ -1926,8 +1813,8 @@ runners:
           templates: [],
           volumes: [],
         },
-      })
-    ).toThrow(z.ZodError);
+      }),
+    ).toThrow(/templates/u);
   });
 
   it("stringifies only schema-valid Workflow resources", () => {
@@ -1936,9 +1823,7 @@ runners:
       plan: plan(),
     });
 
-    expect(stringifyRunnerArgoWorkflow(manifest)).toContain(
-      "apiVersion: argoproj.io/v1alpha1"
-    );
+    expect(stringifyRunnerArgoWorkflow(manifest)).toContain("apiVersion: argoproj.io/v1alpha1");
   });
 });
 
@@ -1984,47 +1869,31 @@ runners:
 
 describe("compileArgoExecutionGraph", () => {
   it("lowers agent-kind nodes to Argo DAG tasks with preserved dependency order", () => {
-    const config = agentConfig();
-    config.workflows["agent-dag"] = {
-      nodes: [
-        { id: "plan", kind: "agent", profile: "orchestrator" },
-        { id: "impl", kind: "agent", needs: ["plan"], profile: "impl" },
-        { id: "review", kind: "agent", needs: ["impl"], profile: "review" },
-      ],
-    };
+    const config = agentConfigWithWorkflow("agent-dag", [
+      { id: "plan", kind: "agent", profile: "orchestrator" },
+      { id: "impl", kind: "agent", needs: ["plan"], profile: "impl" },
+      { id: "review", kind: "agent", needs: ["impl"], profile: "review" },
+    ]);
     const agentPlan = compileWorkflowPlan(config, "agent-dag");
     const graph = compileArgoExecutionGraph(agentPlan);
 
-    expect(graph.tasks.map((t) => t.nodeId)).toEqual([
-      "plan",
-      "impl",
-      "review",
-    ]);
-    expect(graph.tasks.find((t) => t.nodeId === "impl")?.dependencies).toEqual([
-      "node-plan",
-    ]);
-    expect(
-      graph.tasks.find((t) => t.nodeId === "review")?.dependencies
-    ).toEqual(["node-impl"]);
+    expect(graph.tasks.map((t) => t.nodeId)).toEqual(["plan", "impl", "review"]);
+    expect(graph.tasks.find((t) => t.nodeId === "impl")?.dependencies).toEqual(["node-plan"]);
+    expect(graph.tasks.find((t) => t.nodeId === "review")?.dependencies).toEqual(["node-impl"]);
     expect(graph.terminalNodeIds).toEqual(["review"]);
     expect(graph.terminalTaskNames).toEqual(["node-review"]);
   });
 
   it("lowers builtin-kind nodes to Argo DAG tasks", () => {
-    const config = agentConfig();
-    config.workflows["builtin-dag"] = {
-      nodes: [
-        { builtin: "lint", id: "lint", kind: "builtin" },
-        { builtin: "test", id: "test", kind: "builtin", needs: ["lint"] },
-      ],
-    };
+    const config = agentConfigWithWorkflow("builtin-dag", [
+      { builtin: "lint", id: "lint", kind: "builtin" },
+      { builtin: "test", id: "test", kind: "builtin", needs: ["lint"] },
+    ]);
     const builtinPlan = compileWorkflowPlan(config, "builtin-dag");
     const graph = compileArgoExecutionGraph(builtinPlan);
 
     expect(graph.tasks.map((t) => t.nodeId)).toEqual(["lint", "test"]);
-    expect(graph.tasks.find((t) => t.nodeId === "test")?.dependencies).toEqual([
-      "node-lint",
-    ]);
+    expect(graph.tasks.find((t) => t.nodeId === "test")?.dependencies).toEqual(["node-lint"]);
   });
 
   it("fans out agent nodes from a shared upstream and fans back in to a terminal", () => {
@@ -2032,32 +1901,25 @@ describe("compileArgoExecutionGraph", () => {
      * fan-out/fan-in shape:
      *   start → [impl-a, impl-b] → review
      */
-    const config = agentConfig();
-    config.workflows["fan-graph"] = {
-      nodes: [
-        { id: "start", kind: "agent", profile: "orchestrator" },
-        { id: "impl-a", kind: "agent", needs: ["start"], profile: "impl" },
-        { id: "impl-b", kind: "agent", needs: ["start"], profile: "impl" },
-        {
-          id: "review",
-          kind: "agent",
-          needs: ["impl-a", "impl-b"],
-          profile: "review",
-        },
-      ],
-    };
+    const config = agentConfigWithWorkflow("fan-graph", [
+      { id: "start", kind: "agent", profile: "orchestrator" },
+      { id: "impl-a", kind: "agent", needs: ["start"], profile: "impl" },
+      { id: "impl-b", kind: "agent", needs: ["start"], profile: "impl" },
+      {
+        id: "review",
+        kind: "agent",
+        needs: ["impl-a", "impl-b"],
+        profile: "review",
+      },
+    ]);
     const fanPlan = compileWorkflowPlan(config, "fan-graph");
     const graph = compileArgoExecutionGraph(fanPlan);
 
-    const taskDeps = Object.fromEntries(
-      graph.tasks.map((t) => [t.nodeId, t.dependencies])
-    );
+    const taskDeps = Object.fromEntries(graph.tasks.map((t) => [t.nodeId, t.dependencies]));
     expect(taskDeps.start).toEqual([]);
     expect(taskDeps["impl-a"]).toEqual(["node-start"]);
     expect(taskDeps["impl-b"]).toEqual(["node-start"]);
-    expect(taskDeps.review).toEqual(
-      expect.arrayContaining(["node-impl-a", "node-impl-b"])
-    );
+    expect(taskDeps.review).toEqual(expect.arrayContaining(["node-impl-a", "node-impl-b"]));
     // fan-in: review is the only terminal
     expect(graph.terminalNodeIds).toEqual(["review"]);
   });
@@ -2070,49 +1932,36 @@ describe("compileArgoExecutionGraph", () => {
      *
      * Layout:  gate → [parallel: [child-a, child-b]] → (children are terminal)
      */
-    const config = agentConfig();
-    config.workflows["parallel-graph"] = {
-      nodes: [
-        { command: ["true"], id: "gate", kind: "command" },
-        {
-          id: "fanout",
-          kind: "parallel",
-          needs: ["gate"],
-          nodes: [
-            {
-              id: "child-a",
-              kind: "agent",
-              profile: "impl",
-            },
-            {
-              id: "child-b",
-              kind: "agent",
-              profile: "review",
-            },
-          ],
-        },
-      ],
-    };
+    const config = agentConfigWithWorkflow("parallel-graph", [
+      { command: ["true"], id: "gate", kind: "command" },
+      {
+        id: "fanout",
+        kind: "parallel",
+        needs: ["gate"],
+        nodes: [
+          {
+            id: "child-a",
+            kind: "agent",
+            profile: "impl",
+          },
+          {
+            id: "child-b",
+            kind: "agent",
+            profile: "review",
+          },
+        ],
+      },
+    ]);
     const parallelPlan = compileWorkflowPlan(config, "parallel-graph");
     const graph = compileArgoExecutionGraph(parallelPlan);
 
     // parallel container itself produces no task — only its children do
-    expect(graph.tasks.map((t) => t.nodeId)).toEqual([
-      "gate",
-      "child-a",
-      "child-b",
-    ]);
+    expect(graph.tasks.map((t) => t.nodeId)).toEqual(["gate", "child-a", "child-b"]);
     // children inherit the parallel node's need (gate)
-    expect(
-      graph.tasks.find((t) => t.nodeId === "child-a")?.dependencies
-    ).toEqual(["node-gate"]);
-    expect(
-      graph.tasks.find((t) => t.nodeId === "child-b")?.dependencies
-    ).toEqual(["node-gate"]);
+    expect(graph.tasks.find((t) => t.nodeId === "child-a")?.dependencies).toEqual(["node-gate"]);
+    expect(graph.tasks.find((t) => t.nodeId === "child-b")?.dependencies).toEqual(["node-gate"]);
     // both children are terminal (nothing depends on them)
-    expect(graph.terminalNodeIds).toEqual(
-      expect.arrayContaining(["child-a", "child-b"])
-    );
+    expect(graph.terminalNodeIds).toEqual(expect.arrayContaining(["child-a", "child-b"]));
   });
 
   it("rewires dependencies through a group node to its executable members", () => {
@@ -2124,37 +1973,30 @@ describe("compileArgoExecutionGraph", () => {
      * Layout:  [impl-a, impl-b] → group → review
      * Expected Argo deps for review: [node-impl-a, node-impl-b]
      */
-    const config = agentConfig();
-    config.workflows["group-graph"] = {
-      nodes: [
-        { id: "impl-a", kind: "agent", profile: "impl" },
-        { id: "impl-b", kind: "agent", profile: "impl" },
-        {
-          id: "impls",
-          kind: "group",
-          nodes: ["impl-a", "impl-b"],
-        },
-        {
-          id: "review",
-          kind: "agent",
-          needs: ["impls"],
-          profile: "review",
-        },
-      ],
-    };
+    const config = agentConfigWithWorkflow("group-graph", [
+      { id: "impl-a", kind: "agent", profile: "impl" },
+      { id: "impl-b", kind: "agent", profile: "impl" },
+      {
+        id: "impls",
+        kind: "group",
+        nodes: ["impl-a", "impl-b"],
+      },
+      {
+        id: "review",
+        kind: "agent",
+        needs: ["impls"],
+        profile: "review",
+      },
+    ]);
     const groupPlan = compileWorkflowPlan(config, "group-graph");
     const graph = compileArgoExecutionGraph(groupPlan);
 
     // group produces no Argo task
-    expect(graph.tasks.map((t) => t.nodeId)).toEqual([
-      "impl-a",
-      "impl-b",
-      "review",
-    ]);
+    expect(graph.tasks.map((t) => t.nodeId)).toEqual(["impl-a", "impl-b", "review"]);
     // review is rewired to the group's members
-    expect(
-      graph.tasks.find((t) => t.nodeId === "review")?.dependencies
-    ).toEqual(expect.arrayContaining(["node-impl-a", "node-impl-b"]));
+    expect(graph.tasks.find((t) => t.nodeId === "review")?.dependencies).toEqual(
+      expect.arrayContaining(["node-impl-a", "node-impl-b"]),
+    );
     expect(graph.terminalNodeIds).toEqual(["review"]);
   });
 

@@ -31,21 +31,16 @@ const SUPPRESSION_MARKERS = [
   ["@ts", "ignore"].join("-"),
 ];
 
-const source = (path: string): string =>
-  readFileSync(join(ROOT, path), "utf-8");
+const source = (path: string): string => readFileSync(join(ROOT, path), "utf-8");
 
 describe("PIPE-45.12 hook and gate owner boundaries", () => {
   it("keeps hook dispatch thin while policies, results, events, and command IO have owners", () => {
-    const missingOwners = HOOK_OWNER_FILES.filter(
-      (path) => !existsSync(join(ROOT, path))
-    );
+    const missingOwners = HOOK_OWNER_FILES.filter((path) => !existsSync(join(ROOT, path)));
     const hooksSource = source("src/runtime/hooks/hooks.ts");
 
     expect(missingOwners).toEqual([]);
     expect(hooksSource).toContain("dispatchHooks");
-    expect(hooksSource.split("\n").length).toBeLessThanOrEqual(
-      HOOKS_ENTRYPOINT_MAX_LINES
-    );
+    expect(hooksSource.split("\n").length).toBeLessThanOrEqual(HOOKS_ENTRYPOINT_MAX_LINES);
     expect(hooksSource).not.toContain("CommandExecutor");
     expect(hooksSource).not.toContain("PIPELINE_HOOK_INPUT");
     expect(hooksSource).not.toContain("command hooks are disabled");
@@ -57,9 +52,7 @@ describe("PIPE-45.12 hook and gate owner boundaries", () => {
   });
 
   it("keeps gate variation behind kind modules and JSON-source parsing on the public gate surface", () => {
-    const missingOwners = GATE_KIND_OWNER_FILES.filter(
-      (path) => !existsSync(join(ROOT, path))
-    );
+    const missingOwners = GATE_KIND_OWNER_FILES.filter((path) => !existsSync(join(ROOT, path)));
     const registrySource = source("src/runtime/gates/registry.ts");
     const gatesSource = source("src/runtime/gates/gates.ts");
 

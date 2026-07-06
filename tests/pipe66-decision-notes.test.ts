@@ -50,20 +50,13 @@ const LEADING_LINE_COMMENT_RE = /^[\t ]*\/\/([^\n]*)/gmu;
 const BLOCK_COMMENT_RE = /\/\*([\s\S]*?)\*\//gu;
 
 expect.extend({
-  toContainDecisionNote(
-    received: string,
-    label: string,
-    requiredPatterns: RegExp[]
-  ) {
+  toContainDecisionNote(received: string, label: string, requiredPatterns: RegExp[]) {
     const notes = received
       .split(NOTE_BOUNDARY_RE)
       .map((candidate) => candidate.replaceAll(WHITESPACE_RE, " ").trim())
       .filter(Boolean);
-    const matchingNote = notes.find((note) =>
-      requiredPatterns.every((pattern) => pattern.test(note))
-    );
-    const hasEnoughSubstance =
-      (matchingNote?.split(WHITESPACE_RE).filter(Boolean).length ?? 0) >= 12;
+    const matchingNote = notes.find((note) => requiredPatterns.every((pattern) => pattern.test(note)));
+    const hasEnoughSubstance = (matchingNote?.split(WHITESPACE_RE).filter(Boolean).length ?? 0) >= 12;
 
     if (matchingNote && hasEnoughSubstance) {
       return {
@@ -73,9 +66,7 @@ expect.extend({
     }
 
     const combined = notes.join(" ");
-    const missing = requiredPatterns.filter(
-      (pattern) => !pattern.test(combined)
-    );
+    const missing = requiredPatterns.filter((pattern) => !pattern.test(combined));
 
     return {
       message: () =>
@@ -91,14 +82,8 @@ expect.extend({
 
 const sourceComments = (relativePath: string): string => {
   const source = readFileSync(join(ROOT, relativePath), "utf-8");
-  const lineComments = Array.from(
-    source.matchAll(LEADING_LINE_COMMENT_RE),
-    (match) => match[1]
-  );
-  const blockComments = Array.from(
-    source.matchAll(BLOCK_COMMENT_RE),
-    (match) => match[1]
-  );
+  const lineComments = Array.from(source.matchAll(LEADING_LINE_COMMENT_RE), (match) => match[1]);
+  const blockComments = Array.from(source.matchAll(BLOCK_COMMENT_RE), (match) => match[1]);
   return [...lineComments, ...blockComments].join("\n\n");
 };
 
@@ -107,62 +92,36 @@ const readArchitectureDocs = (): string => {
   const markdownDocs = readdirSync(docsDir)
     .filter((entry) => entry.endsWith(".md"))
     .map((entry) => readFileSync(join(docsDir, entry), "utf-8"));
-  return [readFileSync(join(ROOT, "README.md"), "utf-8"), ...markdownDocs].join(
-    "\n\n"
-  );
+  return [readFileSync(join(ROOT, "README.md"), "utf-8"), ...markdownDocs].join("\n\n");
 };
 
 describe("PIPE-66 explicit not-changing decision notes", () => {
   it("records the workflow-planner graphlib and iterative toposort tradeoff in source comments", () => {
     const comments = sourceComments("src/planning/compile.ts");
 
-    expect(comments).toContainDecisionNote(
-      "workflow planner toposort",
-      GRAPH_TOPOSORT_NOTE
-    );
+    expect(comments).toContainDecisionNote("workflow planner toposort", GRAPH_TOPOSORT_NOTE);
   });
 
   it("records why runner state uses git refs instead of Argo artifacts", () => {
     const comments = sourceComments("src/run-state/git-refs.ts");
 
-    expect(comments).toContainDecisionNote(
-      "runner git refs",
-      GIT_REFS_SOURCE_NOTE
-    );
+    expect(comments).toContainDecisionNote("runner git refs", GIT_REFS_SOURCE_NOTE);
   });
 
   it("records the external consumers that make runner command payloads a stable contract", () => {
     const comments = sourceComments("src/runner-command-contract.ts");
 
-    expect(comments).toContainDecisionNote(
-      "runner payload contract",
-      RUNNER_CONTRACT_SOURCE_NOTE
-    );
+    expect(comments).toContainDecisionNote("runner payload contract", RUNNER_CONTRACT_SOURCE_NOTE);
   });
 
   it("summarizes the keep-decisions in README or architecture docs", () => {
     const docs = readArchitectureDocs();
 
-    expect(docs).toContainDecisionNote(
-      "graphlib iterative toposort",
-      GRAPH_TOPOSORT_NOTE
-    );
-    expect(docs).toContainDecisionNote(
-      "git refs over Argo artifacts",
-      GIT_REFS_DOC_NOTE
-    );
-    expect(docs).toContainDecisionNote(
-      "runner external contract",
-      RUNNER_CONTRACT_DOC_NOTE
-    );
-    expect(docs).toContainDecisionNote(
-      "AbortSignal retry delay",
-      ABORT_SIGNAL_RETRY_NOTE
-    );
-    expect(docs).toContainDecisionNote(
-      "custom event sink batching",
-      EVENT_SINK_NOTE
-    );
+    expect(docs).toContainDecisionNote("graphlib iterative toposort", GRAPH_TOPOSORT_NOTE);
+    expect(docs).toContainDecisionNote("git refs over Argo artifacts", GIT_REFS_DOC_NOTE);
+    expect(docs).toContainDecisionNote("runner external contract", RUNNER_CONTRACT_DOC_NOTE);
+    expect(docs).toContainDecisionNote("AbortSignal retry delay", ABORT_SIGNAL_RETRY_NOTE);
+    expect(docs).toContainDecisionNote("custom event sink batching", EVENT_SINK_NOTE);
   });
 });
 

@@ -18,11 +18,7 @@ import { loadBacklogRecords } from "./backlog-records";
 // exit) rather than submitting a controller that would immediately fail.
 // ===========================================================================
 
-const LOOP_STRATEGIES: readonly TicketSelectionStrategy[] = [
-  "priority",
-  "bfs",
-  "dfs",
-];
+const LOOP_STRATEGIES: readonly TicketSelectionStrategy[] = ["priority", "bfs", "dfs"];
 
 const DEFAULT_STRATEGY: TicketSelectionStrategy = "priority";
 
@@ -44,9 +40,7 @@ export interface LoopCommandOptions {
 
 /** Seams so the command is testable without touching the backlog FS or k8s. */
 export interface LoopCommandSeams {
-  readonly loadTasks?: (
-    worktreePath: string
-  ) => Effect.Effect<readonly BacklogTaskRecord[], Error>;
+  readonly loadTasks?: (worktreePath: string) => Effect.Effect<readonly BacklogTaskRecord[], Error>;
   readonly submitMoka?: (input: MokaSubmitInput) => Promise<MokaSubmitResult>;
 }
 
@@ -70,18 +64,13 @@ const parseStrategy = (value: Option.Option<string>): TicketSelectionStrategy =>
     onSome: (selected) => {
       const match = LOOP_STRATEGIES.find((strategy) => strategy === selected);
       if (match === undefined) {
-        throw new Error(
-          `--strategy must be one of ${LOOP_STRATEGIES.join(", ")} (got "${selected}")`
-        );
+        throw new Error(`--strategy must be one of ${LOOP_STRATEGIES.join(", ")} (got "${selected}")`);
       }
       return match;
     },
   });
 
-const parsePositiveInt = (
-  value: Option.Option<string>,
-  flag: string
-): Option.Option<number> =>
+const parsePositiveInt = (value: Option.Option<string>, flag: string): Option.Option<number> =>
   Option.match(value, {
     onNone: () => Option.none(),
     onSome: (raw) => {
@@ -98,13 +87,10 @@ const parsePositiveInt = (
 // ---------------------------------------------------------------------------
 
 export const parseLoopFlags = (options: LoopCommandOptions): LoopFlags => {
-  const maxMergePolls = parsePositiveInt(
-    Option.fromNullishOr(options.mergeTimeout),
-    "--merge-timeout"
-  );
+  const maxMergePolls = parsePositiveInt(Option.fromNullishOr(options.mergeTimeout), "--merge-timeout");
   const maxRemediationAttempts = parsePositiveInt(
     Option.fromNullishOr(options.maxRemediationAttempts),
-    "--max-remediation-attempts"
+    "--max-remediation-attempts",
   );
   return {
     ...Option.match(maxMergePolls, {
@@ -130,10 +116,7 @@ export const parseLoopFlags = (options: LoopCommandOptions): LoopFlags => {
  * fully-blocked backlog has no ready ticket and is refused — submitting a
  * controller with nothing to do is a user error, not a no-op success.
  */
-const assertStartableBacklog = (
-  tasks: readonly BacklogTaskRecord[],
-  flags: LoopFlags
-): Effect.Effect<void, Error> =>
+const assertStartableBacklog = (tasks: readonly BacklogTaskRecord[], flags: LoopFlags): Effect.Effect<void, Error> =>
   buildTicketGraphEffect([...tasks]).pipe(
     Effect.mapError((error) => new Error(error.message)),
     Effect.flatMap((graph) => {
@@ -144,12 +127,12 @@ const assertStartableBacklog = (
       if (ready.length === 0) {
         return Effect.fail(
           new Error(
-            "Backlog has no ready ticket to start the loop. Add or unblock a 'To Do' ticket whose dependencies are Done."
-          )
+            "Backlog has no ready ticket to start the loop. Add or unblock a 'To Do' ticket whose dependencies are Done.",
+          ),
         );
       }
       return Effect.void;
-    })
+    }),
   );
 
 /** The argv the in-cluster pod runs to drive the loop. */
@@ -159,10 +142,7 @@ export const loopControllerArgv = (flags: LoopFlags): string[] => {
     argv.push("--root", flags.rootId);
   }
   if (flags.maxRemediationAttempts !== undefined) {
-    argv.push(
-      "--max-remediation-attempts",
-      String(flags.maxRemediationAttempts)
-    );
+    argv.push("--max-remediation-attempts", String(flags.maxRemediationAttempts));
   }
   if (flags.maxMergePolls !== undefined) {
     argv.push("--merge-timeout", String(flags.maxMergePolls));
@@ -170,9 +150,7 @@ export const loopControllerArgv = (flags: LoopFlags): string[] => {
   return argv;
 };
 
-const loopControllerSubmitInput = (
-  input: LoopSubmitInput
-): MokaSubmitInput => ({
+const loopControllerSubmitInput = (input: LoopSubmitInput): MokaSubmitInput => ({
   brokerAuth: input.brokerAuth,
   commandArgv: loopControllerArgv(input.flags),
   config: input.config,
@@ -198,7 +176,7 @@ const loopControllerSubmitInput = (
  */
 export const runLoopSubmit = async (
   input: LoopSubmitInput,
-  seams: LoopCommandSeams = {}
+  seams: LoopCommandSeams = {},
 ): Promise<MokaSubmitResult> => {
   const loadTasks = seams.loadTasks ?? loadBacklogRecords;
   const submit = seams.submitMoka ?? submitMoka;
@@ -208,13 +186,12 @@ export const runLoopSubmit = async (
         assertStartableBacklog(tasks, input.flags).pipe(
           Effect.flatMap(() =>
             Effect.tryPromise({
-              catch: (error) =>
-                error instanceof Error ? error : new Error(String(error)),
+              catch: (error) => (error instanceof Error ? error : new Error(String(error))),
               try: async () => await submit(loopControllerSubmitInput(input)),
-            })
-          )
-        )
-      )
-    )
+            }),
+          ),
+        ),
+      ),
+    ),
   );
 };

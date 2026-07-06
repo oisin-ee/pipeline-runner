@@ -3,15 +3,12 @@ import { execa } from "execa";
 
 import { isRecord } from "../../safe-json";
 
-export class BacklogCommandError extends Data.TaggedError(
-  "BacklogCommandError"
-)<{
+export class BacklogCommandError extends Data.TaggedError("BacklogCommandError")<{
   readonly message: string;
   readonly stdout: string;
 }> {}
 
-const commandErrorMessage = (error: unknown): string =>
-  error instanceof Error ? error.message : String(error);
+const commandErrorMessage = (error: unknown): string => (error instanceof Error ? error.message : String(error));
 
 const commandErrorStdout = (error: unknown): string =>
   isRecord(error) && typeof error.stdout === "string" ? error.stdout : "";
@@ -25,10 +22,7 @@ const toBacklogCommandError = (error: unknown): BacklogCommandError =>
 export class BacklogService extends Context.Service<
   BacklogService,
   {
-    readonly run: (
-      args: readonly string[],
-      cwd: string
-    ) => Effect.Effect<string, BacklogCommandError>;
+    readonly run: (args: readonly string[], cwd: string) => Effect.Effect<string, BacklogCommandError>;
   }
 >()("BacklogService") {}
 

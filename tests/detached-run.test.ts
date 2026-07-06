@@ -1,27 +1,15 @@
 import type { SpawnOptions } from "node:child_process";
-import {
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { isAbsolute, join, relative, sep } from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type {
-  MokaNodeStatus,
-  MokaRunStatus,
-} from "../src/run-control/contracts";
+import type { MokaNodeStatus, MokaRunStatus } from "../src/run-control/contracts";
+import { isNumberValue, isStringValue } from "../src/safe-json";
+import { isObjectValue, stringValue, taggedErrorClass } from "../src/schema-boundary";
 import { readRun } from "./run-control-file-store-helpers";
-import {
-  readJson,
-  restoreEnv,
-  runMokaCliInTarget,
-  writeJson,
-} from "./run-control-test-helpers";
+import { readJson, restoreEnv, runMokaCliInTarget, writeJson } from "./run-control-test-helpers";
 
 interface SpawnCall {
   args: string[];
@@ -54,16 +42,31 @@ const CONTROLLER_ARGV_RE = /controller/iu;
 const RAW_OPENCODE_RUN_RE = /\bopencode\s+run\b/iu;
 const RUN_ID_OUTPUT_RE = /Run id:\s*(run-[\w.-]+)/iu;
 
-const isSpawnArgs = (
-  value: readonly string[] | SpawnOptions | undefined
-): value is readonly string[] => Array.isArray(value);
+const isSpawnArgs = (value: unknown): value is readonly string[] => Array.isArray(value);
 
-const mockState = vi.hoisted(() => ({
-  runtimeCalls: [] as unknown[],
-  spawnCalls: [] as SpawnCall[],
-  stderr: [] as string[],
-  stdout: [] as string[],
-}));
+const isRecord = (value: unknown): value is Record<string, unknown> => isObjectValue(value) && !Array.isArray(value);
+
+class DetachedRunTestError extends taggedErrorClass<DetachedRunTestError>()("DetachedRunTestError", {
+  message: stringValue(),
+}) {}
+
+const detachedRunTestError = (message: string): DetachedRunTestError => new DetachedRunTestError({ message });
+
+interface DetachedMockState {
+  runtimeCalls: unknown[];
+  spawnCalls: SpawnCall[];
+  stderr: string[];
+  stdout: string[];
+}
+
+const mockState = vi.hoisted(
+  (): DetachedMockState => ({
+    runtimeCalls: [],
+    spawnCalls: [],
+    stderr: [],
+    stdout: [],
+  }),
+);
 
 vi.mock("node:child_process", async (importOriginal) => {
   const actual = await importOriginal<typeof import("node:child_process")>();
@@ -71,67 +74,48 @@ vi.mock("node:child_process", async (importOriginal) => {
 
   return {
     ...actual,
-    spawn: vi.fn(
-      (
-        command: string,
-        argsOrOptions?: readonly string[] | SpawnOptions,
-        maybeOptions?: SpawnOptions
-      ) => {
-        const args = isSpawnArgs(argsOrOptions) ? [...argsOrOptions] : [];
-        const options = isSpawnArgs(argsOrOptions)
-          ? maybeOptions
-          : argsOrOptions;
-        const child = new EventEmitter() as InstanceType<
-          typeof EventEmitter
-        > & {
-          pid: number;
-          stderr: InstanceType<typeof EventEmitter>;
-          stdin: InstanceType<typeof EventEmitter>;
-          stdout: InstanceType<typeof EventEmitter>;
-          unref: () => void;
-        };
-        child.pid = DETACHED_CONTROLLER_PID;
-        child.stderr = new EventEmitter();
-        child.stdin = new EventEmitter();
-        child.stdout = new EventEmitter();
-        child.unref = vi.fn();
-        mockState.spawnCalls.push({
-          args,
-          command,
-          options: {
-            cwd: options?.cwd === undefined ? undefined : String(options.cwd),
-            detached: options?.detached,
-            stdio: options?.stdio,
-          },
-        });
-        queueMicrotask(() => child.emit("spawn"));
-
-        return child;
+    spawn: vi.fn((command: string, argsOrOptions?: readonly string[] | SpawnOptions, maybeOptions?: SpawnOptions) => {
+      const args = isSpawnArgs(argsOrOptions) ? [...argsOrOptions] : [];
+      const options = isSpawnArgs(argsOrOptions) ? maybeOptions : argsOrOptions;
+      class MockChildProcess extends EventEmitter {
+        pid = DETACHED_CONTROLLER_PID;
+        stderr = new EventEmitter();
+        stdin = new EventEmitter();
+        stdout = new EventEmitter();
+        unref = vi.fn();
       }
-    ),
+      const child = new MockChildProcess();
+      mockState.spawnCalls.push({
+        args,
+        command,
+        options: {
+          cwd: options?.cwd === undefined ? undefined : String(options.cwd),
+          detached: options?.detached,
+          stdio: options?.stdio,
+        },
+      });
+      queueMicrotask(() => child.emit("spawn"));
+
+      return child;
+    }),
   };
 });
 
 vi.mock("../src/pipeline-runtime", () => ({
   runPipelineFromConfig: vi.fn((input: unknown) => {
     mockState.runtimeCalls.push(input);
-    throw new Error("detached run must not invoke the in-process runtime");
+    throw detachedRunTestError("detached run must not invoke the in-process runtime");
   }),
 }));
 
 vi.mock("../src/run-control/run-control-store", async (importOriginal) => {
-  const actual =
-    await importOriginal<
-      typeof import("../src/run-control/run-control-store")
-    >();
+  const actual = await importOriginal<typeof import("../src/run-control/run-control-store")>();
 
   return {
     ...actual,
     withRunControlStoreScoped: vi.fn(
-      (
-        workspaceRoot: string,
-        use: Parameters<typeof actual.withRunControlStoreScoped>[1]
-      ) => use(actual.fileRunControlStore(workspaceRoot))
+      (workspaceRoot: string, use: Parameters<typeof actual.withRunControlStoreScoped>[1]) =>
+        use(actual.fileRunControlStore(workspaceRoot)),
     ),
   };
 });
@@ -139,18 +123,14 @@ vi.mock("../src/run-control/run-control-store", async (importOriginal) => {
 const ORIGINAL_PIPELINE_TARGET_PATH = process.env.PIPELINE_TARGET_PATH;
 
 const runMokaInTarget = async (workspaceRoot: string, args: string[]) => {
-  const stdoutWrite = vi
-    .spyOn(process.stdout, "write")
-    .mockImplementation((chunk: string | Uint8Array) => {
-      mockState.stdout.push(String(chunk));
-      return true;
-    });
-  const stderrWrite = vi
-    .spyOn(process.stderr, "write")
-    .mockImplementation((chunk: string | Uint8Array) => {
-      mockState.stderr.push(String(chunk));
-      return true;
-    });
+  const stdoutWrite = vi.spyOn(process.stdout, "write").mockImplementation((chunk: string | Uint8Array) => {
+    mockState.stdout.push(String(chunk));
+    return true;
+  });
+  const stderrWrite = vi.spyOn(process.stderr, "write").mockImplementation((chunk: string | Uint8Array) => {
+    mockState.stderr.push(String(chunk));
+    return true;
+  });
   try {
     return await runMokaCliInTarget({
       args,
@@ -171,7 +151,7 @@ const seedDetachedRun = (
     pid: number;
     runId: string;
     status: MokaRunStatus;
-  }
+  },
 ): void => {
   const runRoot = join(workspaceRoot, ".pipeline", "runs", input.runId);
   mkdirSync(join(runRoot, "nodes"), { recursive: true });
@@ -184,13 +164,7 @@ const seedDetachedRun = (
     manifest: `.pipeline/runs/${input.runId}/manifest.json`,
     status: `.pipeline/runs/${input.runId}/status.json`,
   };
-  const controllerArgv = [
-    process.execPath,
-    "/repo/dist/index.js",
-    "run-controller",
-    "--run-id",
-    input.runId,
-  ];
+  const controllerArgv = [process.execPath, "/repo/dist/index.js", "run-controller", "--run-id", input.runId];
   writeJson(join(runRoot, "manifest.json"), {
     controller: {
       argv: controllerArgv,
@@ -217,9 +191,88 @@ const seedDetachedRun = (
 const extractRunId = (output: string): string => {
   const match = RUN_ID_OUTPUT_RE.exec(output);
   if (!match) {
-    throw new Error(`Detached run output did not include a run id: ${output}`);
+    throw detachedRunTestError(`Detached run output did not include a run id: ${output}`);
   }
   return match[1];
+};
+
+const requiredRecordField = (
+  record: Record<string, unknown>,
+  field: string,
+  context: string,
+): Record<string, unknown> => {
+  const value = record[field];
+  if (!isRecord(value)) {
+    throw detachedRunTestError(`Expected detached ${context} at ${field}`);
+  }
+  return value;
+};
+
+const requiredStringField = (record: Record<string, unknown>, field: string, context: string): string => {
+  const value = record[field];
+  if (!isStringValue(value)) {
+    throw detachedRunTestError(`Expected detached ${context} at ${field}`);
+  }
+  return value;
+};
+
+const optionalSchedulePatch = (record: Record<string, unknown>): Partial<Pick<DetachedManifest, "schedule">> => {
+  const value = record.schedule;
+  return isStringValue(value) ? { schedule: value } : {};
+};
+
+const requiredNumberField = (record: Record<string, unknown>, field: string, context: string): number => {
+  const value = record[field];
+  if (!isNumberValue(value)) {
+    throw detachedRunTestError(`Expected detached ${context} at ${field}`);
+  }
+  return value;
+};
+
+const requiredStringArrayField = (record: Record<string, unknown>, field: string, context: string): string[] => {
+  const value = record[field];
+  if (!Array.isArray(value)) {
+    throw detachedRunTestError(`Expected detached ${context} at ${field}`);
+  }
+  return value.map(String);
+};
+
+const readDetachedControllerPaths = (
+  controller: Record<string, unknown>,
+  manifestPath: string,
+): DetachedManifest["controller"]["paths"] => {
+  const paths = requiredRecordField(controller, "paths", `controller paths in ${manifestPath}`);
+  return {
+    events: requiredStringField(paths, "events", `controller path string in ${manifestPath}`),
+    manifest: requiredStringField(paths, "manifest", `controller path string in ${manifestPath}`),
+    status: requiredStringField(paths, "status", `controller path string in ${manifestPath}`),
+  };
+};
+
+const readDetachedController = (
+  manifest: Record<string, unknown>,
+  manifestPath: string,
+): DetachedManifest["controller"] => {
+  const controller = requiredRecordField(manifest, "controller", `controller metadata in ${manifestPath}`);
+  return {
+    argv: requiredStringArrayField(controller, "argv", `controller metadata in ${manifestPath}`),
+    cwd: requiredStringField(controller, "cwd", `controller metadata in ${manifestPath}`),
+    paths: readDetachedControllerPaths(controller, manifestPath),
+    pid: requiredNumberField(controller, "pid", `controller metadata in ${manifestPath}`),
+    startedAt: requiredStringField(controller, "startedAt", `controller paths in ${manifestPath}`),
+  };
+};
+
+const readDetachedManifest = (path: string): DetachedManifest => {
+  const value = readJson(path);
+  if (!isRecord(value)) {
+    throw detachedRunTestError(`Expected detached manifest at ${path}`);
+  }
+  return {
+    controller: readDetachedController(value, path),
+    runId: requiredStringField(value, "runId", `manifest in ${path}`),
+    ...optionalSchedulePatch(value),
+  };
 };
 
 const workspaceRelative = (workspaceRoot: string, value: string): string => {
@@ -252,18 +305,12 @@ const detachedScheduleYaml = (input: {
   ].join("\n");
 
 vi.mock("../src/planning/generate", async (importOriginal) => {
-  const actual =
-    await importOriginal<typeof import("../src/planning/generate")>();
+  const actual = await importOriginal<typeof import("../src/planning/generate")>();
 
   return {
     ...actual,
     generateScheduleArtifactInMemory: vi.fn(
-      (input: {
-        entrypointId: string;
-        runId: string;
-        task: string;
-        worktreePath: string;
-      }) => ({
+      (input: { entrypointId: string; runId: string; task: string; worktreePath: string }) => ({
         yaml: detachedScheduleYaml({
           command: "console.log('detached writer')",
           nodeId: "writer",
@@ -271,7 +318,7 @@ vi.mock("../src/planning/generate", async (importOriginal) => {
           runId: input.runId,
           task: input.task,
         }),
-      })
+      }),
     ),
   };
 });
@@ -294,11 +341,7 @@ describe("detached moka run", () => {
   });
 
   it("starts a supervised controller process and records durable controller metadata", async () => {
-    const capture = await runMokaInTarget(workspaceRoot, [
-      "run",
-      "Ticket 8 detached work",
-      "--detach",
-    ]);
+    const capture = await runMokaInTarget(workspaceRoot, ["run", "Ticket 8 detached work", "--detach"]);
 
     expect(capture.thrown).toBeUndefined();
     expect(mockState.runtimeCalls).toEqual([]);
@@ -315,9 +358,7 @@ describe("detached moka run", () => {
     expect(launchedArgv).not.toContain("--schedule");
 
     const runId = extractRunId(capture.stdout);
-    const manifest = readJson(
-      join(workspaceRoot, ".pipeline", "runs", runId, "manifest.json")
-    ) as DetachedManifest;
+    const manifest = readDetachedManifest(join(workspaceRoot, ".pipeline", "runs", runId, "manifest.json"));
 
     expect(manifest.runId).toBe(runId);
     expect(manifest.controller).toMatchObject({
@@ -328,28 +369,18 @@ describe("detached moka run", () => {
     expect(manifest.schedule).toContain("kind: pipeline-schedule");
     expect(manifest.schedule).toContain("schedule_id: run-");
     expect(Number.isNaN(Date.parse(manifest.controller.startedAt))).toBe(false);
-    expect(
-      workspaceRelative(workspaceRoot, manifest.controller.paths.manifest)
-    ).toBe(`.pipeline/runs/${runId}/manifest.json`);
-    expect(
-      workspaceRelative(workspaceRoot, manifest.controller.paths.status)
-    ).toBe(`.pipeline/runs/${runId}/status.json`);
-    expect(
-      workspaceRelative(workspaceRoot, manifest.controller.paths.events)
-    ).toBe(`.pipeline/runs/${runId}/events.jsonl`);
-    expect(
-      existsSync(join(workspaceRoot, ".pipeline", "runs", runId, "status.json"))
-    ).toBe(true);
-    expect(
-      existsSync(
-        join(workspaceRoot, ".pipeline", "runs", runId, "events.jsonl")
-      )
-    ).toBe(true);
-    expect(
-      existsSync(
-        join(workspaceRoot, ".pipeline", "runs", runId, "schedule.yaml")
-      )
-    ).toBe(false);
+    expect(workspaceRelative(workspaceRoot, manifest.controller.paths.manifest)).toBe(
+      `.pipeline/runs/${runId}/manifest.json`,
+    );
+    expect(workspaceRelative(workspaceRoot, manifest.controller.paths.status)).toBe(
+      `.pipeline/runs/${runId}/status.json`,
+    );
+    expect(workspaceRelative(workspaceRoot, manifest.controller.paths.events)).toBe(
+      `.pipeline/runs/${runId}/events.jsonl`,
+    );
+    expect(existsSync(join(workspaceRoot, ".pipeline", "runs", runId, "status.json"))).toBe(true);
+    expect(existsSync(join(workspaceRoot, ".pipeline", "runs", runId, "events.jsonl"))).toBe(true);
+    expect(existsSync(join(workspaceRoot, ".pipeline", "runs", runId, "schedule.yaml"))).toBe(false);
   });
 
   it("persists explicit schedule YAML while forwarding the approved path to the controller", async () => {
@@ -363,7 +394,7 @@ describe("detached moka run", () => {
         runId: "approved-detached",
         task: "Ticket 8 detached explicit schedule",
       }),
-      "utf-8"
+      "utf-8",
     );
 
     const capture = await runMokaInTarget(workspaceRoot, [
@@ -382,19 +413,13 @@ describe("detached moka run", () => {
     expect(launchedArgv).toContain(schedulePath);
 
     const runId = extractRunId(capture.stdout);
-    expect(
-      readJson(join(workspaceRoot, ".pipeline", "runs", runId, "manifest.json"))
-    ).toMatchObject({
+    expect(readJson(join(workspaceRoot, ".pipeline", "runs", runId, "manifest.json"))).toMatchObject({
       schedule: expect.stringContaining("schedule_id: approved-detached"),
     });
   });
 
   it("prints the detached run id with status, logs, and stop commands", async () => {
-    const capture = await runMokaInTarget(workspaceRoot, [
-      "run",
-      "Ticket 8 inspectable detached work",
-      "--detach",
-    ]);
+    const capture = await runMokaInTarget(workspaceRoot, ["run", "Ticket 8 inspectable detached work", "--detach"]);
 
     expect(capture.thrown).toBeUndefined();
     const runId = extractRunId(capture.stdout);
@@ -422,11 +447,7 @@ describe("detached moka run", () => {
       const capture = await runMokaInTarget(workspaceRoot, ["stop", runId]);
 
       expect(capture.thrown).toBeUndefined();
-      expect(
-        kill.mock.calls.some(
-          ([pid]) => Math.abs(pid) === DETACHED_CONTROLLER_PID
-        )
-      ).toBe(true);
+      expect(kill.mock.calls.some(([pid]) => Math.abs(pid) === DETACHED_CONTROLLER_PID)).toBe(true);
       expect(capture.stdout).toContain(runId);
       expect(capture.stdout).toContain("aborted");
     } finally {

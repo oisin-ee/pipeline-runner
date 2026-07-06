@@ -1,14 +1,9 @@
-import {
-  submitDynamicRunnerArgoWorkflow,
-  submitRunnerArgoWorkflow,
-} from "../../argo-submit";
+import { submitDynamicRunnerArgoWorkflow, submitRunnerArgoWorkflow } from "../../argo-submit";
 import type { PipelineConfig } from "../../config";
 import type { BrokerAuthOption } from "../../credentials/broker";
-import type {
-  MokaSubmitOutput,
-  ParsedMokaBaseOptions,
-} from "../../moka-submit";
+import type { MokaSubmitOutput, ParsedMokaBaseOptions } from "../../moka-submit";
 import { buildRunnerCommandPayload } from "../../runner-command-contract";
+import { parseStrictWithSchema } from "../../schema-boundary";
 import { workflowSubmitResultSchema } from "../../workflow-submit-contract";
 import type { ArgoWorkflowPodGC, ArgoWorkflowTtlStrategy } from "../argo/model";
 import type { CompiledMokaSubmitPlan } from "./compilation";
@@ -47,26 +42,19 @@ interface MokaWorkflowSubmitOptions {
   workflowId: string;
 }
 
-export type MokaWorkflowSubmit = (
-  options: MokaWorkflowSubmitOptions
-) => Promise<MokaSubmitOutput>;
+export type MokaWorkflowSubmit = (options: MokaWorkflowSubmitOptions) => Promise<MokaSubmitOutput>;
 
 const requireStaticScheduleYaml = (plan: CompiledMokaSubmitPlan): string => {
   if (plan.scheduleYaml !== undefined && plan.scheduleYaml.length > 0) {
     return plan.scheduleYaml;
   }
-  throw new Error(
-    `Static workflow submit requires scheduleYaml for run ${plan.runId}`
-  );
+  throw new Error(`Static workflow submit requires scheduleYaml for run ${plan.runId}`);
 };
 
 const runnerPayloadJson = (input: {
   context: MokaSubmissionContext;
   options: ParsedMokaBaseOptions;
-  plan: Pick<
-    CompiledMokaSubmitPlan,
-    "runId" | "submission" | "task" | "workflowId"
-  >;
+  plan: Pick<CompiledMokaSubmitPlan, "runId" | "submission" | "task" | "workflowId">;
 }): string =>
   JSON.stringify(
     buildRunnerCommandPayload({
@@ -86,7 +74,7 @@ const runnerPayloadJson = (input: {
       submission: input.plan.submission,
       task: input.plan.task,
       workflow: { id: input.plan.workflowId },
-    })
+    }),
   );
 
 const requireSubmitOption = (value: string | void, name: string): string => {
@@ -97,11 +85,8 @@ const requireSubmitOption = (value: string | void, name: string): string => {
 };
 
 const workflowSubmitOptions = (
-  options: ParsedMokaBaseOptions
-): Omit<
-  MokaWorkflowSubmitOptions,
-  "config" | "payloadJson" | "scheduleYaml" | "workflowId"
-> => ({
+  options: ParsedMokaBaseOptions,
+): Omit<MokaWorkflowSubmitOptions, "config" | "payloadJson" | "scheduleYaml" | "workflowId"> => ({
   activeDeadlineSeconds: options.activeDeadlineSeconds,
   brokerAuth: options.brokerAuth,
   dbAuth: options.dbAuth,
@@ -147,7 +132,7 @@ export const submitCompiledMokaWorkflow = async (input: {
       input.submitWorkflow === undefined
         ? await submitDynamicRunnerArgoWorkflow(dynamicOptions)
         : await input.submitWorkflow(dynamicOptions);
-    return workflowSubmitResultSchema.parse(result);
+    return parseStrictWithSchema(workflowSubmitResultSchema, result);
   }
   const scheduleYaml = requireStaticScheduleYaml(input.plan);
   const result =
@@ -167,5 +152,5 @@ export const submitCompiledMokaWorkflow = async (input: {
           scheduleYaml,
           workflowId: input.plan.workflowId,
         });
-  return workflowSubmitResultSchema.parse(result);
+  return parseStrictWithSchema(workflowSubmitResultSchema, result);
 };

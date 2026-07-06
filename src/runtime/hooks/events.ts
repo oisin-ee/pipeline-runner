@@ -5,12 +5,7 @@ import type { HookEvent } from "../../config";
 import type { PlannedWorkflowNode } from "../../planning/compile";
 import { runtimeActorId } from "../actor-ids";
 import type { RuntimeActorDescriptor } from "../actor-ids";
-import type {
-  HookBinding,
-  PipelineRuntimeEvent,
-  RuntimeContext,
-  RuntimeFailure,
-} from "../contracts";
+import type { HookBinding, PipelineRuntimeEvent, RuntimeContext, RuntimeFailure } from "../contracts";
 import { emit, runtimeSystemId } from "../events";
 import type { HookInvocationResultEvent } from "./types";
 
@@ -27,27 +22,19 @@ type RuntimeHookResultEmitter = (
   context: RuntimeContext,
   binding: HookBinding,
   result: HookInvocationResultEvent,
-  node?: PlannedWorkflowNode
+  node?: PlannedWorkflowNode,
 ) => void;
 
 const hookResultReason = (result: HookInvocationResultEvent): Option<string> =>
-  orElse(fromUndefinedOr(result.reason), () =>
-    fromUndefinedOr(result.failure?.reason)
-  );
+  orElse(fromUndefinedOr(result.reason), () => fromUndefinedOr(result.failure?.reason));
 
-const hookRequiredReason = (
-  result: HookInvocationResultEvent,
-  fallback: string
-): string => getOrUndefined(hookResultReason(result)) ?? fallback;
+const hookRequiredReason = (result: HookInvocationResultEvent, fallback: string): string =>
+  getOrUndefined(hookResultReason(result)) ?? fallback;
 
-const hookEventNode = (
-  node?: PlannedWorkflowNode
-): Pick<HookStartEvent, "nodeId"> | EmptyObject =>
+const hookEventNode = (node?: PlannedWorkflowNode): Pick<HookStartEvent, "nodeId"> | EmptyObject =>
   node ? { nodeId: node.id } : {};
 
-const hookEventGate = (
-  gateId?: string
-): Pick<HookStartEvent, "gateId"> | EmptyObject =>
+const hookEventGate = (gateId?: string): Pick<HookStartEvent, "gateId"> | EmptyObject =>
   gateId === undefined || gateId.length === 0 ? {} : { gateId };
 
 const hookStartEvent = (
@@ -55,7 +42,7 @@ const hookStartEvent = (
   event: HookEvent,
   binding: HookBinding,
   node?: PlannedWorkflowNode,
-  gateId?: string
+  gateId?: string,
 ): HookStartEvent => ({
   event,
   functionId: binding.function,
@@ -72,14 +59,12 @@ export const emitHookStart = (
   event: HookEvent,
   binding: HookBinding,
   node?: PlannedWorkflowNode,
-  gateId?: string
+  gateId?: string,
 ): void => {
   emit(context, hookStartEvent(context, event, binding, node, gateId));
 };
 
-const hookEventFailureReason = (
-  result?: RuntimeFailure
-): Pick<HookFinishEvent, "reason"> | EmptyObject =>
+const hookEventFailureReason = (result?: RuntimeFailure): Pick<HookFinishEvent, "reason"> | EmptyObject =>
   match(fromUndefinedOr(result?.reason), {
     onNone: () => ({}),
     onSome: (reason) => ({ reason }),
@@ -91,7 +76,7 @@ const hookFinishEvent = (
   binding: HookBinding,
   result?: RuntimeFailure,
   node?: PlannedWorkflowNode,
-  gateId?: string
+  gateId?: string,
 ): HookFinishEvent => ({
   event,
   functionId: binding.function,
@@ -111,16 +96,12 @@ export const emitHookFinish = (
   binding: HookBinding,
   result?: RuntimeFailure,
   node?: PlannedWorkflowNode,
-  gateId?: string
+  gateId?: string,
 ): void => {
   emit(context, hookFinishEvent(context, event, binding, result, node, gateId));
 };
 
-const runtimeHookActor = (
-  context: RuntimeContext,
-  hookId: string,
-  nodeId?: string
-): RuntimeActorDescriptor => ({
+const runtimeHookActor = (context: RuntimeContext, hookId: string, nodeId?: string): RuntimeActorDescriptor => ({
   id: runtimeActorId("hook", {
     hookId,
     nodeId,
@@ -136,7 +117,7 @@ const runtimeTimestamp = (): string => new Date().toISOString();
 const hookObservabilityBase = (
   context: RuntimeContext,
   binding: HookBinding,
-  node?: PlannedWorkflowNode
+  node?: PlannedWorkflowNode,
 ): HookObservabilityBase => ({
   actor: runtimeHookActor(context, binding.id, node?.id),
   hookId: binding.id,
@@ -147,7 +128,7 @@ const hookObservabilityBase = (
 export const emitRuntimeHookStarted = (
   context: RuntimeContext,
   binding: HookBinding,
-  node?: PlannedWorkflowNode
+  node?: PlannedWorkflowNode,
 ): void => {
   context.observability?.({
     ...hookObservabilityBase(context, binding, node),
@@ -159,7 +140,7 @@ export const emitRuntimeHookSkipped = (
   context: RuntimeContext,
   binding: HookBinding,
   reason: string,
-  node?: PlannedWorkflowNode
+  node?: PlannedWorkflowNode,
 ): void => {
   context.observability?.({
     ...hookObservabilityBase(context, binding, node),
@@ -172,21 +153,16 @@ const emitRuntimeHookSkippedResult = (
   context: RuntimeContext,
   binding: HookBinding,
   result: HookInvocationResultEvent,
-  node?: PlannedWorkflowNode
+  node?: PlannedWorkflowNode,
 ): void => {
-  emitRuntimeHookSkipped(
-    context,
-    binding,
-    hookRequiredReason(result, "hook skipped"),
-    node
-  );
+  emitRuntimeHookSkipped(context, binding, hookRequiredReason(result, "hook skipped"), node);
 };
 
 const emitRuntimeHookFinished = (
   context: RuntimeContext,
   binding: HookBinding,
   result: HookInvocationResultEvent,
-  node?: PlannedWorkflowNode
+  node?: PlannedWorkflowNode,
 ): void => {
   context.observability?.({
     ...hookObservabilityBase(context, binding, node),
@@ -200,7 +176,7 @@ const emitRuntimeHookFailed = (
   context: RuntimeContext,
   binding: HookBinding,
   result: HookInvocationResultEvent,
-  node?: PlannedWorkflowNode
+  node?: PlannedWorkflowNode,
 ): void => {
   context.observability?.({
     ...hookObservabilityBase(context, binding, node),
@@ -213,7 +189,7 @@ const emitRuntimeHookFailedResult = (
   context: RuntimeContext,
   binding: HookBinding,
   result: HookInvocationResultEvent,
-  node?: PlannedWorkflowNode
+  node?: PlannedWorkflowNode,
 ): void => {
   emitRuntimeHookFinished(context, binding, result, node);
   emitRuntimeHookFailed(context, binding, result, node);
@@ -223,7 +199,7 @@ const emitRuntimeHookTimedOut = (
   context: RuntimeContext,
   binding: HookBinding,
   result: HookInvocationResultEvent,
-  node?: PlannedWorkflowNode
+  node?: PlannedWorkflowNode,
 ): void => {
   context.observability?.({
     ...hookObservabilityBase(context, binding, node),
@@ -236,16 +212,13 @@ const emitRuntimeHookTimedOutResult = (
   context: RuntimeContext,
   binding: HookBinding,
   result: HookInvocationResultEvent,
-  node?: PlannedWorkflowNode
+  node?: PlannedWorkflowNode,
 ): void => {
   emitRuntimeHookFinished(context, binding, result, node);
   emitRuntimeHookTimedOut(context, binding, result, node);
 };
 
-const runtimeHookResultEmitters: Record<
-  HookInvocationResultEvent["status"],
-  RuntimeHookResultEmitter
-> = {
+const runtimeHookResultEmitters: Record<HookInvocationResultEvent["status"], RuntimeHookResultEmitter> = {
   failed: emitRuntimeHookFailedResult,
   passed: emitRuntimeHookFinished,
   skipped: emitRuntimeHookSkippedResult,
@@ -256,7 +229,7 @@ export const emitRuntimeHookResult = (
   context: RuntimeContext,
   binding: HookBinding,
   result: HookInvocationResultEvent,
-  node?: PlannedWorkflowNode
+  node?: PlannedWorkflowNode,
 ): void => {
   runtimeHookResultEmitters[result.status](context, binding, result, node);
 };

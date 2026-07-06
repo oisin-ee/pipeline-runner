@@ -5,23 +5,12 @@ import { join } from "node:path";
 
 import { Effect } from "effect";
 import postgres from "postgres";
-import {
-  afterAll,
-  afterEach,
-  beforeAll,
-  describe,
-  expect,
-  it,
-  vi,
-} from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 import { parsePipelineConfigParts } from "../src/config";
 import type { PipelineConfig } from "../src/config";
 import { resumeRun } from "../src/pipeline-runtime";
-import {
-  compileScheduleArtifact,
-  parseScheduleArtifact,
-} from "../src/planning/generate";
+import { compileScheduleArtifact, parseScheduleArtifact } from "../src/planning/generate";
 import {
   migratePostgresRunControlStore,
   postgresRunControlStore,
@@ -143,11 +132,7 @@ const passedResult = (nodeId: string): RuntimeNodeResult => ({
 // Seed a node's terminal result into the cluster Postgres durable journal for
 // `runId`, then close so the write flushes — exactly what a process that ran the
 // node and then died leaves behind.
-const seedPersistedNodes = async (
-  dbUrl: string,
-  runId: string,
-  nodeIds: string[]
-): Promise<void> => {
+const seedPersistedNodes = async (dbUrl: string, runId: string, nodeIds: string[]): Promise<void> => {
   const store = await postgresDurableRunStore(dbUrl, runId);
   const journal = store.toRunJournal(runId);
   for (const nodeId of nodeIds) {
@@ -207,7 +192,7 @@ describePg("moka resume reconstructs the persisted run graph (live PG)", () => {
     const compiled = compileScheduleArtifact(
       config,
       parseScheduleArtifact(scheduleYaml, "schedule.yaml"),
-      worktreePath
+      worktreePath,
     );
     const nodeIds = compiled.plan.topologicalOrder.map((node) => node.id);
 
@@ -221,7 +206,7 @@ describePg("moka resume reconstructs the persisted run graph (live PG)", () => {
         runId: id,
         schedule: scheduleYaml,
         target: "local",
-      })
+      }),
     );
 
     // AC1: the schedule is retrievable by runId from Postgres.

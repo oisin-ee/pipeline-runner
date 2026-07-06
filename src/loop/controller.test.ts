@@ -21,10 +21,7 @@ import type { GhRunner, PrResolution } from "./gh-checks";
 // ---------------------------------------------------------------------------
 
 /** Minimal task record factory — only fields the controller reads. */
-const task = (
-  id: string,
-  dependencies: readonly string[] = []
-): BacklogTaskRecord => ({
+const task = (id: string, dependencies: readonly string[] = []): BacklogTaskRecord => ({
   acceptanceCriteria: [],
   dependencies,
   filePath: `backlog/tasks/${id}.md`,
@@ -39,10 +36,8 @@ const task = (
  * resolvePr / classifyChecks via injected seams in these tests, so the raw gh
  * is a stub that fails loudly if touched. */
 const unusedGh: GhRunner = {
-  json: (args) =>
-    Effect.fail(new Error(`unexpected gh.json: ${args.join(" ")}`)),
-  text: (args) =>
-    Effect.fail(new Error(`unexpected gh.text: ${args.join(" ")}`)),
+  json: (args) => Effect.fail(new Error(`unexpected gh.json: ${args.join(" ")}`)),
+  text: (args) => Effect.fail(new Error(`unexpected gh.text: ${args.join(" ")}`)),
 };
 
 const FOUND_PR: Extract<PrResolution, { found: true }> = {
@@ -70,7 +65,7 @@ interface Recorder {
 }
 
 const buildDeps = (
-  config: ScriptedDepsConfig
+  config: ScriptedDepsConfig,
 ): {
   deps: ControllerDeps;
   recorder: Recorder;
@@ -103,9 +98,7 @@ const buildDeps = (
     },
     pollPhase: ({ workflowName }) => {
       // phase is keyed by submit order — find this submit's index by its runId.
-      const index = submits.findIndex(
-        (_, i) => `wf-run-${submits[i].ticketId}` === workflowName
-      );
+      const index = submits.findIndex((_, i) => `wf-run-${submits[i].ticketId}` === workflowName);
       const phase = phases[index] ?? "Succeeded";
       return Effect.succeed(phase);
     },
@@ -133,9 +126,7 @@ const buildDeps = (
 };
 
 const transitions = (events: LoopControllerEvent[]): string[] =>
-  events
-    .filter((e) => e.type === "loop.node.transition")
-    .map((e) => `${e.ticketId}:${e.loopState}`);
+  events.filter((e) => e.type === "loop.node.transition").map((e) => `${e.ticketId}:${e.loopState}`);
 
 // ---------------------------------------------------------------------------
 // AC1 — 3-node chain drains in dependency order; each ends passed.
@@ -217,13 +208,7 @@ describe("runLoopController — AC2 remediation loop", () => {
   it("caps remediation attempts and blocks when never green", async () => {
     const { deps, recorder } = buildDeps({
       // always fixable -> exhausts attempts.
-      classifyResponses: [
-        "fixable",
-        "fixable",
-        "fixable",
-        "fixable",
-        "fixable",
-      ],
+      classifyResponses: ["fixable", "fixable", "fixable", "fixable", "fixable"],
       maxRemediationAttempts: 2,
       tasks: [task("A")],
     });
@@ -257,13 +242,7 @@ describe("runLoopController — AC3 classification outcomes", () => {
 
   it("blocks on indeterminate after bounded waiting (never merges)", async () => {
     const { deps, recorder } = buildDeps({
-      classifyResponses: [
-        "indeterminate",
-        "indeterminate",
-        "indeterminate",
-        "indeterminate",
-        "indeterminate",
-      ],
+      classifyResponses: ["indeterminate", "indeterminate", "indeterminate", "indeterminate", "indeterminate"],
       maxMergePolls: 3,
       tasks: [task("A")],
     });

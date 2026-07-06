@@ -1,8 +1,4 @@
-import type {
-  AcceptanceCriterion,
-  RuntimeGateResult,
-  UnmetCriterion,
-} from "../../contracts";
+import type { AcceptanceCriterion, RuntimeGateResult, UnmetCriterion } from "../../contracts";
 import { evaluateGate } from "../registry";
 import type { DeterministicGate } from "./index";
 
@@ -25,15 +21,11 @@ export interface DeterministicOutcome {
  * or, when the gate covers nothing, a single entry keyed by the gate id so the
  * failure is never swallowed.
  */
-const gateUnmet = (
-  gate: DeterministicGate,
-  result: RuntimeGateResult
-): UnmetCriterion[] => {
+const gateUnmet = (gate: DeterministicGate, result: RuntimeGateResult): UnmetCriterion[] => {
   if (result.unmet && result.unmet.length > 0) {
     return result.unmet;
   }
-  const reason =
-    result.reason ?? `deterministic gate '${result.gateId}' failed`;
+  const reason = result.reason ?? `deterministic gate '${result.gateId}' failed`;
   if (gate.covers.length === 0) {
     return [{ criterion: result.gateId, evidence: result.evidence, reason }];
   }
@@ -50,9 +42,7 @@ const gateUnmet = (
  * (excluded from the residue) whether it passes or fails; passing gates feed the
  * anchor evidence pool, failing gates feed the structured refusal.
  */
-export const runDeterministicLayer = async (
-  gates: readonly DeterministicGate[]
-): Promise<DeterministicOutcome> => {
+export const runDeterministicLayer = async (gates: readonly DeterministicGate[]): Promise<DeterministicOutcome> => {
   const covered = new Set<string>();
   const evidence: string[] = [];
   const unmet: UnmetCriterion[] = [];
@@ -78,13 +68,10 @@ export const runDeterministicLayer = async (
 export const residueCriteria = (
   criteria: readonly AcceptanceCriterion[],
   covered: ReadonlySet<string>,
-  structured: readonly UnmetCriterion[]
+  structured: readonly UnmetCriterion[],
 ): AcceptanceCriterion[] => {
   const structuredIds = new Set(structured.map((entry) => entry.criterion));
-  return criteria.filter(
-    (criterion) =>
-      !(covered.has(criterion.id) || structuredIds.has(criterion.id))
-  );
+  return criteria.filter((criterion) => !(covered.has(criterion.id) || structuredIds.has(criterion.id)));
 };
 
 /**
@@ -92,9 +79,7 @@ export const residueCriteria = (
  * keeping the earliest (deterministic before structured-claim before llm-judge)
  * — the most authoritative reason for that criterion.
  */
-export const dedupeByCriterion = (
-  entries: UnmetCriterion[]
-): UnmetCriterion[] => {
+export const dedupeByCriterion = (entries: UnmetCriterion[]): UnmetCriterion[] => {
   const seen = new Set<string>();
   return entries.filter((entry) => {
     if (seen.has(entry.criterion)) {

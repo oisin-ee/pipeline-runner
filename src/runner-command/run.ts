@@ -1,22 +1,17 @@
 import { resolve } from "node:path";
 
-import { Effect, Option } from "effect";
 import type { Scope } from "effect";
+import * as Effect from "effect/Effect";
+import * as Option from "effect/Option";
+import * as Schema from "effect/Schema";
 import pino from "pino";
-import { z } from "zod";
 
 import { loadPipelineConfig } from "../config";
 import type { PipelineConfig } from "../config";
 import { loadMokaDbUrl } from "../moka-global-config";
 import { findPlannedNode } from "../planned-node";
-import {
-  indexPlannedNodesById,
-  resolveExecutableDependencyIds,
-} from "../planning/dependency-refs";
-import {
-  compileScheduleArtifact,
-  parseScheduleArtifact,
-} from "../planning/generate";
+import { indexPlannedNodesById, resolveExecutableDependencyIds } from "../planning/dependency-refs";
+import { compileScheduleArtifact, parseScheduleArtifact } from "../planning/generate";
 import { readPersistedScheduleEffect } from "../run-control/next-node";
 import { resolveRunControlStore } from "../run-control/run-control-store";
 import type { RunControlStore } from "../run-control/run-control-store";
@@ -29,35 +24,21 @@ import {
 } from "../runner-command-contract";
 import type { RunnerTask } from "../runner-command-contract";
 import { createRunnerEventSink } from "../runner-event-sink";
-import type {
-  PipelineRuntimeEvent,
-  RuntimeNodeResult,
-} from "../runtime/contracts";
+import type { PipelineRuntimeEvent, RuntimeNodeResult } from "../runtime/contracts";
 import { resolveDurableStore } from "../runtime/durable-store/acquisition";
 import type { DurableRunStore } from "../runtime/durable-store/durable-store";
 import { EXIT_INFRA } from "../runtime/exit-codes";
-import {
-  RunnerCommandIoService,
-  RunnerCommandIoServiceLive,
-} from "../runtime/services/runner-command-io-service";
+import { RunnerCommandIoService, RunnerCommandIoServiceLive } from "../runtime/services/runner-command-io-service";
 import { recordNodeResult } from "../runtime/step/step-node";
-import {
-  requireScheduleFileForFileSource,
-  scheduleSourceFields,
-} from "./schedule-source-options";
-import {
-  DEFAULT_RUNNER_TASK_DESCRIPTOR_PATH,
-  readRunnerTaskDescriptorEffect,
-} from "./task-descriptor";
+import { parseResultWithSchema, requiredString, struct } from "../schema-boundary";
+import { requireScheduleFileForFileSource, scheduleSourceFields } from "./schedule-source-options";
+import { DEFAULT_RUNNER_TASK_DESCRIPTOR_PATH, readRunnerTaskDescriptorEffect } from "./task-descriptor";
 
 interface OutputStream {
   write(chunk: string | Uint8Array): void;
 }
 
-type FetchLike = (
-  input: RequestInfo | URL,
-  init?: RequestInit
-) => Promise<Response>;
+type FetchLike = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
 
 /**
  * PIPE-94.6: the two durable stores the runner persists each node result
@@ -79,13 +60,7 @@ interface RunnerDurablePersistence {
 type ResolveRunnerPersistence = (context: {
   runId: string;
   worktreePath: string;
-}) => Effect.Effect<
-  Option.Option<RunnerDurablePersistence>,
-  unknown,
-  Scope.Scope
->;
-
-export type RunnerCommandOptions = z.input<typeof runnerCommandOptionsSchema>;
+}) => Effect.Effect<Option.Option<RunnerDurablePersistence>, unknown, Scope.Scope>;
 
 const EXIT_PASS = 0;
 const EXIT_FAIL = 1;
@@ -112,54 +87,44 @@ export const nodeProcessExitCode = (result: RuntimeNodeResult): number => {
 const resolveRunnerTargetNode = (
   payload: ReturnType<typeof parseRunnerCommandPayload>,
   compiled: ReturnType<typeof compileScheduleArtifact>,
-  descriptor: { nodeId: string }
+  descriptor: { nodeId: string },
 ): Effect.Effect<NonNullable<ReturnType<typeof findPlannedNode>>, unknown> =>
   Effect.gen(function* effectBody() {
     if (payload.workflow.id !== compiled.workflowId) {
       return yield* Effect.fail(
         new Error(
-          `Runner payload workflow '${payload.workflow.id}' does not match schedule workflow '${compiled.workflowId}'`
-        )
+          `Runner payload workflow '${payload.workflow.id}' does not match schedule workflow '${compiled.workflowId}'`,
+        ),
       );
     }
-    const node = findPlannedNode(
-      compiled.plan.topologicalOrder,
-      descriptor.nodeId
-    );
+    const node = findPlannedNode(compiled.plan.topologicalOrder, descriptor.nodeId);
     if (!node) {
       return yield* Effect.fail(
-        new Error(
-          `Argo task '${descriptor.nodeId}' is not declared in workflow '${compiled.workflowId}'`
-        )
+        new Error(`Argo task '${descriptor.nodeId}' is not declared in workflow '${compiled.workflowId}'`),
       );
     }
     return node;
   });
 
 const runnerTaskDescriptorEffect = (
-  options: RunnerCommandOptions
+  options: RunnerCommandOptions,
 ): Effect.Effect<{ nodeId: string }, unknown, RunnerCommandIoService> => {
   if (options.nodeId !== undefined && options.nodeId.length > 0) {
     return Effect.succeed({ nodeId: options.nodeId });
   }
-  return readRunnerTaskDescriptorEffect(
-    options.taskDescriptorFile ?? DEFAULT_RUNNER_TASK_DESCRIPTOR_PATH
-  );
+  return readRunnerTaskDescriptorEffect(options.taskDescriptorFile ?? DEFAULT_RUNNER_TASK_DESCRIPTOR_PATH);
 };
 
 const persistedRunnerScheduleYamlEffect = (
   payload: ReturnType<typeof parseRunnerCommandPayload>,
-  persistence: Option.Option<RunnerDurablePersistence>
+  persistence: Option.Option<RunnerDurablePersistence>,
 ): Effect.Effect<string, unknown> =>
   Option.match(persistence, {
     onNone: () =>
       Effect.fail(
-        new Error(
-          `Run ${payload.run.id} cannot read schedule from DB because durable persistence is unavailable.`
-        )
+        new Error(`Run ${payload.run.id} cannot read schedule from DB because durable persistence is unavailable.`),
       ),
-    onSome: (stores) =>
-      readPersistedScheduleEffect(stores.runControlStore, payload.run.id),
+    onSome: (stores) => readPersistedScheduleEffect(stores.runControlStore, payload.run.id),
   });
 
 const runnerScheduleYamlEffect = (input: {
@@ -177,9 +142,7 @@ const runnerScheduleYamlEffect = (input: {
 };
 
 const scheduleSourceLabel = (options: RunnerCommandOptions): string =>
-  options.scheduleSource === "db"
-    ? "persisted schedule"
-    : (options.scheduleFile ?? "schedule.yaml");
+  options.scheduleSource === "db" ? "persisted schedule" : (options.scheduleFile ?? "schedule.yaml");
 
 const defaultRunnerPersistenceResolver =
   (logger: pino.Logger): ResolveRunnerPersistence =>
@@ -189,20 +152,16 @@ const defaultRunnerPersistenceResolver =
       if (dbUrl === undefined) {
         logger.info(
           { phase: "durable.persist", runId, status: "skip" },
-          "durable.persist skipped — db.url not configured"
+          "durable.persist skipped — db.url not configured",
         );
         return Option.none();
       }
       const durableStore = yield* resolveDurableStore(dbUrl, runId);
-      const runControlStore = yield* resolveRunControlStore(
-        dbUrl,
-        worktreePath
-      );
+      const runControlStore = yield* resolveRunControlStore(dbUrl, worktreePath);
       return Option.some({ durableStore, runControlStore });
     });
 
-const errorMessageOf = (error: unknown): string =>
-  error instanceof Error ? error.message : String(error);
+const errorMessageOf = (error: unknown): string => (error instanceof Error ? error.message : String(error));
 
 /**
  * PIPE-94.6: resolve the durable stores for in-pod persistence.
@@ -217,15 +176,9 @@ const errorMessageOf = (error: unknown): string =>
 const resolveRunnerPersistenceEffect = (
   override: Option.Option<ResolveRunnerPersistence>,
   context: { runId: string; worktreePath: string },
-  logger: pino.Logger
-): Effect.Effect<
-  Option.Option<RunnerDurablePersistence>,
-  never,
-  Scope.Scope
-> => {
-  const resolver = Option.getOrElse(override, () =>
-    defaultRunnerPersistenceResolver(logger)
-  );
+  logger: pino.Logger,
+): Effect.Effect<Option.Option<RunnerDurablePersistence>, never, Scope.Scope> => {
+  const resolver = Option.getOrElse(override, () => defaultRunnerPersistenceResolver(logger));
   return resolver(context).pipe(
     Effect.catch((error) =>
       Effect.sync((): Option.Option<RunnerDurablePersistence> => {
@@ -236,18 +189,18 @@ const resolveRunnerPersistenceEffect = (
             runId: context.runId,
             status: "resolve-failed",
           },
-          "durable.persist resolve failed — node executes without persistence"
+          "durable.persist resolve failed — node executes without persistence",
         );
         return Option.none();
-      })
-    )
+      }),
+    ),
   );
 };
 
 const recordDurableNodeResultEffect = (
   store: DurableRunStore,
   node: { nodeId: string; result: RuntimeNodeResult; runId: string },
-  logger: pino.Logger
+  logger: pino.Logger,
 ): Effect.Effect<void> =>
   Effect.try({
     catch: (error) => error,
@@ -264,16 +217,16 @@ const recordDurableNodeResultEffect = (
             phase: "durable.persist",
             status: "record-failed",
           },
-          "durable.persist record failed — exit code unchanged"
+          "durable.persist record failed — exit code unchanged",
         );
-      })
-    )
+      }),
+    ),
   );
 
 const flushRunStoreReporterEffect = (
   runStoreReporter: Option.Option<RunStoreRuntimeReporter>,
   node: { nodeId: string; runId: string },
-  logger: pino.Logger
+  logger: pino.Logger,
 ): Effect.Effect<void> =>
   Option.match(runStoreReporter, {
     onNone: () => Effect.void,
@@ -288,10 +241,10 @@ const flushRunStoreReporterEffect = (
                 phase: "node.status.persist",
                 status: "flush-failed",
               },
-              "node.status.persist flush failed — exit code unchanged"
+              "node.status.persist flush failed — exit code unchanged",
             );
-          })
-        )
+          }),
+        ),
       ),
   });
 
@@ -307,40 +260,32 @@ const persistNodeResultEffect = (
   persistence: Option.Option<RunnerDurablePersistence>,
   runStoreReporter: Option.Option<RunStoreRuntimeReporter>,
   node: { nodeId: string; result: RuntimeNodeResult; runId: string },
-  logger: pino.Logger
+  logger: pino.Logger,
 ): Effect.Effect<void> =>
   Option.match(persistence, {
     onNone: () => Effect.void,
     onSome: (stores) =>
       Effect.gen(function* effectBody() {
-        logger.info(
-          { nodeId: node.nodeId, phase: "durable.persist", status: "start" },
-          "durable.persist start"
-        );
+        logger.info({ nodeId: node.nodeId, phase: "durable.persist", status: "start" }, "durable.persist start");
         yield* recordDurableNodeResultEffect(stores.durableStore, node, logger);
         yield* flushRunStoreReporterEffect(runStoreReporter, node, logger);
-        logger.info(
-          { nodeId: node.nodeId, phase: "durable.persist", status: "finish" },
-          "durable.persist finish"
-        );
+        logger.info({ nodeId: node.nodeId, phase: "durable.persist", status: "finish" }, "durable.persist finish");
       }),
   });
 
-const attemptSync = <T>(try_: () => T): Effect.Effect<T, unknown> =>
-  Effect.try({ catch: (error) => error, try: try_ });
+const attemptSync = <T>(try_: () => T): Effect.Effect<T, unknown> => Effect.try({ catch: (error) => error, try: try_ });
 
 const runnerCommandErrorExitCode = (error: unknown, logger: pino.Logger) => {
   const message = error instanceof Error ? error.message : String(error);
   logger.error({ error: message, phase: "runner-command" }, message);
-  return error instanceof RunnerCommandPayloadValidationError ||
-    error instanceof z.ZodError
+  return error instanceof RunnerCommandPayloadValidationError || error instanceof Schema.SchemaError
     ? EXIT_VALIDATION
     : EXIT_STARTUP;
 };
 
 const prepareOpencodeCredentialsPhase = (
   logger: pino.Logger,
-  reason?: "after-setup"
+  reason?: "after-setup",
 ): Effect.Effect<void, unknown, RunnerCommandIoService> =>
   Effect.gen(function* effectBody() {
     const io = yield* RunnerCommandIoService;
@@ -350,7 +295,7 @@ const prepareOpencodeCredentialsPhase = (
         ...(reason ? { reason } : {}),
         status: "start",
       },
-      "opencode.credentials.prepare start"
+      "opencode.credentials.prepare start",
     );
     const credentialsPrep = yield* io.prepareOpencodeCredentials();
     logger.info(
@@ -360,12 +305,11 @@ const prepareOpencodeCredentialsPhase = (
         ...(reason ? { reason } : {}),
         status: "finish",
       },
-      "opencode.credentials.prepare finish"
+      "opencode.credentials.prepare finish",
     );
   });
 
-const setupExitCode = (exitCode: Option.Option<number>): number =>
-  Option.getOrElse(exitCode, () => 1);
+const setupExitCode = (exitCode: Option.Option<number>): number => Option.getOrElse(exitCode, () => 1);
 
 const SETUP_OUTPUT_TAIL = 4000;
 
@@ -373,16 +317,10 @@ const setupOutputTail = (output: unknown): string => {
   if (typeof output !== "string" || output.length === 0) {
     return "";
   }
-  return output.length > SETUP_OUTPUT_TAIL
-    ? output.slice(-SETUP_OUTPUT_TAIL)
-    : output;
+  return output.length > SETUP_OUTPUT_TAIL ? output.slice(-SETUP_OUTPUT_TAIL) : output;
 };
 
-const setupCommandOutputLog = (
-  command: string,
-  index: number,
-  result: { stderr?: unknown; stdout?: unknown }
-) => ({
+const setupCommandOutputLog = (command: string, index: number, result: { stderr?: unknown; stdout?: unknown }) => ({
   command,
   index,
   phase: "setup.command",
@@ -401,7 +339,7 @@ const setupCommandLog = (command: string, index: number, status: "start") => ({
 const setupCommandFinishLog = (
   command: PipelineConfig["runner_command"]["environment"]["setup"][number],
   index: number,
-  exitCode: number
+  exitCode: number,
 ) => ({
   command: command.command,
   exitCode,
@@ -418,39 +356,26 @@ const runSetupCommand = (
     env: NodeJS.ProcessEnv;
     logger: pino.Logger;
     worktreePath: string;
-  }
+  },
 ): Effect.Effect<void, unknown, RunnerCommandIoService> =>
   Effect.gen(function* effectBody() {
     const io = yield* RunnerCommandIoService;
     const commandIndex = index + 1;
-    options.logger.info(
-      setupCommandLog(command.command, commandIndex, "start"),
-      "setup.command start"
-    );
+    options.logger.info(setupCommandLog(command.command, commandIndex, "start"), "setup.command start");
     const result = yield* io.runSetupCommand(command.command, command.args, {
       cwd: options.worktreePath,
       env: options.env,
     });
     const exitCode = setupExitCode(Option.fromNullishOr(result.exitCode));
-    options.logger.info(
-      setupCommandFinishLog(command, commandIndex, exitCode),
-      "setup.command finish"
-    );
+    options.logger.info(setupCommandFinishLog(command, commandIndex, exitCode), "setup.command finish");
     if (exitCode !== 0) {
       // Surface the command's captured output on failure — without it a failing
       // setup command (e.g. a repo bootstrap install) is undebuggable in the pod
       // log, which only showed the exit code.
-      options.logger.error(
-        setupCommandOutputLog(command.command, commandIndex, result),
-        "setup.command output"
-      );
+      options.logger.error(setupCommandOutputLog(command.command, commandIndex, result), "setup.command output");
     }
     if (exitCode !== 0 && command.required) {
-      return yield* Effect.fail(
-        new Error(
-          `runner setup command '${command.command}' failed with exit ${exitCode}`
-        )
-      );
+      return yield* Effect.fail(new Error(`runner setup command '${command.command}' failed with exit ${exitCode}`));
     }
   });
 
@@ -460,17 +385,13 @@ const runSetupCommands = (
     env: NodeJS.ProcessEnv;
     logger: pino.Logger;
     worktreePath: string;
-  }
+  },
 ): Effect.Effect<void, unknown, RunnerCommandIoService> =>
-  Effect.forEach(commands.entries(), ([index, command]) =>
-    runSetupCommand(command, index, options)
-  ).pipe(Effect.asVoid);
+  Effect.forEach(commands.entries(), ([index, command]) => runSetupCommand(command, index, options)).pipe(
+    Effect.asVoid,
+  );
 
-const logFailedTaskRun = (
-  logger: pino.Logger,
-  nodeId: string,
-  result: RuntimeNodeResult
-): void => {
+const logFailedTaskRun = (logger: pino.Logger, nodeId: string, result: RuntimeNodeResult): void => {
   if (result.status === "passed" && result.exitCode === 0) {
     return;
   }
@@ -484,13 +405,13 @@ const logFailedTaskRun = (
       resultStatus: result.status,
       status: "failed",
     },
-    "task.run failed"
+    "task.run failed",
   );
 };
 
 export const runnerTaskTextEffect = (
   task: RunnerTask,
-  worktreePath: string
+  worktreePath: string,
 ): Effect.Effect<string, unknown, RunnerCommandIoService> => {
   if (task.kind === "prompt") {
     return Effect.succeed(task.prompt);
@@ -506,56 +427,54 @@ export const runnerTaskTextEffect = (
 };
 
 const isOutputStream = (value: unknown): value is OutputStream =>
-  typeof value === "object" &&
-  value !== null &&
-  "write" in value &&
-  typeof value.write === "function";
+  typeof value === "object" && value !== null && "write" in value && typeof value.write === "function";
 
-const runnerCommandOptionsSchema = z
-  .object({
-    cwd: z.string().min(1).optional(),
-    env: z.record(z.string(), z.string().optional()).optional(),
-    fetch: z
-      .custom<FetchLike>((value) => typeof value === "function")
-      .optional(),
-    // PIPE-94.8: per-node resume override. Node ids listed here are re-executed
-    // even when the durable store already records them PASSED — the data-driven
-    // escape hatch from the default skip-already-passed resume behaviour.
-    forceRerunNodeIds: z.array(z.string().min(1)).optional(),
-    nodeId: z.string().min(1).optional(),
-    payloadFile: z.string().min(1),
-    resolvePersistence: z
-      .custom<ResolveRunnerPersistence>((value) => typeof value === "function")
-      .optional(),
-    ...scheduleSourceFields,
-    stderr: z.custom<OutputStream>((value) => isOutputStream(value)).optional(),
-    stdout: z.custom<OutputStream>((value) => isOutputStream(value)).optional(),
-    taskDescriptorFile: z.string().min(1).optional(),
-  })
-  .strict()
-  .superRefine(requireScheduleFileForFileSource);
+const fetchLike = Schema.declare<FetchLike>((value): value is FetchLike => typeof value === "function");
+const outputStream = Schema.declare<OutputStream>(isOutputStream);
+const resolveRunnerPersistence = Schema.declare<ResolveRunnerPersistence>(
+  (value): value is ResolveRunnerPersistence => typeof value === "function",
+);
+
+const runnerCommandOptionsSchema = struct({
+  cwd: Schema.optional(requiredString),
+  env: Schema.optional(Schema.Record(Schema.String, Schema.UndefinedOr(Schema.String))),
+  fetch: Schema.optional(fetchLike),
+  // PIPE-94.8: per-node resume override. Node ids listed here are re-executed
+  // even when the durable store already records them PASSED — the data-driven
+  // escape hatch from the default skip-already-passed resume behaviour.
+  forceRerunNodeIds: Schema.optional(Schema.mutable(Schema.Array(requiredString))),
+  nodeId: Schema.optional(requiredString),
+  payloadFile: requiredString,
+  resolvePersistence: Schema.optional(resolveRunnerPersistence),
+  ...scheduleSourceFields,
+  stderr: Schema.optional(outputStream),
+  stdout: Schema.optional(outputStream),
+  taskDescriptorFile: Schema.optional(requiredString),
+}).check(
+  Schema.makeFilter(requireScheduleFileForFileSource, {
+    description: "File schedule source requires a schedule file path.",
+    identifier: "RunnerCommandScheduleFileSource",
+    title: "Runner command schedule file source",
+  }),
+);
+
+export type RunnerCommandOptions = typeof runnerCommandOptionsSchema.Encoded;
 
 const flushAndReport = (
   sink: ReturnType<typeof createRunnerEventSink>,
-  logger: pino.Logger
+  logger: pino.Logger,
 ): Effect.Effect<void, never, RunnerCommandIoService> =>
   Effect.gen(function* effectBody() {
     const io = yield* RunnerCommandIoService;
     logger.info({ phase: "event.flush", status: "start" }, "event.flush start");
     const result = yield* Effect.result(io.flushSink(sink));
     if (result._tag === "Success") {
-      logger.info(
-        { phase: "event.flush", status: "finish" },
-        "event.flush finish"
-      );
+      logger.info({ phase: "event.flush", status: "finish" }, "event.flush finish");
       return;
     }
     const error = result.failure;
     const message = error instanceof Error ? error.message : String(error);
-    logger.error(
-      { error: message, phase: "event.flush" },
-      `runner event flush failed: ${message}`
-    );
+    logger.error({ error: message, phase: "event.flush" }, `runner event flush failed: ${message}`);
   });
 
 /**
@@ -576,22 +495,18 @@ const skipAlreadyPassedNodeEffect = (input: {
   persistence: Option.Option<RunnerDurablePersistence>;
   sink: ReturnType<typeof createRunnerEventSink>;
 }): Effect.Effect<boolean, never, RunnerCommandIoService> => {
-  const { descriptorNodeId, forceRerunNodeIds, logger, payload, persistence } =
-    input;
+  const { descriptorNodeId, forceRerunNodeIds, logger, payload, persistence } = input;
   if (Option.isNone(persistence)) {
     return Effect.succeed(false);
   }
   if (forceRerunNodeIds.includes(descriptorNodeId)) {
     logger.info(
       { nodeId: descriptorNodeId, phase: "node.skip", status: "force-rerun" },
-      "node.skip overridden — forced re-run of an already-passed node"
+      "node.skip overridden — forced re-run of an already-passed node",
     );
     return Effect.succeed(false);
   }
-  const record = persistence.value.durableStore.get(
-    payload.run.id,
-    descriptorNodeId
-  );
+  const record = persistence.value.durableStore.get(payload.run.id, descriptorNodeId);
   if (Option.isNone(record) || record.value.result.status !== "passed") {
     return Effect.succeed(false);
   }
@@ -602,13 +517,12 @@ const skipAlreadyPassedNodeEffect = (input: {
         phase: "node.skip",
         status: "already-passed",
       },
-      "node.skip — node already passed in durable store, no re-execution"
+      "node.skip — node already passed in durable store, no re-execution",
     );
-    input.sink.recordRunnerCommandPhase(
-      "task.skip",
-      `Skipping already-passed ${descriptorNodeId}`,
-      { taskId: descriptorNodeId, workflowId: payload.workflow.id }
-    );
+    input.sink.recordRunnerCommandPhase("task.skip", `Skipping already-passed ${descriptorNodeId}`, {
+      taskId: descriptorNodeId,
+      workflowId: payload.workflow.id,
+    });
     yield* flushAndReport(input.sink, logger);
     return true;
   });
@@ -616,19 +530,14 @@ const skipAlreadyPassedNodeEffect = (input: {
 
 const runRunnerCommandEffect = (
   options: RunnerCommandOptions,
-  runtime: { logger: pino.Logger; stderr: OutputStream; stdout: OutputStream }
+  runtime: { logger: pino.Logger; stderr: OutputStream; stdout: OutputStream },
 ): Effect.Effect<number, never, RunnerCommandIoService | Scope.Scope> =>
   Effect.gen(function* effectBody() {
     const io = yield* RunnerCommandIoService;
     const { logger } = runtime;
-    logger.info(
-      { phase: "payload.load", status: "start" },
-      "payload.load start"
-    );
+    logger.info({ phase: "payload.load", status: "start" }, "payload.load start");
     const payloadRaw = yield* io.readText(options.payloadFile);
-    const payload = yield* attemptSync(() =>
-      parseRunnerCommandPayload(payloadRaw)
-    );
+    const payload = yield* attemptSync(() => parseRunnerCommandPayload(payloadRaw));
     const descriptor = yield* runnerTaskDescriptorEffect(options);
     logger.info(
       {
@@ -638,12 +547,9 @@ const runRunnerCommandEffect = (
         status: "finish",
         workflowId: payload.workflow.id,
       },
-      "payload.load finish"
+      "payload.load finish",
     );
-    logger.info(
-      { phase: "event.sink.configure", status: "start" },
-      "event.sink.configure start"
-    );
+    logger.info({ phase: "event.sink.configure", status: "start" }, "event.sink.configure start");
     const authToken = resolveRunnerEventSinkAuthToken({
       authTokenFile: payload.events.authTokenFile,
     });
@@ -654,25 +560,19 @@ const runRunnerCommandEffect = (
       runId: payload.run.id,
       url: payload.events.url,
     });
-    logger.info(
-      { phase: "event.sink.configure", status: "finish" },
-      "event.sink.configure finish"
-    );
+    logger.info({ phase: "event.sink.configure", status: "finish" }, "event.sink.configure finish");
     logger.info(
       {
         hasProvidedCwd: options.cwd !== undefined && options.cwd.length > 0,
         phase: "git.workspace.prepare",
         status: "start",
       },
-      "git.workspace.prepare start"
+      "git.workspace.prepare start",
     );
     const worktreePath = yield* io.prepareRunnerGitWorkspace(payload, {
       cwd: options.cwd,
     });
-    logger.info(
-      { phase: "git.workspace.prepare", status: "finish" },
-      "git.workspace.prepare finish"
-    );
+    logger.info({ phase: "git.workspace.prepare", status: "finish" }, "git.workspace.prepare finish");
     // PIPE-94.6/94.8: resolve the durable substrate (db.url-gated) up front so a
     // resume re-submission can short-circuit nodes already recorded PASSED before
     // doing any expensive work (creds, config, schedule compile, dependency merge,
@@ -681,7 +581,7 @@ const runRunnerCommandEffect = (
     const persistence = yield* resolveRunnerPersistenceEffect(
       Option.fromNullishOr(options.resolvePersistence),
       { runId: payload.run.id, worktreePath },
-      logger
+      logger,
     );
     const skipped = yield* skipAlreadyPassedNodeEffect({
       descriptorNodeId: descriptor.nodeId,
@@ -699,16 +599,10 @@ const runRunnerCommandEffect = (
     const baseConfig = yield* attemptSync(() =>
       loadPipelineConfig(worktreePath, {
         allowMissingLintFileReferences: true,
-      })
+      }),
     );
-    logger.info(
-      { phase: "config.load", status: "finish" },
-      "config.load finish"
-    );
-    logger.info(
-      { phase: "schedule.compile", status: "start" },
-      "schedule.compile start"
-    );
+    logger.info({ phase: "config.load", status: "finish" }, "config.load finish");
+    logger.info({ phase: "schedule.compile", status: "start" }, "schedule.compile start");
     const scheduleRaw = yield* runnerScheduleYamlEffect({
       options,
       payload,
@@ -718,8 +612,8 @@ const runRunnerCommandEffect = (
       compileScheduleArtifact(
         baseConfig,
         parseScheduleArtifact(scheduleRaw, scheduleSourceLabel(options)),
-        worktreePath
-      )
+        worktreePath,
+      ),
     );
     logger.info(
       {
@@ -727,7 +621,7 @@ const runRunnerCommandEffect = (
         status: "finish",
         workflowId: compiled.workflowId,
       },
-      "schedule.compile finish"
+      "schedule.compile finish",
     );
     const node = yield* resolveRunnerTargetNode(payload, compiled, descriptor);
     // Container nodes (parallel/group) push no output branch of their own, so a
@@ -736,7 +630,7 @@ const runRunnerCommandEffect = (
     // compiler uses, so ordering and ref-materialization never diverge.
     const dependencyNodeIds = resolveExecutableDependencyIds(
       indexPlannedNodesById(compiled.plan.topologicalOrder),
-      node.needs
+      node.needs,
     );
     logger.info(
       {
@@ -745,7 +639,7 @@ const runRunnerCommandEffect = (
         phase: "dependency.merge",
         status: "start",
       },
-      "dependency.merge start"
+      "dependency.merge start",
     );
     yield* io.mergeDependencyRefs({
       committer: compiled.config.runner_command.git.committer,
@@ -760,7 +654,7 @@ const runRunnerCommandEffect = (
         phase: "dependency.merge",
         status: "finish",
       },
-      "dependency.merge finish"
+      "dependency.merge finish",
     );
     logger.info(
       {
@@ -768,7 +662,7 @@ const runRunnerCommandEffect = (
         phase: "setup.commands",
         status: "start",
       },
-      "setup.commands start"
+      "setup.commands start",
     );
     yield* runSetupCommands(baseConfig.runner_command.environment.setup, {
       env: options.env ?? process.env,
@@ -781,7 +675,7 @@ const runRunnerCommandEffect = (
         phase: "setup.commands",
         status: "finish",
       },
-      "setup.commands finish"
+      "setup.commands finish",
     );
     // PIPE-94.6: the durable substrate (resolved above) persists this node's
     // result alongside the git node-ref + event stream. The run-control
@@ -797,17 +691,13 @@ const runRunnerCommandEffect = (
         runId: payload.run.id,
         store: stores.runControlStore,
         workspaceRoot: worktreePath,
-      })
+      }),
     );
-    sink.recordRunnerCommandPhase(
-      "task.start",
-      `Starting ${descriptor.nodeId}`,
-      {
-        kind: node.kind,
-        taskId: descriptor.nodeId,
-        workflowId: payload.workflow.id,
-      }
-    );
+    sink.recordRunnerCommandPhase("task.start", `Starting ${descriptor.nodeId}`, {
+      kind: node.kind,
+      taskId: descriptor.nodeId,
+      workflowId: payload.workflow.id,
+    });
     logger.info(
       {
         kind: node.kind,
@@ -815,7 +705,7 @@ const runRunnerCommandEffect = (
         phase: "task.run",
         status: "start",
       },
-      "task.run start"
+      "task.run start",
     );
     const taskText = yield* runnerTaskTextEffect(payload.task, worktreePath);
     const result = yield* io.runScheduledWorkflowTask({
@@ -839,7 +729,7 @@ const runRunnerCommandEffect = (
         resultStatus: result.status,
         status: "finish",
       },
-      "task.run finish"
+      "task.run finish",
     );
     logFailedTaskRun(logger, descriptor.nodeId, result);
     logger.info(
@@ -848,7 +738,7 @@ const runRunnerCommandEffect = (
         phase: "git.node-ref.push",
         status: "start",
       },
-      "git.node-ref.push start"
+      "git.node-ref.push start",
     );
     yield* io.commitAndPushNodeRef({
       committer: compiled.config.runner_command.git.committer,
@@ -862,19 +752,15 @@ const runRunnerCommandEffect = (
         phase: "git.node-ref.push",
         status: "finish",
       },
-      "git.node-ref.push finish"
+      "git.node-ref.push finish",
     );
-    sink.recordRunnerCommandPhase(
-      "task.finish",
-      `Finished ${descriptor.nodeId}`,
-      {
-        evidence: result.evidence,
-        exitCode: result.exitCode,
-        output: result.output,
-        taskId: descriptor.nodeId,
-        workflowId: payload.workflow.id,
-      }
-    );
+    sink.recordRunnerCommandPhase("task.finish", `Finished ${descriptor.nodeId}`, {
+      evidence: result.evidence,
+      exitCode: result.exitCode,
+      output: result.output,
+      taskId: descriptor.nodeId,
+      workflowId: payload.workflow.id,
+    });
     yield* flushAndReport(sink, logger);
     // PIPE-94.6: the durable substrate is the source of truth for status/results
     // and is ADDITIVE — a store failure is logged and never changes the exit code
@@ -883,19 +769,12 @@ const runRunnerCommandEffect = (
       persistence,
       runStoreReporter,
       { nodeId: descriptor.nodeId, result, runId: payload.run.id },
-      logger
+      logger,
     );
     return nodeProcessExitCode(result);
-  }).pipe(
-    Effect.catch((error) =>
-      Effect.sync(() => runnerCommandErrorExitCode(error, runtime.logger))
-    )
-  );
+  }).pipe(Effect.catch((error) => Effect.sync(() => runnerCommandErrorExitCode(error, runtime.logger))));
 
-const createRunnerLogger = (options: {
-  stderr: OutputStream;
-  stdout: OutputStream;
-}): pino.Logger => {
+const createRunnerLogger = (options: { stderr: OutputStream; stdout: OutputStream }): pino.Logger => {
   const streams: pino.StreamEntry[] = [
     { level: "info", stream: options.stdout },
     { level: "error", stream: options.stderr },
@@ -907,48 +786,28 @@ const createRunnerLogger = (options: {
       name: "moka-runner",
       redact: {
         censor: "[redacted]",
-        paths: [
-          "authToken",
-          "*.authToken",
-          "token",
-          "*.token",
-          "password",
-          "*.password",
-          "identity",
-          "*.identity",
-        ],
+        paths: ["authToken", "*.authToken", "token", "*.token", "password", "*.password", "identity", "*.identity"],
       },
       timestamp: pino.stdTimeFunctions.isoTime,
     },
-    pino.multistream(streams, { dedupe: true })
+    pino.multistream(streams, { dedupe: true }),
   );
 };
 
-export const runRunnerCommand = async (
-  rawOptions: Partial<RunnerCommandOptions> = {}
-): Promise<number> => {
-  const parsedOptions = runnerCommandOptionsSchema.safeParse(rawOptions);
-  const stderr = isOutputStream(rawOptions.stderr)
-    ? rawOptions.stderr
-    : process.stderr;
-  const stdout = isOutputStream(rawOptions.stdout)
-    ? rawOptions.stdout
-    : process.stdout;
+export const runRunnerCommand = async (rawOptions: Partial<RunnerCommandOptions> = {}): Promise<number> => {
+  const parsedOptions = parseResultWithSchema(runnerCommandOptionsSchema, rawOptions, { onExcessProperty: "error" });
+  const stderr = isOutputStream(rawOptions.stderr) ? rawOptions.stderr : process.stderr;
+  const stdout = isOutputStream(rawOptions.stdout) ? rawOptions.stdout : process.stdout;
   const logger = createRunnerLogger({ stderr, stdout });
-  if (!parsedOptions.success) {
-    logger.error(
-      { error: parsedOptions.error.message, phase: "options.validate" },
-      "runner options validation failed"
-    );
+  if (!parsedOptions.ok) {
+    logger.error({ error: parsedOptions.error.message, phase: "options.validate" }, "runner options validation failed");
     return EXIT_VALIDATION;
   }
-  const options = parsedOptions.data;
+  const options = parsedOptions.value;
   return await Effect.runPromise(
     Effect.provide(
-      Effect.scoped(
-        runRunnerCommandEffect(options, { logger, stderr, stdout })
-      ),
-      RunnerCommandIoServiceLive
-    )
+      Effect.scoped(runRunnerCommandEffect(options, { logger, stderr, stdout })),
+      RunnerCommandIoServiceLive,
+    ),
   );
 };

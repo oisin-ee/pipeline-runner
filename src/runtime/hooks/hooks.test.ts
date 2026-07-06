@@ -1,17 +1,10 @@
 import { afterEach, describe, expect, it } from "vitest";
 
 import { parsePipelineConfigParts } from "../../config";
-import type {
-  PlannedWorkflowNode,
-  WorkflowExecutionPlan,
-} from "../../planning/compile";
+import type { PlannedWorkflowNode, WorkflowExecutionPlan } from "../../planning/compile";
 import { createDependencyGraph } from "../../planning/graph";
 import type { RuntimeObservabilityEvent } from "../actor-ids";
-import type {
-  PipelineRuntimeEvent,
-  RuntimeContext,
-  RuntimeFailure,
-} from "../contracts";
+import type { PipelineRuntimeEvent, RuntimeContext, RuntimeFailure } from "../contracts";
 import { NodeStateStore } from "../node-state-store";
 import { dispatchHooks } from "./hooks";
 
@@ -35,7 +28,7 @@ const directHookRuntimeContext = (
   node: PlannedWorkflowNode,
   observability: RuntimeObservabilityEvent[],
   reporterEvents: PipelineRuntimeEvent[],
-  override?: Partial<RuntimeContext>
+  override?: Partial<RuntimeContext>,
 ): RuntimeContext => {
   const config = parsePipelineConfigParts({
     pipeline: `
@@ -102,13 +95,8 @@ runners: {}
   };
 };
 
-const reporterHookEvents = (
-  events: PipelineRuntimeEvent[]
-): Extract<PipelineRuntimeEvent, { hookId: string }>[] =>
-  events.filter(
-    (event): event is Extract<PipelineRuntimeEvent, { hookId: string }> =>
-      "hookId" in event
-  );
+const reporterHookEvents = (events: PipelineRuntimeEvent[]): Extract<PipelineRuntimeEvent, { hookId: string }>[] =>
+  events.filter((event): event is Extract<PipelineRuntimeEvent, { hookId: string }> => "hookId" in event);
 
 describe("runtime hooks", () => {
   it("dispatches hooks directly while preserving failure and observability contracts", async () => {
@@ -121,18 +109,9 @@ describe("runtime hooks", () => {
     };
     const observability: RuntimeObservabilityEvent[] = [];
     const reporterEvents: PipelineRuntimeEvent[] = [];
-    const context = directHookRuntimeContext(
-      node,
-      observability,
-      reporterEvents
-    );
+    const context = directHookRuntimeContext(node, observability, reporterEvents);
 
-    const failure = await dispatchHooks(
-      context,
-      "node.finish",
-      undefined,
-      node
-    );
+    const failure = await dispatchHooks(context, "node.finish", undefined, node);
 
     const expectedFailure: RuntimeFailure = {
       evidence: ["command hooks are disabled"],
@@ -202,38 +181,46 @@ describe("runtime hooks", () => {
     };
     const observability: RuntimeObservabilityEvent[] = [];
     const reporterEvents: PipelineRuntimeEvent[] = [];
-    const context = directHookRuntimeContext(
-      node,
-      observability,
-      reporterEvents
-    );
-    context.config.hooks.on["node.finish"] = [
-      {
-        failure: "fail",
-        function: "disabled",
-        id: "other-node",
-        where: { gate: "quality", node: "node-b", workflow: "direct-hooks" },
+    const baseContext = directHookRuntimeContext(node, observability, reporterEvents);
+    const context: RuntimeContext = {
+      ...baseContext,
+      config: {
+        ...baseContext.config,
+        hooks: {
+          ...baseContext.config.hooks,
+          on: {
+            ...baseContext.config.hooks.on,
+            "node.finish": [
+              {
+                failure: "fail",
+                function: "disabled",
+                id: "other-node",
+                where: {
+                  gate: "quality",
+                  node: "node-b",
+                  workflow: "direct-hooks",
+                },
+              },
+              {
+                failure: "fail",
+                function: "disabled",
+                id: "matching",
+                where: {
+                  gate: "quality",
+                  node: "node-a",
+                  workflow: "direct-hooks",
+                },
+              },
+            ],
+          },
+        },
       },
-      {
-        failure: "fail",
-        function: "disabled",
-        id: "matching",
-        where: { gate: "quality", node: "node-a", workflow: "direct-hooks" },
-      },
-    ];
+    };
 
-    const failure = await dispatchHooks(
-      context,
-      "node.finish",
-      undefined,
-      node,
-      "quality"
-    );
+    const failure = await dispatchHooks(context, "node.finish", undefined, node, "quality");
 
     expect(failure).toMatchObject({ gate: "matching" });
-    expect(
-      reporterHookEvents(reporterEvents).map((event) => event.hookId)
-    ).toEqual(["matching", "matching"]);
+    expect(reporterHookEvents(reporterEvents).map((event) => event.hookId)).toEqual(["matching", "matching"]);
   });
 
   it("builds command hook env from passthrough and explicit values during dispatch", async () => {
@@ -248,22 +235,17 @@ describe("runtime hooks", () => {
     };
     const observability: RuntimeObservabilityEvent[] = [];
     const reporterEvents: PipelineRuntimeEvent[] = [];
-    const context = directHookRuntimeContext(
-      node,
-      observability,
-      reporterEvents,
-      {
-        hookPolicy: {
-          allowCommandHooks: true,
-          allowUntrustedCommandHooks: true,
-          env: { GLOBAL_ONLY: "1" },
-          envPassthrough: ["PATH"],
-          outputLimitBytes: 4096,
-          timeoutMs: 1000,
-        },
-      }
-    );
-    context.config.hooks.functions.env = {
+    const baseContext = directHookRuntimeContext(node, observability, reporterEvents, {
+      hookPolicy: {
+        allowCommandHooks: true,
+        allowUntrustedCommandHooks: true,
+        env: { GLOBAL_ONLY: "1" },
+        envPassthrough: ["PATH"],
+        outputLimitBytes: 4096,
+        timeoutMs: 1000,
+      },
+    });
+    const envHook: RuntimeContext["config"]["hooks"]["functions"][string] = {
       command: [
         process.execPath,
         "-e",
@@ -288,21 +270,31 @@ describe("runtime hooks", () => {
       protocol: { input: "file", result: "file" },
       trusted: true,
     };
-    context.config.hooks.on["node.finish"] = [
-      {
-        failure: "fail",
-        function: "env",
-        id: "env",
-        result: { save_as: "env" },
+    const context: RuntimeContext = {
+      ...baseContext,
+      config: {
+        ...baseContext.config,
+        hooks: {
+          functions: {
+            ...baseContext.config.hooks.functions,
+            env: envHook,
+          },
+          on: {
+            ...baseContext.config.hooks.on,
+            "node.finish": [
+              {
+                failure: "fail",
+                function: "env",
+                id: "env",
+                result: { save_as: "env" },
+              },
+            ],
+          },
+        },
       },
-    ];
+    };
 
-    const failure = await dispatchHooks(
-      context,
-      "node.finish",
-      undefined,
-      node
-    );
+    const failure = await dispatchHooks(context, "node.finish", undefined, node);
 
     expect(failure).toBeNull();
     expect(context.hookResults.get("env")?.outputs).toEqual({
@@ -323,21 +315,12 @@ describe("runtime hooks", () => {
     };
     const observability: RuntimeObservabilityEvent[] = [];
     const reporterEvents: PipelineRuntimeEvent[] = [];
-    const context = directHookRuntimeContext(
-      node,
-      observability,
-      reporterEvents
-    );
+    const context = directHookRuntimeContext(node, observability, reporterEvents);
     const abortController = new AbortController();
     abortController.abort();
     context.signal = abortController.signal;
 
-    const failure = await dispatchHooks(
-      context,
-      "node.finish",
-      undefined,
-      node
-    );
+    const failure = await dispatchHooks(context, "node.finish", undefined, node);
 
     expect(failure).toBeNull();
     expect(context.hookFailures).toEqual([]);

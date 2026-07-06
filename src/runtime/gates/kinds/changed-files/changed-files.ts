@@ -1,10 +1,6 @@
 import micromatch from "micromatch";
 
-import type {
-  ChangedFilesGateSpec,
-  RuntimeContext,
-  RuntimeGateResult,
-} from "../../../contracts";
+import type { ChangedFilesGateSpec, RuntimeContext, RuntimeGateResult } from "../../../contracts";
 
 /**
  * Supervisor-owned run-state the run-control store and journal write into the
@@ -32,8 +28,7 @@ const PORCELAIN_STATUS_PREFIX = /^.{2} /u;
 const stripPorcelainStatusPrefix = (file: string): string =>
   PORCELAIN_STATUS_PREFIX.test(file) ? file.slice(3) : file;
 
-const globMatch = (pattern: string, value: string): boolean =>
-  micromatch.isMatch(value, pattern, { dot: true });
+const globMatch = (pattern: string, value: string): boolean => micromatch.isMatch(value, pattern, { dot: true });
 
 const isSupervisorRunStatePath = (file: string): boolean => {
   const path = stripPorcelainStatusPrefix(file);
@@ -50,55 +45,39 @@ export const evaluateChangedFilesGate = (
   gate: ChangedFilesGateSpec,
   gateId: string,
   nodeId: string,
-  context: Pick<RuntimeContext, "nodeStateStore">
+  context: Pick<RuntimeContext, "nodeStateStore">,
 ): RuntimeGateResult => {
-  const changed = [
-    ...(context.nodeStateStore.nodeSnapshots.get(nodeId)?.files ?? []),
-  ];
+  const changed = [...(context.nodeStateStore.nodeSnapshots.get(nodeId)?.files ?? [])];
   const policy = gate.changed_files;
   const evidence: string[] = [];
   const untrackedFiltered =
-    policy.include_untracked === false
-      ? changed.filter((file) => !file.startsWith("?? "))
-      : changed;
+    policy.include_untracked === false ? changed.filter((file) => !file.startsWith("?? ")) : changed;
   // Drop the supervisor's own run-state writes before any deny/allow/require_any
   // evaluation. The run-control store and journal write into .pipeline/ inside
   // the worktree WHILE nodes run (PIPE-85), so without this every write-mode
   // node would fail the gate on bookkeeping it never authored. Scope is limited
   // to named run-state paths so genuine node output under .pipeline/ is still
   // gated.
-  const included = untrackedFiltered.filter(
-    (file) => !isSupervisorRunStatePath(file)
-  );
-  const denied = included.filter((file) =>
-    (policy.deny ?? []).some((pattern) => globMatch(pattern, file))
-  );
+  const included = untrackedFiltered.filter((file) => !isSupervisorRunStatePath(file));
+  const denied = included.filter((file) => (policy.deny ?? []).some((pattern) => globMatch(pattern, file)));
   if (denied.length > 0) {
     evidence.push(`denied changes: ${denied.join(", ")}`);
   }
   const disallowed = included.filter(
-    (file) =>
-      (policy.allow?.length ?? 0) > 0 &&
-      !(policy.allow ?? []).some((pattern) => globMatch(pattern, file))
+    (file) => (policy.allow?.length ?? 0) > 0 && !(policy.allow ?? []).some((pattern) => globMatch(pattern, file)),
   );
   if (disallowed.length > 0) {
     evidence.push(`changes outside allow list: ${disallowed.join(", ")}`);
   }
   if (
     (policy.require_any?.length ?? 0) > 0 &&
-    !included.some((file) =>
-      (policy.require_any ?? []).some((pattern) => globMatch(pattern, file))
-    )
+    !included.some((file) => (policy.require_any ?? []).some((pattern) => globMatch(pattern, file)))
   ) {
-    evidence.push(
-      `missing required changes matching: ${(policy.require_any ?? []).join(", ")}`
-    );
+    evidence.push(`missing required changes matching: ${(policy.require_any ?? []).join(", ")}`);
   }
   const passed = evidence.length === 0;
   return {
-    evidence: passed
-      ? [`changed files: ${included.join(", ") || "none"}`]
-      : evidence,
+    evidence: passed ? [`changed files: ${included.join(", ") || "none"}`] : evidence,
     gateId,
     kind: gate.kind,
     nodeId,

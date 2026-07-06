@@ -26,31 +26,18 @@ const childrenOf = (node: TestNode) => node.children;
 describe("flattenNodes", () => {
   it("returns flat nodes unchanged", () => {
     const nodes: TestNode[] = [{ id: "a" }, { id: "b" }];
-    expect(flattenNodes(nodes, childrenOf).map((n) => n.id)).toEqual([
-      "a",
-      "b",
-    ]);
+    expect(flattenNodes(nodes, childrenOf).map((n) => n.id)).toEqual(["a", "b"]);
   });
 
   it("flattens nested parallel/workflow children depth-first, parents first", () => {
     const nodes: TestNode[] = [
       {
-        children: [
-          { id: "c1" },
-          { children: [{ id: "c2" }, { id: "c3" }], id: "p2" },
-        ],
+        children: [{ id: "c1" }, { children: [{ id: "c2" }, { id: "c3" }], id: "p2" }],
         id: "p1",
       },
       { id: "tail" },
     ];
-    expect(flattenNodes(nodes, childrenOf).map((n) => n.id)).toEqual([
-      "p1",
-      "c1",
-      "p2",
-      "c2",
-      "c3",
-      "tail",
-    ]);
+    expect(flattenNodes(nodes, childrenOf).map((n) => n.id)).toEqual(["p1", "c1", "p2", "c2", "c3", "tail"]);
   });
 });
 
@@ -64,12 +51,8 @@ describe("dependentsByNeed + hasReachableDependent", () => {
     const index = dependentsByNeed(nodes);
     expect(index.get("impl")?.map((n) => n.id)).toEqual(["mid"]);
 
-    expect(
-      hasReachableDependent("impl", index, (n) => n.kind === "review")
-    ).toBe(true);
-    expect(
-      hasReachableDependent("review", index, (n) => n.kind === "review")
-    ).toBe(false);
+    expect(hasReachableDependent("impl", index, (n) => n.kind === "review")).toBe(true);
+    expect(hasReachableDependent("review", index, (n) => n.kind === "review")).toBe(false);
   });
 
   it("is cycle-safe when dependents form a loop", () => {
@@ -78,17 +61,13 @@ describe("dependentsByNeed + hasReachableDependent", () => {
       { id: "b", needs: ["a"] },
     ];
     const index = dependentsByNeed(nodes);
-    expect(hasReachableDependent("a", index, (n) => n.id === "missing")).toBe(
-      false
-    );
+    expect(hasReachableDependent("a", index, (n) => n.id === "missing")).toBe(false);
   });
 });
 
 describe("findNode", () => {
   it("finds a node nested inside parallel children", () => {
-    const nodes: TestNode[] = [
-      { children: [{ children: [{ id: "leaf" }], id: "deep" }], id: "p" },
-    ];
+    const nodes: TestNode[] = [{ children: [{ children: [{ id: "leaf" }], id: "deep" }], id: "p" }];
     expect(findNode(nodes, "leaf", childrenOf)?.id).toBe("leaf");
     expect(findNode(nodes, "absent", childrenOf)).toBeUndefined();
   });
@@ -96,11 +75,7 @@ describe("findNode", () => {
 
 describe("findDependencyCycles", () => {
   it("returns no cycles for an acyclic graph", () => {
-    const nodes: TestNode[] = [
-      { id: "a" },
-      { id: "b", needs: ["a"] },
-      { id: "c", needs: ["b"] },
-    ];
+    const nodes: TestNode[] = [{ id: "a" }, { id: "b", needs: ["a"] }, { id: "c", needs: ["b"] }];
     expect(findDependencyCycles(nodes)).toEqual([]);
   });
 
@@ -138,22 +113,17 @@ describe("graphlib-backed DAG helpers", () => {
       {
         dependenciesOf: (node) => node.needs,
         valueOf: (node, index) => ({ ...node, index }),
-      }
+      },
     );
 
     expect(graph.hasEdge("missing", "root")).toBe(false);
-    expect(topologicalDependencyOrder(graph)).toEqual([
-      "root",
-      "left",
-      "right",
-      "join",
-    ]);
+    expect(topologicalDependencyOrder(graph)).toEqual(["root", "left", "right", "join"]);
     expect(
       dependencyBatches(graph, graph.nodes(), (left, right) => {
         const leftNode = graph.node(left);
         const rightNode = graph.node(right);
         return leftNode.index - rightNode.index;
-      })
+      }),
     ).toEqual([["root"], ["right", "left"], ["join"]]);
   });
 
@@ -168,29 +138,20 @@ describe("graphlib-backed DAG helpers", () => {
       terminalDependencyItems(
         tasks,
         (task) => task.taskName,
-        (task) => task.dependencies
-      ).map((task) => task.taskName)
+        (task) => task.dependencies,
+      ).map((task) => task.taskName),
     ).toEqual(["task-b", "task-c"]);
   });
 
   it("walks descendant graph values from a root id", () => {
     const graph = createDependencyGraph(
-      [
-        { id: "PIPE-1" },
-        { id: "PIPE-1.1", parentId: "PIPE-1" },
-        { id: "PIPE-1.2", parentId: "PIPE-1" },
-      ],
+      [{ id: "PIPE-1" }, { id: "PIPE-1.1", parentId: "PIPE-1" }, { id: "PIPE-1.2", parentId: "PIPE-1" }],
       {
-        dependenciesOf: (node) =>
-          node.parentId === undefined || node.parentId.length === 0
-            ? []
-            : [node.parentId],
+        dependenciesOf: (node) => (node.parentId === undefined || node.parentId.length === 0 ? [] : [node.parentId]),
         valueOf: (node) => node,
-      }
+      },
     );
 
-    expect(
-      descendantGraphValues(graph, "PIPE-1").map((task) => task.id)
-    ).toEqual(["PIPE-1.1", "PIPE-1.2"]);
+    expect(descendantGraphValues(graph, "PIPE-1").map((task) => task.id)).toEqual(["PIPE-1.1", "PIPE-1.2"]);
   });
 });

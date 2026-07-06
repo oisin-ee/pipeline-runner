@@ -6,10 +6,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 import { MOKA_POSTGRES_SCHEMA } from "../../runtime/durable-store/postgres/schema";
 import type { CreateRunRequest } from "../run-control-store";
-import {
-  migratePostgresRunControlStore,
-  postgresRunControlStore,
-} from "./postgres-run-control-store";
+import { migratePostgresRunControlStore, postgresRunControlStore } from "./postgres-run-control-store";
 import type { PostgresRunControlStore } from "./postgres-run-control-store";
 
 // PIPE-91.11: integration test against the REAL cluster Postgres (no
@@ -41,8 +38,7 @@ describePg("postgresRunControlStore (live cluster PG)", () => {
   const openStores: PostgresRunControlStore[] = [];
   let admin: postgres.Sql;
 
-  const runId = (label: string): string =>
-    `${suitePrefix}-${label}-${randomUUID()}`;
+  const runId = (label: string): string => `${suitePrefix}-${label}-${randomUUID()}`;
 
   const newStore = (): PostgresRunControlStore => {
     const store = postgresRunControlStore(dbUrl);
@@ -85,9 +81,7 @@ describePg("postgresRunControlStore (live cluster PG)", () => {
   it("createRun writes a queued base manifest read back from PG (AC1)", async () => {
     const id = runId("create");
     const store = newStore();
-    const created = await Effect.runPromise(
-      store.createRun(createRequest(id, ["build", "test"]))
-    );
+    const created = await Effect.runPromise(store.createRun(createRequest(id, ["build", "test"])));
     expect(created.status).toBe("queued");
     expect(created.nodes).toEqual({ build: "queued", test: "queued" });
     expect(created.events).toEqual([]);
@@ -100,9 +94,7 @@ describePg("postgresRunControlStore (live cluster PG)", () => {
 
   it("readRun returns undefined for an unknown run", async () => {
     const store = newStore();
-    const got = await Effect.runPromise(
-      store.readRun({ runId: runId("missing") })
-    );
+    const got = await Effect.runPromise(store.readRun({ runId: runId("missing") }));
     expect(got).toBeUndefined();
   });
 
@@ -110,16 +102,14 @@ describePg("postgresRunControlStore (live cluster PG)", () => {
     const id = runId("replay");
     const writer = newStore();
     await Effect.runPromise(writer.createRun(createRequest(id, ["a", "b"])));
-    await Effect.runPromise(
-      writer.updateRunStatus({ at: nowIso(), runId: id, status: "running" })
-    );
+    await Effect.runPromise(writer.updateRunStatus({ at: nowIso(), runId: id, status: "running" }));
     await Effect.runPromise(
       writer.updateNodeStatus({
         at: nowIso(),
         nodeId: "a",
         runId: id,
         status: "passed",
-      })
+      }),
     );
     await Effect.runPromise(
       writer.recordEvent({
@@ -129,7 +119,7 @@ describePg("postgresRunControlStore (live cluster PG)", () => {
           type: "run.heartbeat",
         },
         runId: id,
-      })
+      }),
     );
     await Effect.runPromise(
       writer.updateNodeStatus({
@@ -137,7 +127,7 @@ describePg("postgresRunControlStore (live cluster PG)", () => {
         nodeId: "b",
         runId: id,
         status: "failed",
-      })
+      }),
     );
 
     // A fresh instance replays the log from PG — proves event-sourced read.
@@ -147,11 +137,7 @@ describePg("postgresRunControlStore (live cluster PG)", () => {
     expect(got?.nodes).toEqual({ a: "passed", b: "failed" });
     // Heartbeats are dropped from the manifest's events; only status events fold.
     expect(got?.events).toHaveLength(3);
-    expect(got?.events.map((event) => event.type)).toEqual([
-      "run.status",
-      "node.status",
-      "node.status",
-    ]);
+    expect(got?.events.map((event) => event.type)).toEqual(["run.status", "node.status", "node.status"]);
   });
 
   it("recordEvent rejects an event for a missing run", async () => {
@@ -161,8 +147,8 @@ describePg("postgresRunControlStore (live cluster PG)", () => {
         store.recordEvent({
           event: { at: nowIso(), status: "running", type: "run.status" },
           runId: runId("absent"),
-        })
-      )
+        }),
+      ),
     ).rejects.toThrow(RUN_MISSING);
   });
 
@@ -177,9 +163,7 @@ describePg("postgresRunControlStore (live cluster PG)", () => {
       pid: 4242,
       startedAt: nowIso(),
     };
-    const updated = await Effect.runPromise(
-      store.updateRunController({ controller, runId: id })
-    );
+    const updated = await Effect.runPromise(store.updateRunController({ controller, runId: id }));
     expect(updated.controller).toEqual(controller);
 
     const reader = newStore();
@@ -196,7 +180,7 @@ describePg("postgresRunControlStore (live cluster PG)", () => {
         nodeId: "only",
         runId: id,
         sessionId: "sess-1",
-      })
+      }),
     );
     const rows = await admin<{ session_id: string }[]>`
       select session_id
@@ -211,7 +195,7 @@ describePg("postgresRunControlStore (live cluster PG)", () => {
         nodeId: "only",
         runId: id,
         sessionId: "sess-2",
-      })
+      }),
     );
     const after = await admin<{ session_id: string }[]>`
       select session_id
@@ -231,8 +215,8 @@ describePg("postgresRunControlStore (live cluster PG)", () => {
           nodeId: "ghost",
           runId: id,
           sessionId: "x",
-        })
-      )
+        }),
+      ),
     ).rejects.toThrow(NODE_MISSING);
   });
 
@@ -246,7 +230,7 @@ describePg("postgresRunControlStore (live cluster PG)", () => {
         name: "log.txt",
         nodeId: "node",
         runId: id,
-      })
+      }),
     );
     expect(ref.path).toContain(id);
 
@@ -257,14 +241,9 @@ describePg("postgresRunControlStore (live cluster PG)", () => {
         name: "log.txt",
         nodeId: "node",
         runId: id,
-      })
+      }),
     );
-    const rows = await admin<
-      ({ content: string } & (
-        | { content_type: string }
-        | { content_type: null }
-      ))[]
-    >`
+    const rows = await admin<({ content: string } & ({ content_type: string } | { content_type: null }))[]>`
       select content, content_type
       from ${admin(MOKA_POSTGRES_SCHEMA)}.moka_run_control_node_artifact
       where run_id = ${id} and node_id = ${"node"} and name = ${"log.txt"}
@@ -284,7 +263,7 @@ describePg("postgresRunControlStore (live cluster PG)", () => {
         nodeId: "x",
         runId: idA,
         status: "passed",
-      })
+      }),
     );
 
     const reader = newStore();
@@ -297,9 +276,7 @@ describePg("postgresRunControlStore (live cluster PG)", () => {
 
   it("applies migrations idempotently on the live DB (AC3)", async () => {
     // beforeAll migrated once; re-running must be a no-op.
-    await expect(
-      migratePostgresRunControlStore(dbUrl)
-    ).resolves.toBeUndefined();
+    await expect(migratePostgresRunControlStore(dbUrl)).resolves.toBeUndefined();
 
     const tables = await admin<{ table_name: string }[]>`
       select table_name from information_schema.tables
@@ -343,7 +320,7 @@ describePg("postgresRunControlStore (live cluster PG)", () => {
           nodeId: "shared",
           runId: idA,
           status: "passed",
-        })
+        }),
       ),
       Effect.runPromise(
         storeB.updateNodeStatus({
@@ -351,7 +328,7 @@ describePg("postgresRunControlStore (live cluster PG)", () => {
           nodeId: "shared",
           runId: idB,
           status: "failed",
-        })
+        }),
       ),
     ]);
 

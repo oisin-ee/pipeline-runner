@@ -27,18 +27,11 @@ const PIPELINE_RUNTIME_INTERNAL_IMPORTS = [
 
 describe("PIPE-45.10 runtime owner boundaries", () => {
   it("keeps src/pipeline-runtime.ts as the public runtime entrypoint", () => {
-    const missingOwners = RUNTIME_OWNER_FILES.filter(
-      (path) => !existsSync(join(ROOT, path))
-    );
-    const runtimeText = readFileSync(
-      join(ROOT, "src/pipeline-runtime.ts"),
-      "utf-8"
-    );
+    const missingOwners = RUNTIME_OWNER_FILES.filter((path) => !existsSync(join(ROOT, path)));
+    const runtimeText = readFileSync(join(ROOT, "src/pipeline-runtime.ts"), "utf-8");
 
     expect(missingOwners).toEqual([]);
-    expect(runtimeText.split("\n").length).toBeLessThanOrEqual(
-      PIPELINE_RUNTIME_MAX_LINES
-    );
+    expect(runtimeText.split("\n").length).toBeLessThanOrEqual(PIPELINE_RUNTIME_MAX_LINES);
     expect(runtimeText).not.toContain(FILE_SUPPRESSION_MARKER);
     for (const internalImport of PIPELINE_RUNTIME_INTERNAL_IMPORTS) {
       expect(runtimeText).not.toContain(internalImport);

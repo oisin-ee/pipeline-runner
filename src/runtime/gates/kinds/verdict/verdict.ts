@@ -1,9 +1,5 @@
 import { isRecord } from "../../../../safe-json";
-import type {
-  NodeAttemptResult,
-  RuntimeGateResult,
-  VerdictGateSpec,
-} from "../../../contracts";
+import type { NodeAttemptResult, RuntimeGateResult, VerdictGateSpec } from "../../../contracts";
 import type { JsonSourceContext } from "../../gates";
 import { parseGateJson } from "../../gates";
 
@@ -16,7 +12,7 @@ export const evaluateVerdictGate = (
   gateId: string,
   nodeId: string,
   context: JsonSourceContext,
-  attempt: NodeAttemptResult
+  attempt: NodeAttemptResult,
 ): RuntimeGateResult => {
   const parsed = parseGateJson(gate, context, attempt);
   const field = gate.field ?? "verdict";

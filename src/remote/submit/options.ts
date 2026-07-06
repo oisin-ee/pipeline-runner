@@ -1,6 +1,7 @@
-import { z } from "zod";
+import * as Schema from "effect/Schema";
 
 import { brokerAuthOptionSchema } from "../../credentials/broker";
+import { requiredString } from "../../schema-boundary";
 import {
   argoWorkflowActiveDeadlineSecondsSchema,
   argoWorkflowPodGcSchema,
@@ -10,22 +11,22 @@ import {
 } from "../argo/model";
 
 export const runnerPodSubmitOptionShape = {
-  activeDeadlineSeconds: argoWorkflowActiveDeadlineSecondsSchema.optional(),
+  activeDeadlineSeconds: Schema.optional(argoWorkflowActiveDeadlineSecondsSchema),
   brokerAuth: brokerAuthOptionSchema,
-  dbAuth: dbAuthOptionSchema.optional(),
-  eventAuthSecretKey: z.string().min(1).optional(),
-  eventAuthSecretName: z.string().min(1).optional(),
-  generateName: z.string().min(1).optional(),
-  gitCredentialsSecretName: z.string().min(1).optional(),
-  githubAuthSecretName: z.string().min(1).optional(),
-  image: z.string().min(1).optional(),
-  imagePullSecretName: z.string().min(1).optional(),
-  kubeContext: z.string().min(1).optional(),
-  kubeconfigPath: z.string().min(1).optional(),
-  mcpGatewayAuth: mcpGatewayAuthOptionSchema.optional(),
-  name: z.string().min(1).optional(),
-  npmRegistryAuthSecretName: z.string().min(1).optional(),
-  podGC: argoWorkflowPodGcSchema.optional(),
-  serviceAccountName: z.string().min(1).optional(),
-  ttlStrategy: argoWorkflowTtlStrategySchema.optional(),
+  dbAuth: Schema.optional(dbAuthOptionSchema),
+  eventAuthSecretKey: Schema.optional(requiredString),
+  eventAuthSecretName: Schema.optional(requiredString),
+  generateName: Schema.optional(requiredString),
+  gitCredentialsSecretName: Schema.optional(requiredString),
+  githubAuthSecretName: Schema.optional(requiredString),
+  image: Schema.optional(requiredString),
+  imagePullSecretName: Schema.optional(requiredString),
+  kubeContext: Schema.optional(requiredString),
+  kubeconfigPath: Schema.optional(requiredString),
+  mcpGatewayAuth: Schema.optional(mcpGatewayAuthOptionSchema),
+  name: Schema.optional(requiredString),
+  npmRegistryAuthSecretName: Schema.optional(requiredString),
+  podGC: Schema.optional(argoWorkflowPodGcSchema),
+  serviceAccountName: Schema.optional(requiredString),
+  ttlStrategy: Schema.optional(argoWorkflowTtlStrategySchema),
 };

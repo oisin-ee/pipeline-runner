@@ -1,443 +1,336 @@
-import { z } from "zod";
+import * as Schema from "effect/Schema";
 
 import type { WorkflowExecutionPlan } from "../../planning/compile";
 import {
-  RUNNER_WORKFLOW_ENTRYPOINT,
-  RUNNER_WORKFLOW_IMAGE,
-  RUNNER_WORKFLOW_SERVICE_ACCOUNT,
-} from "./policy";
+  mutableArray,
+  nonEmptyMutableArray,
+  nonNegativeInteger,
+  positiveInteger,
+  requiredString,
+  stringRecord,
+  withDefault,
+  urlString,
+  struct,
+} from "../../schema-boundary";
+import { RUNNER_WORKFLOW_ENTRYPOINT, RUNNER_WORKFLOW_IMAGE, RUNNER_WORKFLOW_SERVICE_ACCOUNT } from "./policy";
 
 const ARGO_WORKFLOW_API_VERSION = "argoproj.io/v1alpha1";
 const ARGO_WORKFLOW_KIND = "Workflow";
-const kubernetesNameSchema = z.string().min(1);
+const kubernetesNameSchema = requiredString;
 
-/**
- * PIPE-94.4: submit-time secret ref for MOKA_DB_URL injection in runner pods.
- * The single owner of the dbAuth option shape — the runner-workflow model,
- * argo-submit, and moka-submit all reference this rather than redeclaring it.
- * `secretKey` defaults to "db-url"; absent dbAuth → no MOKA_DB_URL env emitted.
- */
-export const dbAuthOptionSchema = z
-  .object({
-    secretKey: z.string().min(1).default("db-url"),
-    secretName: kubernetesNameSchema,
-  })
-  .strict();
+export const dbAuthOptionSchema = struct({
+  secretKey: withDefault(requiredString, "db-url"),
+  secretName: kubernetesNameSchema,
+});
 
-/**
- * Submit-time secret ref for PIPELINE_MCP_GATEWAY_AUTHORIZATION injection in
- * runner pods. Lets runner-side agents reach the pipeline-gateway vMCP (the
- * verify-bot-authed browser-automation tools) the same way Coder dev-workspaces
- * do: the shared dotfiles opencode MCP config reads the gateway basic-auth
- * header from this env. The single owner of the option shape — the
- * runner-workflow model, argo-submit, and moka-submit all reference this rather
- * than redeclaring it. `secretKey` defaults to "pipeline-mcp-gateway-authorization"
- * (the ExternalSecret-projected key); absent mcpGatewayAuth → no env emitted.
- */
-export const mcpGatewayAuthOptionSchema = z
-  .object({
-    secretKey: z.string().min(1).default("pipeline-mcp-gateway-authorization"),
-    secretName: kubernetesNameSchema,
-  })
-  .strict();
-const labelValueSchema = z.string().min(1);
-const stringMapSchema = z.record(z.string().min(1), z.string().min(1));
+export const mcpGatewayAuthOptionSchema = struct({
+  secretKey: withDefault(requiredString, "pipeline-mcp-gateway-authorization"),
+  secretName: kubernetesNameSchema,
+});
 
-export const argoWorkflowActiveDeadlineSecondsSchema = z
-  .number()
-  .int()
-  .nonnegative();
+const labelValueSchema = requiredString;
+const optionalStringRecord = Schema.Record(requiredString, Schema.UndefinedOr(requiredString));
 
-export const argoWorkflowTtlStrategySchema = z
-  .object({
-    secondsAfterCompletion: z.number().int().nonnegative().optional(),
-    secondsAfterFailure: z.number().int().nonnegative().optional(),
-    secondsAfterSuccess: z.number().int().nonnegative().optional(),
-  })
-  .strict();
+export const argoWorkflowActiveDeadlineSecondsSchema = nonNegativeInteger;
 
-const argoWorkflowLabelSelectorRequirementSchema = z
-  .object({
-    key: z.string().min(1),
-    operator: z.enum(["In", "NotIn", "Exists", "DoesNotExist"]),
-    values: z.array(z.string()).optional(),
-  })
-  .strict();
+export const argoWorkflowTtlStrategySchema = struct({
+  secondsAfterCompletion: Schema.optional(nonNegativeInteger),
+  secondsAfterFailure: Schema.optional(nonNegativeInteger),
+  secondsAfterSuccess: Schema.optional(nonNegativeInteger),
+});
 
-const argoWorkflowLabelSelectorSchema = z
-  .object({
-    matchExpressions: z
-      .array(argoWorkflowLabelSelectorRequirementSchema)
-      .optional(),
-    matchLabels: z.record(z.string().min(1), z.string()).optional(),
-  })
-  .strict();
+const argoWorkflowLabelSelectorRequirementSchema = struct({
+  key: requiredString,
+  operator: Schema.Literals(["In", "NotIn", "Exists", "DoesNotExist"]),
+  values: Schema.optional(mutableArray(Schema.String)),
+});
 
-export const argoWorkflowPodGcSchema = z
-  .object({
-    deleteDelayDuration: z.string().min(1).optional(),
-    labelSelector: argoWorkflowLabelSelectorSchema.optional(),
-    strategy: z
-      .enum([
-        "OnPodCompletion",
-        "OnPodSuccess",
-        "OnWorkflowCompletion",
-        "OnWorkflowSuccess",
-      ])
-      .optional(),
-  })
-  .strict();
+const argoWorkflowLabelSelectorSchema = struct({
+  matchExpressions: Schema.optional(mutableArray(argoWorkflowLabelSelectorRequirementSchema)),
+  matchLabels: Schema.optional(Schema.Record(requiredString, Schema.String)),
+});
 
-const configMapVolumeSchema = z
-  .object({
-    items: z.array(
-      z.object({ key: z.string().min(1), path: z.string().min(1) }).strict()
-    ),
-    name: kubernetesNameSchema,
-  })
-  .strict();
+export const argoWorkflowPodGcSchema = struct({
+  deleteDelayDuration: Schema.optional(requiredString),
+  labelSelector: Schema.optional(argoWorkflowLabelSelectorSchema),
+  strategy: Schema.optional(
+    Schema.Literals(["OnPodCompletion", "OnPodSuccess", "OnWorkflowCompletion", "OnWorkflowSuccess"]),
+  ),
+});
 
-const secretVolumeSchema = z
-  .object({
-    defaultMode: z.number().int().positive().optional(),
-    items: z
-      .array(
-        z.object({ key: z.string().min(1), path: z.string().min(1) }).strict()
-      )
-      .optional(),
-    optional: z.boolean().optional(),
-    secretName: kubernetesNameSchema,
-  })
-  .strict();
+const keyPathItemSchema = struct({
+  key: requiredString,
+  path: requiredString,
+});
 
-export const argoWorkflowVolumeSchema = z
-  .object({
-    configMap: configMapVolumeSchema.optional(),
-    name: kubernetesNameSchema,
-    secret: secretVolumeSchema.optional(),
-  })
-  .strict()
-  .refine(
-    (volume) => volume.configMap !== undefined || volume.secret !== undefined,
+const configMapVolumeSchema = struct({
+  items: mutableArray(keyPathItemSchema),
+  name: kubernetesNameSchema,
+});
+
+const secretVolumeSchema = struct({
+  defaultMode: Schema.optional(positiveInteger),
+  items: Schema.optional(mutableArray(keyPathItemSchema)),
+  optional: Schema.optional(Schema.Boolean),
+  secretName: kubernetesNameSchema,
+});
+
+export const argoWorkflowVolumeSchema = struct({
+  configMap: Schema.optional(configMapVolumeSchema),
+  name: kubernetesNameSchema,
+  secret: Schema.optional(secretVolumeSchema),
+}).check(
+  Schema.makeFilter(
+    (volume) =>
+      volume.configMap !== undefined ||
+      volume.secret !== undefined ||
+      "Workflow volumes must declare configMap or secret",
     {
-      message: "Workflow volumes must declare configMap or secret",
-    }
-  );
+      description: "Argo workflow volume must reference a ConfigMap or Secret.",
+      identifier: "ArgoWorkflowVolumeSource",
+      title: "Argo workflow volume source",
+    },
+  ),
+);
 
-export const argoWorkflowVolumeMountSchema = z
-  .object({
-    mountPath: z.string().min(1),
-    name: kubernetesNameSchema,
-    readOnly: z.boolean().optional(),
-    subPath: z.string().min(1).optional(),
-  })
-  .strict();
+export const argoWorkflowVolumeMountSchema = struct({
+  mountPath: requiredString,
+  name: kubernetesNameSchema,
+  readOnly: Schema.optional(Schema.Boolean),
+  subPath: Schema.optional(requiredString),
+});
 
-const argoWorkflowResourceRequirementsSchema = z
-  .object({
-    limits: stringMapSchema.optional(),
-    requests: stringMapSchema.optional(),
-  })
-  .strict();
+const argoWorkflowResourceRequirementsSchema = struct({
+  limits: Schema.optional(stringRecord),
+  requests: Schema.optional(stringRecord),
+});
 
-const argoWorkflowArtifactSchema = z
-  .object({
-    from: z.string().min(1).optional(),
-    name: z.string().min(1),
-    path: z.string().min(1).optional(),
-  })
-  .strict();
+const argoWorkflowArtifactSchema = struct({
+  from: Schema.optional(requiredString),
+  name: requiredString,
+  path: Schema.optional(requiredString),
+});
 
-const argoWorkflowParameterArgumentSchema = z
-  .object({
-    name: z.string().min(1),
-    value: z.string(),
-  })
-  .strict();
+const argoWorkflowParameterArgumentSchema = struct({
+  name: requiredString,
+  value: Schema.String,
+});
 
-const argoWorkflowParameterOutputSchema = z
-  .object({
-    name: z.string().min(1),
-    valueFrom: z
-      .object({
-        path: z.string().min(1),
-      })
-      .strict(),
-  })
-  .strict();
+const argoWorkflowParameterOutputSchema = struct({
+  name: requiredString,
+  valueFrom: struct({
+    path: requiredString,
+  }),
+});
 
-const argoWorkflowRetryStrategySchema = z
-  .object({
-    expression: z.string().min(1).optional(),
-    limit: z.string().min(1).optional(),
-    retryPolicy: z.enum(["Always", "OnError", "OnFailure", "OnTransientError"]),
-  })
-  .strict();
+const argoWorkflowRetryStrategySchema = struct({
+  expression: Schema.optional(requiredString),
+  limit: Schema.optional(requiredString),
+  retryPolicy: Schema.Literals(["Always", "OnError", "OnFailure", "OnTransientError"]),
+});
 
-const argoWorkflowEnvVarSchema = z.union([
-  z.object({ name: z.string().min(1), value: z.string() }).strict(),
-  z
-    .object({
-      name: z.string().min(1),
-      valueFrom: z
-        .object({
-          secretKeyRef: z
-            .object({
-              key: z.string().min(1),
-              name: kubernetesNameSchema,
-            })
-            .strict(),
-        })
-        .strict(),
-    })
-    .strict(),
+const argoWorkflowEnvVar = Schema.Union([
+  struct({ name: requiredString, value: Schema.String }),
+  struct({
+    name: requiredString,
+    valueFrom: struct({
+      secretKeyRef: struct({
+        key: requiredString,
+        name: kubernetesNameSchema,
+      }),
+    }),
+  }),
 ]);
 
-const argoWorkflowTemplateSchema = z
-  .object({
-    activeDeadlineSeconds: z.number().int().positive().optional(),
-    container: z
-      .object({
-        args: z.array(z.string().min(1)).min(1),
-        command: z.array(z.string().min(1)).min(1).optional(),
-        env: z.array(argoWorkflowEnvVarSchema).optional(),
-        image: z.string().min(1),
-        imagePullPolicy: z.enum(["Always", "IfNotPresent", "Never"]),
-        name: z.string().min(1).optional(),
-        resources: argoWorkflowResourceRequirementsSchema.optional(),
-        volumeMounts: z.array(argoWorkflowVolumeMountSchema),
-      })
-      .strict()
-      .optional(),
-    dag: z
-      .object({
-        tasks: z
-          .array(
-            z
-              .object({
-                arguments: z
-                  .object({
-                    artifacts: z.array(argoWorkflowArtifactSchema).optional(),
-                    parameters: z
-                      .array(argoWorkflowParameterArgumentSchema)
-                      .optional(),
-                  })
-                  .strict()
-                  .optional(),
-                dependencies: z.array(z.string().min(1)).optional(),
-                name: z.string().min(1),
-                template: z.string().min(1),
-                when: z.string().min(1).optional(),
-                withParam: z.string().min(1).optional(),
-              })
-              .strict()
-          )
-          .min(1),
-      })
-      .strict()
-      .optional(),
-    inputs: z
-      .object({
-        artifacts: z.array(argoWorkflowArtifactSchema).optional(),
-        parameters: z
-          .array(z.object({ name: z.string().min(1) }).strict())
-          .optional(),
-      })
-      .strict()
-      .optional(),
-    name: z.string().min(1),
-    outputs: z
-      .object({
-        artifacts: z.array(argoWorkflowArtifactSchema).optional(),
-        parameters: z.array(argoWorkflowParameterOutputSchema).optional(),
-      })
-      .strict()
-      .optional(),
-    retryStrategy: argoWorkflowRetryStrategySchema.optional(),
-    steps: z
-      .array(
-        z.array(
-          z
-            .object({
-              arguments: z
-                .object({
-                  parameters: z
-                    .array(argoWorkflowParameterArgumentSchema)
-                    .optional(),
-                })
-                .strict()
-                .optional(),
-              name: z.string().min(1),
-              template: z.string().min(1),
-              when: z.string().min(1).optional(),
-              withParam: z.string().min(1).optional(),
-            })
-            .strict()
-        )
-      )
-      .optional(),
-  })
-  .strict()
-  .refine(
+const argoWorkflowDagTaskSchema = struct({
+  arguments: Schema.optional(
+    struct({
+      artifacts: Schema.optional(mutableArray(argoWorkflowArtifactSchema)),
+      parameters: Schema.optional(mutableArray(argoWorkflowParameterArgumentSchema)),
+    }),
+  ),
+  dependencies: Schema.optional(mutableArray(requiredString)),
+  name: requiredString,
+  template: requiredString,
+  when: Schema.optional(requiredString),
+  withParam: Schema.optional(requiredString),
+});
+
+const argoWorkflowStepTaskSchema = struct({
+  arguments: Schema.optional(
+    struct({
+      parameters: Schema.optional(mutableArray(argoWorkflowParameterArgumentSchema)),
+    }),
+  ),
+  name: requiredString,
+  template: requiredString,
+  when: Schema.optional(requiredString),
+  withParam: Schema.optional(requiredString),
+});
+
+const argoWorkflowTemplateSchema = struct({
+  activeDeadlineSeconds: Schema.optional(positiveInteger),
+  container: Schema.optional(
+    struct({
+      args: nonEmptyMutableArray(requiredString),
+      command: Schema.optional(nonEmptyMutableArray(requiredString)),
+      env: Schema.optional(mutableArray(argoWorkflowEnvVar)),
+      image: requiredString,
+      imagePullPolicy: Schema.Literals(["Always", "IfNotPresent", "Never"]),
+      name: Schema.optional(requiredString),
+      resources: Schema.optional(argoWorkflowResourceRequirementsSchema),
+      volumeMounts: mutableArray(argoWorkflowVolumeMountSchema),
+    }),
+  ),
+  dag: Schema.optional(
+    struct({
+      tasks: nonEmptyMutableArray(argoWorkflowDagTaskSchema),
+    }),
+  ),
+  inputs: Schema.optional(
+    struct({
+      artifacts: Schema.optional(mutableArray(argoWorkflowArtifactSchema)),
+      parameters: Schema.optional(mutableArray(struct({ name: requiredString }))),
+    }),
+  ),
+  name: requiredString,
+  outputs: Schema.optional(
+    struct({
+      artifacts: Schema.optional(mutableArray(argoWorkflowArtifactSchema)),
+      parameters: Schema.optional(mutableArray(argoWorkflowParameterOutputSchema)),
+    }),
+  ),
+  retryStrategy: Schema.optional(argoWorkflowRetryStrategySchema),
+  steps: Schema.optional(mutableArray(mutableArray(argoWorkflowStepTaskSchema))),
+}).check(
+  Schema.makeFilter(
     (template) =>
       template.container !== undefined ||
       template.dag !== undefined ||
-      template.steps !== undefined,
+      template.steps !== undefined ||
+      "Workflow templates must declare container, dag, or steps",
     {
-      message: "Workflow templates must declare container, dag, or steps",
-    }
-  );
+      description: "Argo template must declare one executable body.",
+      identifier: "ArgoWorkflowTemplateBody",
+      title: "Argo workflow template body",
+    },
+  ),
+);
 
 export const createRunnerArgoWorkflowManifestSchema = () =>
-  z
-    .object({
-      apiVersion: z.literal(ARGO_WORKFLOW_API_VERSION),
-      kind: z.literal(ARGO_WORKFLOW_KIND),
-      metadata: z
-        .object({
-          annotations: z
-            .record(z.string().min(1), z.string().min(1))
-            .optional(),
-          generateName: z.string().min(1).optional(),
-          labels: z.record(z.string().min(1), labelValueSchema).optional(),
-          name: z.string().min(1).optional(),
-          namespace: kubernetesNameSchema,
-        })
-        .strict()
-        .refine(
-          (metadata) =>
-            metadata.name !== undefined || metadata.generateName !== undefined,
-          { message: "Workflow metadata must declare name or generateName" }
-        ),
-      spec: z
-        .object({
-          activeDeadlineSeconds:
-            argoWorkflowActiveDeadlineSecondsSchema.optional(),
-          entrypoint: z.literal(RUNNER_WORKFLOW_ENTRYPOINT),
-          imagePullSecrets: z
-            .array(z.object({ name: kubernetesNameSchema }).strict())
-            .optional(),
-          onExit: z.string().min(1).optional(),
-          podGC: argoWorkflowPodGcSchema.optional(),
-          podMetadata: z
-            .object({
-              labels: z.record(z.string().min(1), labelValueSchema).optional(),
-            })
-            .strict()
-            .optional(),
-          serviceAccountName: kubernetesNameSchema,
-          templates: z.array(argoWorkflowTemplateSchema).min(2),
-          ttlStrategy: argoWorkflowTtlStrategySchema.optional(),
-          volumes: z.array(argoWorkflowVolumeSchema).min(1),
-        })
-        .strict(),
-    })
-    .strict();
-
-const runnerWorkflowBrokerAuthSchema = z
-  .object({
-    secretKey: z.string().min(1).default("api-key"),
-    secretName: kubernetesNameSchema,
-    url: z.string().min(1).default("https://cliproxy.momokaya.ee"),
-  })
-  .strict();
-
-const runnerArgoWorkflowBaseOptionsSchema = z
-  .object({
-    activeDeadlineSeconds: argoWorkflowActiveDeadlineSecondsSchema.optional(),
-    annotations: z
-      .record(z.string().min(1), z.string().min(1).optional())
-      .default({}),
-    brokerAuth: runnerWorkflowBrokerAuthSchema,
-    // PIPE-94.3: durable-substrate db.url injection for runner pods.
-    // When present, MOKA_DB_URL is injected via secretKeyRef so loadMokaDbUrl()
-    // resolves in-cluster without a config file mount.
-    dbAuth: dbAuthOptionSchema.optional(),
-    eventAuthSecretKey: z.string().min(1).optional(),
-    eventAuthSecretName: kubernetesNameSchema.optional(),
-    generateName: z.string().min(1).optional(),
-    gitCredentialsSecretName: kubernetesNameSchema.optional(),
-    githubAuthSecretName: kubernetesNameSchema.optional(),
-    image: z.string().min(1).default(RUNNER_WORKFLOW_IMAGE),
-    imagePullPolicy: z
-      .enum(["Always", "IfNotPresent", "Never"])
-      .default("Always"),
-    imagePullSecretName: kubernetesNameSchema.optional(),
-    labels: z
-      .record(z.string().min(1), z.string().min(1).optional())
-      .default({}),
-    // Optional secret ref for PIPELINE_MCP_GATEWAY_AUTHORIZATION injection.
-    // When present, the runner sources the gateway basic-auth header via
-    // secretKeyRef so dotfiles' pipeline-gateway MCP entry resolves in-cluster.
-    mcpGatewayAuth: mcpGatewayAuthOptionSchema.optional(),
-    name: z.string().min(1).optional(),
-    namespace: kubernetesNameSchema,
-    // Optional secret ref for an .npmrc mounted at /root/.npmrc so the repo's
-    // own bootstrap (.moka/bootstrap.sh -> nub install) can authenticate to
-    // private-scoped package registries. Absent -> bootstrap only has access
-    // to public registries, same as before this option existed.
-    npmRegistryAuthSecretName: kubernetesNameSchema.optional(),
-    payloadConfigMapKey: z.string().min(1).default("payload.json"),
-    payloadConfigMapName: kubernetesNameSchema,
-    resources: argoWorkflowResourceRequirementsSchema.optional(),
-    serviceAccountName: kubernetesNameSchema.default(
-      RUNNER_WORKFLOW_SERVICE_ACCOUNT
+  struct({
+    apiVersion: Schema.Literal(ARGO_WORKFLOW_API_VERSION),
+    kind: Schema.Literal(ARGO_WORKFLOW_KIND),
+    metadata: struct({
+      annotations: Schema.optional(stringRecord),
+      generateName: Schema.optional(requiredString),
+      labels: Schema.optional(Schema.Record(requiredString, labelValueSchema)),
+      name: Schema.optional(requiredString),
+      namespace: kubernetesNameSchema,
+    }).check(
+      Schema.makeFilter(
+        (metadata) =>
+          metadata.name !== undefined ||
+          metadata.generateName !== undefined ||
+          "Workflow metadata must declare name or generateName",
+        {
+          description: "Argo workflow metadata must include name or generateName.",
+          identifier: "ArgoWorkflowMetadataName",
+          title: "Argo workflow metadata name",
+        },
+      ),
     ),
-    ttlStrategy: argoWorkflowTtlStrategySchema.optional(),
-  })
-  .strict();
+    spec: struct({
+      activeDeadlineSeconds: Schema.optional(argoWorkflowActiveDeadlineSecondsSchema),
+      entrypoint: Schema.Literal(RUNNER_WORKFLOW_ENTRYPOINT),
+      imagePullSecrets: Schema.optional(mutableArray(struct({ name: kubernetesNameSchema }))),
+      onExit: Schema.optional(requiredString),
+      podGC: Schema.optional(argoWorkflowPodGcSchema),
+      podMetadata: Schema.optional(
+        struct({
+          labels: Schema.optional(Schema.Record(requiredString, labelValueSchema)),
+        }),
+      ),
+      serviceAccountName: kubernetesNameSchema,
+      templates: nonEmptyMutableArray(argoWorkflowTemplateSchema),
+      ttlStrategy: Schema.optional(argoWorkflowTtlStrategySchema),
+      volumes: nonEmptyMutableArray(argoWorkflowVolumeSchema),
+    }),
+  });
 
-export const buildRunnerArgoWorkflowOptionsSchema =
-  runnerArgoWorkflowBaseOptionsSchema
-    .extend({
-      scheduleConfigMapKey: z.string().min(1).default("schedule.yaml"),
-      scheduleConfigMapName: kubernetesNameSchema,
-      taskDescriptorConfigMapName: kubernetesNameSchema,
-    })
-    .strict()
-    .refine(
-      (options) =>
-        options.name !== undefined || options.generateName !== undefined,
-      {
-        message: "Runner Workflow options must declare name or generateName",
-      }
-    );
+const runnerWorkflowBrokerAuthSchema = struct({
+  secretKey: withDefault(requiredString, "api-key"),
+  secretName: kubernetesNameSchema,
+  url: withDefault(urlString, "https://cliproxy.momokaya.ee"),
+});
 
-export const buildDynamicRunnerArgoWorkflowOptionsSchema =
-  runnerArgoWorkflowBaseOptionsSchema
-    .extend({
-      workflowId: z.string().min(1),
-    })
-    .strict()
-    .refine(
-      (options) =>
-        options.name !== undefined || options.generateName !== undefined,
-      {
-        message: "Runner Workflow options must declare name or generateName",
-      }
-    );
+const runnerArgoWorkflowBaseOptionFields = {
+  activeDeadlineSeconds: Schema.optional(argoWorkflowActiveDeadlineSecondsSchema),
+  annotations: withDefault(optionalStringRecord, {}),
+  brokerAuth: runnerWorkflowBrokerAuthSchema,
+  dbAuth: Schema.optional(dbAuthOptionSchema),
+  eventAuthSecretKey: Schema.optional(requiredString),
+  eventAuthSecretName: Schema.optional(kubernetesNameSchema),
+  generateName: Schema.optional(requiredString),
+  gitCredentialsSecretName: Schema.optional(kubernetesNameSchema),
+  githubAuthSecretName: Schema.optional(kubernetesNameSchema),
+  image: withDefault(requiredString, RUNNER_WORKFLOW_IMAGE),
+  imagePullPolicy: withDefault(Schema.Literals(["Always", "IfNotPresent", "Never"]), "Always"),
+  imagePullSecretName: Schema.optional(kubernetesNameSchema),
+  labels: withDefault(optionalStringRecord, {}),
+  mcpGatewayAuth: Schema.optional(mcpGatewayAuthOptionSchema),
+  name: Schema.optional(requiredString),
+  namespace: kubernetesNameSchema,
+  npmRegistryAuthSecretName: Schema.optional(kubernetesNameSchema),
+  payloadConfigMapKey: withDefault(requiredString, "payload.json"),
+  payloadConfigMapName: kubernetesNameSchema,
+  resources: Schema.optional(argoWorkflowResourceRequirementsSchema),
+  serviceAccountName: withDefault(kubernetesNameSchema, RUNNER_WORKFLOW_SERVICE_ACCOUNT),
+  ttlStrategy: Schema.optional(argoWorkflowTtlStrategySchema),
+};
 
-export type ArgoWorkflowEnvVar = z.infer<typeof argoWorkflowEnvVarSchema>;
-export type ArgoWorkflowPodGC = z.infer<typeof argoWorkflowPodGcSchema>;
-export type ArgoWorkflowResourceRequirements = z.infer<
-  typeof argoWorkflowResourceRequirementsSchema
->;
-export type ArgoWorkflowRetryStrategy = z.infer<
-  typeof argoWorkflowRetryStrategySchema
->;
-export type ArgoWorkflowTemplate = z.infer<typeof argoWorkflowTemplateSchema>;
-export type ArgoWorkflowTtlStrategy = z.infer<
-  typeof argoWorkflowTtlStrategySchema
->;
-export type ArgoWorkflowVolume = z.infer<typeof argoWorkflowVolumeSchema>;
-export type ArgoWorkflowVolumeMount = z.infer<
-  typeof argoWorkflowVolumeMountSchema
->;
-export type ParsedBuildRunnerArgoWorkflowOptions = z.output<
-  typeof buildRunnerArgoWorkflowOptionsSchema
-> & {
+const hasWorkflowName = (options: { readonly generateName?: string; readonly name?: string }): boolean =>
+  options.name !== undefined || options.generateName !== undefined;
+
+export const buildRunnerArgoWorkflowOptionsSchema = struct({
+  ...runnerArgoWorkflowBaseOptionFields,
+  scheduleConfigMapKey: withDefault(requiredString, "schedule.yaml"),
+  scheduleConfigMapName: kubernetesNameSchema,
+  taskDescriptorConfigMapName: kubernetesNameSchema,
+}).check(
+  Schema.makeFilter(
+    (options) => hasWorkflowName(options) || "Runner Workflow options must declare name or generateName",
+    {
+      description: "Runner workflow build options must include name or generateName.",
+      identifier: "BuildRunnerArgoWorkflowName",
+      title: "Build runner Argo workflow name",
+    },
+  ),
+);
+
+export const buildDynamicRunnerArgoWorkflowOptionsSchema = struct({
+  ...runnerArgoWorkflowBaseOptionFields,
+  workflowId: requiredString,
+}).check(
+  Schema.makeFilter(
+    (options) => hasWorkflowName(options) || "Runner Workflow options must declare name or generateName",
+    {
+      description: "Dynamic runner workflow build options must include name or generateName.",
+      identifier: "BuildDynamicRunnerArgoWorkflowName",
+      title: "Build dynamic runner Argo workflow name",
+    },
+  ),
+);
+
+export type ArgoWorkflowEnvVar = typeof argoWorkflowEnvVar.Type;
+export type ArgoWorkflowPodGC = typeof argoWorkflowPodGcSchema.Type;
+export type ArgoWorkflowResourceRequirements = typeof argoWorkflowResourceRequirementsSchema.Type;
+export type ArgoWorkflowRetryStrategy = typeof argoWorkflowRetryStrategySchema.Type;
+export type ArgoWorkflowTemplate = typeof argoWorkflowTemplateSchema.Type;
+export type ArgoWorkflowTtlStrategy = typeof argoWorkflowTtlStrategySchema.Type;
+export type ArgoWorkflowVolume = typeof argoWorkflowVolumeSchema.Type;
+export type ArgoWorkflowVolumeMount = typeof argoWorkflowVolumeMountSchema.Type;
+export type ParsedBuildRunnerArgoWorkflowOptions = typeof buildRunnerArgoWorkflowOptionsSchema.Type & {
   plan: WorkflowExecutionPlan;
 };
-export type ParsedBuildDynamicRunnerArgoWorkflowOptions = z.output<
-  typeof buildDynamicRunnerArgoWorkflowOptionsSchema
->;
+export type ParsedBuildDynamicRunnerArgoWorkflowOptions = typeof buildDynamicRunnerArgoWorkflowOptionsSchema.Type;

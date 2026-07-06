@@ -3,8 +3,7 @@ import { BROKER_API_KEY_ENV, brokerV1Url } from "./broker";
 import type { BrokerCredentials } from "./broker";
 
 const CODEX_BROKER_PROVIDER_ID = "broker";
-const CODEX_BROKER_SECTION_RE =
-  /\n?\[model_providers\.broker\]\n(?:[^\n]*\n?)*?(?=\n\[|$)/gu;
+const CODEX_BROKER_SECTION_RE = /\n?\[model_providers\.broker\]\n(?:[^\n]*\n?)*?(?=\n\[|$)/gu;
 const CODEX_MODEL_PROVIDER_KEY_RE = /^\s*model_provider\s*=/u;
 
 const renderCodexBrokerProvider = (credentials: BrokerCredentials): string =>
@@ -30,15 +29,8 @@ const removeCodexBrokerSections = (content: string): string =>
  * preserving every other section. Idempotent: re-running replaces the
  * `[model_providers.broker]` block and the top-level `model_provider` key.
  */
-export const applyCodexBrokerProvider = (
-  currentText = "",
-  credentials: BrokerCredentials
-): string => {
+export const applyCodexBrokerProvider = (currentText = "", credentials: BrokerCredentials): string => {
   const withoutProvider = removeCodexBrokerSections(currentText);
   const projection = renderCodexBrokerProvider(credentials);
-  return ensureTrailingNewline(
-    [withoutProvider.trimEnd(), projection.trimEnd()]
-      .filter(Boolean)
-      .join("\n\n")
-  );
+  return ensureTrailingNewline([withoutProvider.trimEnd(), projection.trimEnd()].filter(Boolean).join("\n\n"));
 };

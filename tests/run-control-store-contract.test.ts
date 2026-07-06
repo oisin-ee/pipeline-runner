@@ -5,30 +5,16 @@ import { join } from "node:path";
 
 import { Effect } from "effect";
 import postgres from "postgres";
-import {
-  afterEach,
-  beforeAll,
-  beforeEach,
-  describe,
-  expect,
-  it,
-  vi,
-} from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type {
-  MokaRunController,
-  MokaRunEvent,
-} from "../src/run-control/contracts";
+import type { MokaRunController, MokaRunEvent } from "../src/run-control/contracts";
 import {
   migratePostgresRunControlStore,
   postgresRunControlStore,
 } from "../src/run-control/postgres/postgres-run-control-store";
 import type { PostgresRunControlStore } from "../src/run-control/postgres/postgres-run-control-store";
 import { fileRunControlStore } from "../src/run-control/run-control-store";
-import type {
-  CreateRunRequest,
-  RunControlStore,
-} from "../src/run-control/run-control-store";
+import type { CreateRunRequest, RunControlStore } from "../src/run-control/run-control-store";
 
 /**
  * C2 — the single `RunControlStore` contract suite. The interface IS the test
@@ -48,11 +34,9 @@ import type {
  * the seam promises to every consumer of `RunControlStore`.
  */
 
-const run = async <A>(fx: Effect.Effect<A, unknown>): Promise<A> =>
-  await Effect.runPromise(fx);
+const run = async <A>(fx: Effect.Effect<A, unknown>): Promise<A> => await Effect.runPromise(fx);
 
-const DIFFERENT_PUBLISHED_SCHEDULE_ERROR =
-  /already has a different published schedule/u;
+const DIFFERENT_PUBLISHED_SCHEDULE_ERROR = /already has a different published schedule/u;
 
 /**
  * A per-test isolated world over one backend. `make()` opens a FRESH handle over
@@ -191,7 +175,7 @@ for (const backend of backends) {
           nodeIds: ["planner", "writer"],
           runId: id,
           target: "remote",
-        })
+        }),
       );
 
       const events: MokaRunEvent[] = [
@@ -243,7 +227,7 @@ for (const backend of backends) {
           nodeIds: ["writer"],
           runId: id,
           target: "local",
-        })
+        }),
       );
 
       const writer = world.make();
@@ -252,7 +236,7 @@ for (const backend of backends) {
           at: "2026-06-26T11:00:00.000Z",
           runId: id,
           status: "running",
-        })
+        }),
       );
       await run(
         writer.updateNodeStatus({
@@ -260,7 +244,7 @@ for (const backend of backends) {
           nodeId: "writer",
           runId: id,
           status: "passed",
-        })
+        }),
       );
       // The session id is persisted alongside the node but is not part of the
       // reconstructed manifest, so the contract asserts only that it is accepted
@@ -270,7 +254,7 @@ for (const backend of backends) {
           nodeId: "writer",
           runId: id,
           sessionId: "session-123",
-        })
+        }),
       );
 
       const replayed = await run(world.make().readRun({ runId: id }));
@@ -291,7 +275,7 @@ for (const backend of backends) {
           nodeIds: ["writer"],
           runId: id,
           target: "local",
-        })
+        }),
       );
 
       const controller: MokaRunController = {
@@ -302,9 +286,7 @@ for (const backend of backends) {
         startedAt: "2026-06-26T12:00:00.000Z",
       };
 
-      const updated = await run(
-        writer.updateRunController({ controller, runId: id })
-      );
+      const updated = await run(writer.updateRunController({ controller, runId: id }));
       expect(updated.controller).toEqual(controller);
 
       const replayed = await run(world.make().readRun({ runId: id }));
@@ -321,7 +303,7 @@ for (const backend of backends) {
           nodeIds: ["writer"],
           runId: id,
           target: "local",
-        })
+        }),
       );
 
       const artifact = await run(
@@ -330,7 +312,7 @@ for (const backend of backends) {
           name: "summary.json",
           nodeId: "writer",
           runId: id,
-        })
+        }),
       );
       expect(artifact.path).toContain("nodes/writer/summary.json");
     });
@@ -347,23 +329,19 @@ for (const backend of backends) {
             nodeIds: ["writer"],
             runId,
             target: "local",
-          })
+          }),
         );
       }
 
       const runs = await run(world.make().listRuns());
       // listRuns spans the whole backing store, so scope the assertion to the
       // two runs this test created; both backends must return them sorted.
-      const ours = runs
-        .map((manifest) => manifest.runId)
-        .filter((runId) => runId === idA || runId === idB);
+      const ours = runs.map((manifest) => manifest.runId).filter((runId) => runId === idA || runId === idB);
       expect(ours).toEqual([idA, idB]);
     });
 
     it("returns undefined for an unknown run", async () => {
-      const missing = await run(
-        world.make().readRun({ runId: world.runId("missing") })
-      );
+      const missing = await run(world.make().readRun({ runId: world.runId("missing") }));
       expect(missing).toBeUndefined();
     });
 
@@ -390,7 +368,7 @@ for (const backend of backends) {
             type: "run.status",
           },
           runId: id,
-        })
+        }),
       );
 
       // Second call — must not error, must not reset the event log.
@@ -418,7 +396,7 @@ for (const backend of backends) {
           runId: id,
           schedule: scheduleYaml,
           target: "local",
-        })
+        }),
       );
 
       // Fresh handle — proves durable round-trip, not in-memory state.
@@ -439,7 +417,7 @@ for (const backend of backends) {
           nodeIds: ["pre-research", "pre-planning"],
           runId: id,
           target: "remote",
-        })
+        }),
       );
       await run(
         writer.updateNodeStatus({
@@ -447,7 +425,7 @@ for (const backend of backends) {
           nodeId: "pre-research",
           runId: id,
           status: "passed",
-        })
+        }),
       );
 
       const published = await run(
@@ -455,14 +433,14 @@ for (const backend of backends) {
           nodeIds: ["implement", "verify"],
           runId: id,
           schedule: scheduleYaml,
-        })
+        }),
       );
       const republished = await run(
         world.make().publishSchedule({
           nodeIds: ["implement", "verify"],
           runId: id,
           schedule: scheduleYaml,
-        })
+        }),
       );
 
       expect(published.schedule).toBe(scheduleYaml);
@@ -485,14 +463,14 @@ for (const backend of backends) {
           nodeIds: ["pre-research"],
           runId: id,
           target: "remote",
-        })
+        }),
       );
       await run(
         writer.publishSchedule({
           nodeIds: ["implement"],
           runId: id,
           schedule: "schedule: one",
-        })
+        }),
       );
 
       await expect(
@@ -501,8 +479,8 @@ for (const backend of backends) {
             nodeIds: ["implement"],
             runId: id,
             schedule: "schedule: two",
-          })
-        )
+          }),
+        ),
       ).rejects.toThrow(DIFFERENT_PUBLISHED_SCHEDULE_ERROR);
     });
   });

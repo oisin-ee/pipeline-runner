@@ -9,10 +9,7 @@ import type { AgentNodeRuntimeService } from "../services/agent-node-runtime-ser
 import { maybeDeriveHandoffEffect } from "./handoff-finalization";
 import { decideNodeModel, fallbackNote, modelLabel } from "./model-selection";
 import type { NodeModelDecision } from "./model-selection";
-import {
-  finalizeAgentOutputEffect,
-  normalizeAgentOutput,
-} from "./output-finalization";
+import { finalizeAgentOutputEffect, normalizeAgentOutput } from "./output-finalization";
 import { renderAgentPromptEffect } from "./prompt-rendering";
 import { runModelAttemptEffect } from "./session-execution";
 import type { ModelAttemptOutcome } from "./session-execution";
@@ -23,11 +20,7 @@ const missingProfileResult = (nodeId: string): NodeAttemptResult => ({
   output: "",
 });
 
-const shouldUseAttemptResult = (
-  outcome: ModelAttemptOutcome,
-  decision: NodeModelDecision,
-  index: number
-): boolean => {
+const shouldUseAttemptResult = (outcome: ModelAttemptOutcome, decision: NodeModelDecision, index: number): boolean => {
   const lastCandidate = index === decision.candidates.length - 1;
   return outcome.result.exitCode !== EXIT_INFRA || lastCandidate;
 };
@@ -39,14 +32,9 @@ const missingModelResult = (nodeId: string): NodeAttemptResult => ({
 });
 
 const skippedModelEvidence = (decision: NodeModelDecision): string[] =>
-  decision.skipped.length > 0
-    ? [`model fallbacks skipped: ${decision.skipped.join(", ")}`]
-    : [];
+  decision.skipped.length > 0 ? [`model fallbacks skipped: ${decision.skipped.join(", ")}`] : [];
 
-const overBudgetResult = (
-  node: PlannedWorkflowNode,
-  decision: NodeModelDecision
-): NodeAttemptResult => ({
+const overBudgetResult = (node: PlannedWorkflowNode, decision: NodeModelDecision): NodeAttemptResult => ({
   evidence: [
     `agent boundary node=${node.id} profile=${node.profile}`,
     `over token budget: ${decision.reason}`,
@@ -59,13 +47,9 @@ const overBudgetResult = (
 const stderrEvidence = (stderr?: string): string[] =>
   stderr === undefined || stderr.length === 0 ? [] : [`stderr: ${stderr}`];
 
-const timeoutEvidence = (timedOut?: boolean): string[] =>
-  timedOut === true ? ["agent timed out"] : [];
+const timeoutEvidence = (timedOut?: boolean): string[] => (timedOut === true ? ["agent timed out"] : []);
 
-const withOptionalHandoff = (
-  result: NodeAttemptResult,
-  handoff: Option.Option<NodeHandoff>
-): NodeAttemptResult =>
+const withOptionalHandoff = (result: NodeAttemptResult, handoff: Option.Option<NodeHandoff>): NodeAttemptResult =>
   Option.match(handoff, {
     onNone: () => result,
     onSome: (value) => ({ ...result, handoff: value }),
@@ -92,12 +76,7 @@ const buildAgentAttemptResultEffect = (inputs: {
       plan,
       result,
     });
-    const handoff = yield* maybeDeriveHandoffEffect(
-      inputs.context,
-      inputs.node,
-      finalized.output,
-      inputs.attempt
-    );
+    const handoff = yield* maybeDeriveHandoffEffect(inputs.context, inputs.node, finalized.output, inputs.attempt);
     const attemptResult: NodeAttemptResult = {
       evidence: [
         `agent boundary node=${inputs.node.id} profile=${inputs.profileId} runner=${plan.runnerId}`,
@@ -150,7 +129,7 @@ const runSelectedModelEffect = (inputs: {
           failed: model,
           next: inputs.decision.candidates[index + 1] ?? Option.none(),
           result: outcome.result,
-        })
+        }),
       );
     }
     return missingModelResult(inputs.node.id);
@@ -159,19 +138,14 @@ const runSelectedModelEffect = (inputs: {
 const executeAgentNodeEffect = (
   node: PlannedWorkflowNode,
   context: RuntimeContext,
-  attempt: number
+  attempt: number,
 ): Effect.Effect<NodeAttemptResult, unknown, AgentNodeRuntimeService> =>
   Effect.gen(function* effectBody() {
     if (node.profile === undefined || node.profile.length === 0) {
       return missingProfileResult(node.id);
     }
     const prompt = yield* renderAgentPromptEffect(node, context);
-    const decision = decideNodeModel(
-      prompt,
-      node,
-      context.availableModels,
-      context.config.token_budget
-    );
+    const decision = decideNodeModel(prompt, node, context.availableModels, context.config.token_budget);
     if (decision.overBudget) {
       return overBudgetResult(node, decision);
     }
@@ -188,10 +162,8 @@ const executeAgentNodeEffect = (
 export const executeAgentNode = async (
   node: PlannedWorkflowNode,
   context: RuntimeContext,
-  attempt: number
+  attempt: number,
 ): Promise<NodeAttemptResult> => {
   const program = executeAgentNodeEffect(node, context, attempt);
-  return await Effect.runPromise(
-    Effect.provide(program, AgentNodeRuntimeServiceLive)
-  );
+  return await Effect.runPromise(Effect.provide(program, AgentNodeRuntimeServiceLive));
 };

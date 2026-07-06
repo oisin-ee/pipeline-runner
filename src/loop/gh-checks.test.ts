@@ -16,8 +16,7 @@ const stubGhRunner = (responses: Record<string, unknown>): GhRunner => ({
     }
     return Effect.fail(new Error(`unexpected gh call: ${key}`));
   },
-  text: (args: string[]) =>
-    Effect.fail(new Error(`unexpected gh text call: ${args.join(" ")}`)),
+  text: (args: string[]) => Effect.fail(new Error(`unexpected gh text call: ${args.join(" ")}`)),
 });
 
 // ---------------------------------------------------------------------------
@@ -25,8 +24,7 @@ const stubGhRunner = (responses: Record<string, unknown>): GhRunner => ({
 // ---------------------------------------------------------------------------
 
 describe("resolvePrForRun", () => {
-  const PR_LIST_ARGS =
-    "pr list --head moka/run/run-abc --json number,headRefName,url";
+  const PR_LIST_ARGS = "pr list --head moka/run/run-abc --json number,headRefName,url";
 
   it("returns the PR ref when gh finds a matching PR", async () => {
     const gh = stubGhRunner({
@@ -64,9 +62,7 @@ describe("resolvePrForRun", () => {
       text: () => Effect.fail(new Error("gh: not authenticated")),
     };
 
-    const result = await Effect.runPromise(
-      Effect.result(resolvePrForRun("run-abc", gh))
-    );
+    const result = await Effect.runPromise(Effect.result(resolvePrForRun("run-abc", gh)));
 
     expect(result._tag).toBe("Failure");
   });

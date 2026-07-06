@@ -10,10 +10,7 @@ const readPipelineFile = (path: string): string => {
   if (existsSync(distPath)) {
     return readFileSync(distPath, "utf-8");
   }
-  return readFileSync(
-    join(import.meta.dirname, "..", "src", path.replace(JS_SUFFIX_RE, ".ts")),
-    "utf-8"
-  );
+  return readFileSync(join(import.meta.dirname, "..", "src", path.replace(JS_SUFFIX_RE, ".ts")), "utf-8");
 };
 
 describe("scheduler and install command contracts", () => {
@@ -24,7 +21,7 @@ describe("scheduler and install command contracts", () => {
     expect(scheduleBaseline).toContain('id: "green-implementation"');
     expect(scheduleBaseline).toContain('needs: ["red-tests"]');
     expect(schedulePrompts).toContain(
-      "Do not add blocking builtin test, lint, typecheck, or fallow nodes between RED test-writing nodes and GREEN implementation nodes."
+      "Do not add blocking builtin test, lint, typecheck, or fallow nodes between RED test-writing nodes and GREEN implementation nodes.",
     );
     expect(scheduleBaseline).not.toContain('id: "mechanical-red-tests"');
     expect(scheduleBaseline).not.toContain('id: "mechanical-red-typecheck"');

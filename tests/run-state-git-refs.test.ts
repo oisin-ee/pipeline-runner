@@ -1,19 +1,10 @@
-import {
-  chmodSync,
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  writeFileSync,
-} from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import {
-  commitAndPushNodeRef,
-  prepareRunnerGitWorkspace,
-} from "../src/run-state/git-refs";
+import { commitAndPushNodeRef, prepareRunnerGitWorkspace } from "../src/run-state/git-refs";
 import type { RunnerCommandPayload } from "../src/runner-command-contract";
 
 const ORIGINAL_ENV = { ...process.env };
@@ -53,7 +44,7 @@ if (args[0] === "rev-parse") {
   console.log("fedcba9876543210fedcba9876543210fedcba98");
 }
 `,
-    { mode: 0o755 }
+    { mode: 0o755 },
   );
   chmodSync(gitPath, 0o755);
   return { bin, dir, logPath };
@@ -64,23 +55,16 @@ const createSshCredentialFixture = () => {
   const credentialsDir = join(fixture.dir, "credentials");
   mkdirSync(credentialsDir, { recursive: true });
   writeFileSync(join(credentialsDir, "identity"), "private-key\n");
-  writeFileSync(
-    join(credentialsDir, "known_hosts"),
-    "github.com ssh-ed25519 AAAA\n"
-  );
+  writeFileSync(join(credentialsDir, "known_hosts"), "github.com ssh-ed25519 AAAA\n");
   process.env.PATH = `${fixture.bin}:${ORIGINAL_ENV.PATH ?? ""}`;
   process.env.PIPELINE_FAKE_GIT_LOG = fixture.logPath;
   process.env.PIPELINE_GIT_CREDENTIALS_DIR = credentialsDir;
-  process.env.PIPELINE_WRITABLE_GIT_CREDENTIAL_STORE = join(
-    fixture.dir,
-    "writable",
-    "git-credentials"
-  );
+  process.env.PIPELINE_WRITABLE_GIT_CREDENTIAL_STORE = join(fixture.dir, "writable", "git-credentials");
   return fixture;
 };
 
 const readFakeGitCalls = (
-  logPath: string
+  logPath: string,
 ): {
   args: string[];
   cwd: string;
@@ -122,20 +106,15 @@ describe("runner git workspace preparation", () => {
     process.env.PATH = `${fixture.bin}:${ORIGINAL_ENV.PATH ?? ""}`;
     process.env.PIPELINE_FAKE_GIT_LOG = fixture.logPath;
     process.env.PIPELINE_GIT_CREDENTIALS_DIR = credentialsDir;
-    process.env.PIPELINE_WRITABLE_GIT_CREDENTIAL_STORE = join(
-      fixture.dir,
-      "writable",
-      "git-credentials"
-    );
+    process.env.PIPELINE_WRITABLE_GIT_CREDENTIAL_STORE = join(fixture.dir, "writable", "git-credentials");
     mkdirSync(join(fixture.dir, "workspace"), { recursive: true });
 
     await expect(
-      prepareRunnerGitWorkspace(
-        payloadWithRemote("git@github.com:oisin-ee/pipeline-runner.git"),
-        { workspacePath: join(fixture.dir, "workspace") }
-      )
+      prepareRunnerGitWorkspace(payloadWithRemote("git@github.com:oisin-ee/pipeline-runner.git"), {
+        workspacePath: join(fixture.dir, "workspace"),
+      }),
     ).rejects.toThrow(
-      "SSH git remote git@github.com:oisin-ee/pipeline-runner.git requires mounted git credential file(s): identity, known_hosts"
+      "SSH git remote git@github.com:oisin-ee/pipeline-runner.git requires mounted git credential file(s): identity, known_hosts",
     );
 
     expect(readFakeGitCalls(fixture.logPath)).toEqual([]);
@@ -144,25 +123,20 @@ describe("runner git workspace preparation", () => {
   it("uses strict SSH options when SSH git credentials are mounted", async () => {
     const fixture = createSshCredentialFixture();
 
-    await prepareRunnerGitWorkspace(
-      payloadWithRemote("git@github.com:oisin-ee/pipeline-runner.git"),
-      { workspacePath: join(fixture.dir, "workspace") }
-    );
+    await prepareRunnerGitWorkspace(payloadWithRemote("git@github.com:oisin-ee/pipeline-runner.git"), {
+      workspacePath: join(fixture.dir, "workspace"),
+    });
 
     const calls = readFakeGitCalls(fixture.logPath);
     const clone = calls.find((call) => call.args.includes("clone"));
-    expect(clone?.args).toContain(
-      "git@github.com:oisin-ee/pipeline-runner.git"
-    );
+    expect(clone?.args).toContain("git@github.com:oisin-ee/pipeline-runner.git");
     expect(clone?.env.GIT_SSH_COMMAND).toContain("StrictHostKeyChecking=yes");
     expect(clone?.env.GIT_SSH_COMMAND).toContain("UserKnownHostsFile=");
   });
 
   it("uses strict SSH options for origin alias pushes after clone", async () => {
     const fixture = createSshCredentialFixture();
-    const payload = payloadWithRemote(
-      "git@github.com:oisin-ee/pipeline-runner.git"
-    );
+    const payload = payloadWithRemote("git@github.com:oisin-ee/pipeline-runner.git");
     process.env.PIPELINE_FAKE_REMOTE_URL = payload.repository.url;
     const worktreePath = join(fixture.dir, "workspace");
 
@@ -175,11 +149,7 @@ describe("runner git workspace preparation", () => {
     });
 
     const calls = readFakeGitCalls(fixture.logPath);
-    expect(calls).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ args: ["remote", "get-url", "origin"] }),
-      ])
-    );
+    expect(calls).toEqual(expect.arrayContaining([expect.objectContaining({ args: ["remote", "get-url", "origin"] })]));
     const lsRemote = calls.find((call) => call.args[0] === "ls-remote");
     expect(lsRemote?.args).toEqual([
       "ls-remote",
@@ -187,9 +157,7 @@ describe("runner git workspace preparation", () => {
       "origin",
       "refs/heads/pipeline/runs/run-test/schedule-test-root/nodes/backlog-intake",
     ]);
-    expect(lsRemote?.env.GIT_SSH_COMMAND).toContain(
-      "StrictHostKeyChecking=yes"
-    );
+    expect(lsRemote?.env.GIT_SSH_COMMAND).toContain("StrictHostKeyChecking=yes");
     expect(lsRemote?.env.GIT_SSH_COMMAND).toContain("UserKnownHostsFile=");
     const push = calls.find((call) => call.args[0] === "push");
     expect(push?.args).toEqual([
@@ -210,39 +178,26 @@ describe("runner git workspace preparation", () => {
     writeFileSync(join(credentialsDir, "password"), "github-token\n");
     process.env.PATH = `${fixture.bin}:${ORIGINAL_ENV.PATH ?? ""}`;
     process.env.PIPELINE_FAKE_GIT_LOG = fixture.logPath;
-    process.env.PIPELINE_FAKE_REMOTE_URL =
-      "git@github.com:oisin-ee/pipeline-runner.git";
+    process.env.PIPELINE_FAKE_REMOTE_URL = "git@github.com:oisin-ee/pipeline-runner.git";
     process.env.PIPELINE_GIT_CREDENTIALS_DIR = credentialsDir;
-    process.env.PIPELINE_WRITABLE_GIT_CREDENTIAL_STORE = join(
-      fixture.dir,
-      "writable",
-      "git-credentials"
-    );
+    process.env.PIPELINE_WRITABLE_GIT_CREDENTIAL_STORE = join(fixture.dir, "writable", "git-credentials");
     mkdirSync(join(fixture.dir, "workspace"), { recursive: true });
 
     await expect(
       commitAndPushNodeRef({
         committer: { email: "pipeline@example.test", name: "Pipeline" },
         nodeId: "backlog-intake",
-        payload: payloadWithRemote(
-          "https://github.com/oisin-ee/pipeline-runner.git"
-        ),
+        payload: payloadWithRemote("https://github.com/oisin-ee/pipeline-runner.git"),
         worktreePath: join(fixture.dir, "workspace"),
-      })
+      }),
     ).rejects.toThrow(
-      "SSH git remote git@github.com:oisin-ee/pipeline-runner.git requires mounted git credential file(s): identity, known_hosts"
+      "SSH git remote git@github.com:oisin-ee/pipeline-runner.git requires mounted git credential file(s): identity, known_hosts",
     );
 
     const calls = readFakeGitCalls(fixture.logPath);
+    expect(calls).toEqual(expect.arrayContaining([expect.objectContaining({ args: ["remote", "get-url", "origin"] })]));
     expect(calls).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ args: ["remote", "get-url", "origin"] }),
-      ])
-    );
-    expect(calls).toEqual(
-      expect.not.arrayContaining([
-        expect.objectContaining({ args: expect.arrayContaining(["push"]) }),
-      ])
+      expect.not.arrayContaining([expect.objectContaining({ args: expect.arrayContaining(["push"]) })]),
     );
   });
 });

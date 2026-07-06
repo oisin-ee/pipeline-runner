@@ -14,11 +14,7 @@ const CREDENTIAL_OWNER_FILES = [
   "src/credentials/runner.ts",
 ];
 
-const LEGACY_AUTH_OWNER_FILES = [
-  "src/broker-auth.ts",
-  "src/codex-auth-sync.ts",
-  "src/run-state/opencode-accounts.ts",
-];
+const LEGACY_AUTH_OWNER_FILES = ["src/broker-auth.ts", "src/codex-auth-sync.ts", "src/run-state/opencode-accounts.ts"];
 
 const LEGACY_IMPORT_PATTERNS = [
   /from "\.\/broker-auth"/u,
@@ -38,12 +34,8 @@ const sourceFiles = (dir: string): string[] =>
 
 describe("credential/auth ownership boundaries", () => {
   it("keeps broker, Codex, OpenCode, and credential file handling under src/credentials", () => {
-    expect(
-      CREDENTIAL_OWNER_FILES.filter((path) => !existsSync(join(ROOT, path)))
-    ).toEqual([]);
-    expect(
-      LEGACY_AUTH_OWNER_FILES.filter((path) => existsSync(join(ROOT, path)))
-    ).toEqual([]);
+    expect(CREDENTIAL_OWNER_FILES.filter((path) => !existsSync(join(ROOT, path)))).toEqual([]);
+    expect(LEGACY_AUTH_OWNER_FILES.filter((path) => existsSync(join(ROOT, path)))).toEqual([]);
   });
 
   it("keeps production callers importing the credential owner directly", () => {

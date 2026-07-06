@@ -1,13 +1,12 @@
-import { randomBytes } from "node:crypto";
-
-import { Effect, Option } from "effect";
+import * as DateTime from "effect/DateTime";
+import * as Effect from "effect/Effect";
+import * as ManagedRuntime from "effect/ManagedRuntime";
+import * as Option from "effect/Option";
+import * as R from "effect/Record";
+import * as Schema from "effect/Schema";
 import { stringify } from "yaml";
-import { z } from "zod";
 
-import {
-  ArgoGraphCompilerError,
-  compileArgoExecutionGraph,
-} from "./argo-graph";
+import { ArgoGraphCompilerError, compileArgoExecutionGraph } from "./argo-graph";
 import {
   buildDynamicRunnerArgoWorkflowManifest,
   buildRunnerArgoWorkflowManifest,
@@ -16,26 +15,14 @@ import {
 import type { ArgoWorkflowManifest } from "./argo-workflow";
 import type { PipelineConfig } from "./config";
 import { normalizeRunnerRepositoryForSubmit } from "./git-remote-url";
-import {
-  compileScheduleArtifact,
-  parseScheduleArtifact,
-} from "./planning/generate";
-import type {
-  CompiledScheduleArtifact,
-  ScheduleArtifact,
-} from "./planning/generate";
+import { compileScheduleArtifact, parseScheduleArtifact } from "./planning/generate";
+import type { CompiledScheduleArtifact, ScheduleArtifact } from "./planning/generate";
 import type { ArgoWorkflowPodGC } from "./remote/argo/model";
 import { runnerPodSubmitOptionShape } from "./remote/submit/options";
-import {
-  parseRunnerCommandPayload,
-  runnerCommandPayloadSchema,
-} from "./runner-command-contract";
+import { parseRunnerCommandPayload, runnerCommandPayloadSchema } from "./runner-command-contract";
 import type { RunnerCommandPayload } from "./runner-command-contract";
 import { buildRunnerTaskDescriptor } from "./runner-command/task-descriptor";
-import {
-  KubernetesArgoService,
-  KubernetesArgoServiceLive,
-} from "./runtime/services/kubernetes-argo-service";
+import { KubernetesArgoService, KubernetesArgoServiceLive } from "./runtime/services/kubernetes-argo-service";
 import type {
   ConfigMapOwnerReferencesPatch,
   CoreApi,
@@ -45,108 +32,115 @@ import type {
   WorkflowApi,
 } from "./runtime/services/kubernetes-argo-service";
 import { appendPullRequestDelivery } from "./schedule/passes/open-pull-request";
+import {
+  nonEmptyMutableArray,
+  parseStrictWithSchema,
+  parseWithSchema,
+  requiredString,
+  stringRecord,
+  withDefault,
+  struct,
+} from "./schema-boundary";
 import { workflowSubmitResultSchema } from "./workflow-submit-contract";
 
-const scheduleIdSchema = z.string().regex(/^[a-z][a-z0-9-]*$/u);
+const scheduleId = Schema.String.check(Schema.isPattern(/^[a-z][a-z0-9-]*$/u));
 
-const configMapSchema = z
-  .object({
-    apiVersion: z.literal("v1"),
-    data: z.record(z.string().min(1), z.string()),
-    kind: z.literal("ConfigMap"),
-    metadata: z
-      .object({
-        labels: z.record(z.string().min(1), z.string().min(1)).optional(),
-        name: z.string().min(1),
-        namespace: z.string().min(1),
-      })
-      .strict(),
-  })
-  .strict();
+interface StringRecord {
+  readonly [key: string]: string;
+}
 
-const workflowOwnerReferenceSchema = z
-  .object({
-    apiVersion: z.literal("argoproj.io/v1alpha1"),
-    kind: z.literal("Workflow"),
-    name: z.string().min(1),
-    uid: z.string().min(1),
-  })
-  .strict();
+const configMapSchema = struct({
+  apiVersion: Schema.Literal("v1"),
+  data: stringRecord,
+  kind: Schema.Literal("ConfigMap"),
+  metadata: struct({
+    labels: Schema.optional(stringRecord),
+    name: requiredString,
+    namespace: requiredString,
+  }),
+});
 
-const configMapOwnerReferencesPatchSchema = z
-  .object({
-    metadata: z
-      .object({
-        ownerReferences: z.tuple([workflowOwnerReferenceSchema]),
-      })
-      .strict(),
-  })
-  .strict();
+const workflowOwnerReferenceSchema = struct({
+  apiVersion: Schema.Literal("argoproj.io/v1alpha1"),
+  kind: Schema.Literal("Workflow"),
+  name: requiredString,
+  uid: requiredString,
+});
 
-const createdWorkflowSchema = z
-  .object({
-    metadata: z
-      .object({
-        name: z.string().min(1).optional(),
-        uid: z.string().min(1).optional(),
-      })
-      .passthrough(),
-  })
-  .passthrough();
+const configMapOwnerReferencesPatchSchema = struct({
+  metadata: struct({
+    ownerReferences: Schema.mutable(Schema.Tuple([workflowOwnerReferenceSchema])),
+  }),
+});
+
+const createdWorkflowSchema = struct({
+  metadata: struct({
+    name: Schema.optional(requiredString),
+    uid: Schema.optional(requiredString),
+  }),
+});
+
+const runnerTaskDescriptorJson = Schema.fromJsonString(struct({ nodeId: requiredString }));
+const encodeRunnerTaskDescriptorJson = Schema.encodeSync(runnerTaskDescriptorJson);
+const runnerCommandPayloadJson = Schema.fromJsonString(runnerCommandPayloadSchema);
+const encodeRunnerCommandPayloadJson = Schema.encodeSync(runnerCommandPayloadJson);
+const errorMessageShape = struct({ message: Schema.String });
+
+const randomHex = (byteLength: number): string =>
+  globalThis.crypto
+    .randomUUID()
+    .replaceAll("-", "")
+    .slice(0, byteLength * 2);
+
+class ArgoSubmitError extends Schema.TaggedErrorClass<ArgoSubmitError>()("ArgoSubmitError", {
+  message: Schema.String,
+}) {}
 
 const submitRunnerArgoWorkflowBaseOptionShape = {
   ...runnerPodSubmitOptionShape,
-  imagePullPolicy: z.enum(["Always", "IfNotPresent", "Never"]).optional(),
-  namespace: z.string().min(1),
-  payloadJson: z.string().min(1),
+  imagePullPolicy: Schema.optional(Schema.Literals(["Always", "IfNotPresent", "Never"])),
+  namespace: requiredString,
+  payloadJson: requiredString,
 };
 
-const commandScheduleOptionsSchema = z
-  .object({
-    command: z.array(z.string().min(1)).min(1),
-    deliverPullRequest: z.boolean().default(false),
-    generatedAt: z.date().default(() => new Date()),
-    scheduleId: scheduleIdSchema.optional(),
-    task: z.string().min(1),
-  })
-  .strict();
+const commandScheduleOptionsSchema = struct({
+  command: nonEmptyMutableArray(requiredString),
+  deliverPullRequest: withDefault(Schema.Boolean, false),
+  generatedAt: Schema.optional(Schema.DateTimeUtcFromDate),
+  scheduleId: Schema.optional(scheduleId),
+  task: requiredString,
+});
 
-const hasWorkflowName = (options: {
-  generateName?: string;
-  name?: string;
-}): boolean => options.name !== undefined || options.generateName !== undefined;
+const hasWorkflowName = (options: { generateName?: string; name?: string }): boolean =>
+  options.name !== undefined || options.generateName !== undefined;
 
-const submitRunnerArgoWorkflowOptionsSchema = z
-  .object({
-    ...submitRunnerArgoWorkflowBaseOptionShape,
-    scheduleYaml: z.string().min(1),
-  })
-  .strict()
-  .refine(hasWorkflowName, {
-    message: "Argo submit options must declare name or generateName",
-  });
+const submitRunnerArgoWorkflowOptionsSchema = struct({
+  ...submitRunnerArgoWorkflowBaseOptionShape,
+  scheduleYaml: requiredString,
+}).check(
+  Schema.makeFilter((options) => hasWorkflowName(options) || "Argo submit options must declare name or generateName", {
+    description: "Static Argo submit options must include name or generateName.",
+    identifier: "SubmitRunnerArgoWorkflowName",
+    title: "Submit runner Argo workflow name",
+  }),
+);
 
-const submitDynamicRunnerArgoWorkflowOptionsSchema = z
-  .object({
-    ...submitRunnerArgoWorkflowBaseOptionShape,
-    workflowId: z.string().min(1),
-  })
-  .strict()
-  .refine(hasWorkflowName, {
-    message: "Argo submit options must declare name or generateName",
-  });
+const submitDynamicRunnerArgoWorkflowOptionsSchema = struct({
+  ...submitRunnerArgoWorkflowBaseOptionShape,
+  workflowId: requiredString,
+}).check(
+  Schema.makeFilter((options) => hasWorkflowName(options) || "Argo submit options must declare name or generateName", {
+    description: "Dynamic Argo submit options must include name or generateName.",
+    identifier: "SubmitDynamicRunnerArgoWorkflowName",
+    title: "Submit dynamic runner Argo workflow name",
+  }),
+);
 
-export type SubmitRunnerArgoWorkflowOptions = z.input<
-  typeof submitRunnerArgoWorkflowOptionsSchema
-> & {
+export type SubmitRunnerArgoWorkflowOptions = typeof submitRunnerArgoWorkflowOptionsSchema.Encoded & {
   config: PipelineConfig;
 };
-export type SubmitRunnerArgoWorkflowResult = z.infer<
-  typeof workflowSubmitResultSchema
->;
-export type CommandScheduleOptions = z.input<
-  typeof commandScheduleOptionsSchema
->;
+export type SubmitRunnerArgoWorkflowResult = typeof workflowSubmitResultSchema.Type;
+export type CommandScheduleOptions = typeof commandScheduleOptionsSchema.Encoded;
 
 export interface SubmitRunnerArgoWorkflowDependencies {
   coreApi?: CoreApi;
@@ -154,13 +148,16 @@ export interface SubmitRunnerArgoWorkflowDependencies {
   workflowApi?: WorkflowApi;
 }
 
-export type SubmitDynamicRunnerArgoWorkflowOptions = z.input<
-  typeof submitDynamicRunnerArgoWorkflowOptionsSchema
-> & {
+export type SubmitDynamicRunnerArgoWorkflowOptions = typeof submitDynamicRunnerArgoWorkflowOptionsSchema.Encoded & {
   config: PipelineConfig;
 };
 
-type ConfigMapManifest = z.infer<typeof configMapSchema>;
+const kubernetesArgoRuntime = ManagedRuntime.make(KubernetesArgoServiceLive);
+
+const runKubernetesArgoEffect = async <A, E>(effect: Effect.Effect<A, E, KubernetesArgoService>): Promise<A> =>
+  await kubernetesArgoRuntime.runPromise(effect);
+
+type ConfigMapManifest = typeof configMapSchema.Type;
 
 interface RunConfigMapSpec {
   readonly body: ConfigMapManifest;
@@ -179,12 +176,12 @@ interface PatchRunConfigMapOwnerReferencesInput extends RunConfigMapOperationInp
 }
 
 const runConfigMap = (input: {
-  data: Record<string, string>;
-  labels: Record<string, string>;
+  data: StringRecord;
+  labels: StringRecord;
   name: string;
   namespace: string;
 }): RunConfigMapSpec => {
-  const body = configMapSchema.parse({
+  const body = parseStrictWithSchema(configMapSchema, {
     apiVersion: "v1",
     data: input.data,
     kind: "ConfigMap",
@@ -198,7 +195,7 @@ const runConfigMap = (input: {
 };
 
 const staticRunConfigMaps = (input: {
-  labels: Record<string, string>;
+  labels: StringRecord;
   namespace: string;
   payloadConfigMapName: string;
   payloadJson: string;
@@ -214,11 +211,11 @@ const staticRunConfigMaps = (input: {
     namespace: input.namespace,
   }),
   runConfigMap({
-    data: Object.fromEntries(
+    data: R.fromEntries(
       input.tasks.map((task) => [
         `${task.taskName}.json`,
-        `${JSON.stringify(buildRunnerTaskDescriptor(task.nodeId))}\n`,
-      ])
+        `${encodeRunnerTaskDescriptorJson(buildRunnerTaskDescriptor(task.nodeId))}\n`,
+      ]),
     ),
     labels: input.labels,
     name: input.taskDescriptorConfigMapName,
@@ -233,7 +230,7 @@ const staticRunConfigMaps = (input: {
 ];
 
 const dynamicRunConfigMaps = (input: {
-  labels: Record<string, string>;
+  labels: StringRecord;
   namespace: string;
   payloadConfigMapName: string;
   payloadJson: string;
@@ -248,12 +245,11 @@ const dynamicRunConfigMaps = (input: {
 
 const runConfigMapEffects = (
   configMapNames: readonly string[],
-  effectForName: (name: string) => Effect.Effect<unknown, unknown>
-): Effect.Effect<unknown, unknown> =>
-  Effect.all(configMapNames.map(effectForName), { concurrency: "unbounded" });
+  effectForName: (name: string) => Effect.Effect<unknown, unknown>,
+): Effect.Effect<unknown, unknown> => Effect.all(configMapNames.map(effectForName), { concurrency: "unbounded" });
 
 const patchRunConfigMapOwnerReferences = (
-  input: PatchRunConfigMapOwnerReferencesInput
+  input: PatchRunConfigMapOwnerReferencesInput,
 ): Effect.Effect<unknown, unknown, KubernetesArgoService> =>
   Effect.gen(function* effectBody() {
     const service = yield* KubernetesArgoService;
@@ -264,12 +260,12 @@ const patchRunConfigMapOwnerReferences = (
         name,
         namespace: input.namespace,
         options: input.options,
-      })
+      }),
     );
   });
 
 const deleteRunConfigMaps = (
-  input: RunConfigMapOperationInput
+  input: RunConfigMapOperationInput,
 ): Effect.Effect<unknown, unknown, KubernetesArgoService> =>
   Effect.gen(function* effectBody() {
     const service = yield* KubernetesArgoService;
@@ -279,40 +275,37 @@ const deleteRunConfigMaps = (
         name,
         namespace: input.namespace,
         options: input.options,
-      })
+      }),
     );
   });
 
-const workflowOwnerReference = (
-  result: SubmitRunnerArgoWorkflowResult
-): Option.Option<KubernetesOwnerReference> => {
+const workflowOwnerReference = (result: SubmitRunnerArgoWorkflowResult): Option.Option<KubernetesOwnerReference> => {
   if (result.workflowUid === undefined) {
     return Option.none();
   }
   return Option.some(
-    workflowOwnerReferenceSchema.parse({
+    parseStrictWithSchema(workflowOwnerReferenceSchema, {
       apiVersion: "argoproj.io/v1alpha1",
       kind: "Workflow",
       name: result.workflowName,
       uid: result.workflowUid,
-    })
+    }),
   );
 };
 
-const missingWorkflowUidMessage = (
-  result: SubmitRunnerArgoWorkflowResult
-): string =>
+const missingWorkflowUidMessage = (result: SubmitRunnerArgoWorkflowResult): string =>
   `Created Argo Workflow '${result.workflowName}' did not include metadata.uid; cannot own ConfigMaps`;
 
-const configMapOwnerReferencesPatch = (
-  ownerReference: KubernetesOwnerReference
-): ConfigMapOwnerReferencesPatch =>
-  configMapOwnerReferencesPatchSchema.parse({
+const configMapOwnerReferencesPatch = (ownerReference: KubernetesOwnerReference): ConfigMapOwnerReferencesPatch =>
+  parseStrictWithSchema(configMapOwnerReferencesPatchSchema, {
     metadata: { ownerReferences: [ownerReference] },
   });
 
 const errorMessage = (error: unknown): string =>
-  error instanceof Error ? error.message : String(error);
+  Option.match(Schema.decodeUnknownOption(errorMessageShape)(error), {
+    onNone: () => String(error),
+    onSome: (value) => value.message,
+  });
 
 const warnRunConfigMapOwnershipSkipped = (input: {
   error: unknown;
@@ -333,15 +326,13 @@ const ownRunConfigMaps = (input: {
   namespace: string;
   options: KubernetesArgoClientOptions;
   result: SubmitRunnerArgoWorkflowResult;
-}): Effect.Effect<
-  SubmitRunnerArgoWorkflowResult,
-  unknown,
-  KubernetesArgoService
-> => {
+}): Effect.Effect<SubmitRunnerArgoWorkflowResult, unknown, KubernetesArgoService> => {
   const ownerReference = workflowOwnerReference(input.result);
   if (Option.isNone(ownerReference)) {
     return warnRunConfigMapOwnershipSkipped({
-      error: new Error(missingWorkflowUidMessage(input.result)),
+      error: new ArgoSubmitError({
+        message: missingWorkflowUidMessage(input.result),
+      }),
       result: input.result,
     }).pipe(Effect.as(input.result));
   }
@@ -361,18 +352,14 @@ const ownRunConfigMapsBestEffort = (input: {
   namespace: string;
   options: KubernetesArgoClientOptions;
   result: SubmitRunnerArgoWorkflowResult;
-}): Effect.Effect<
-  SubmitRunnerArgoWorkflowResult,
-  never,
-  KubernetesArgoService
-> =>
+}): Effect.Effect<SubmitRunnerArgoWorkflowResult, never, KubernetesArgoService> =>
   ownRunConfigMaps(input).pipe(
     Effect.catch((error) =>
       warnRunConfigMapOwnershipSkipped({
         error,
         result: input.result,
-      }).pipe(Effect.as(input.result))
-    )
+      }).pipe(Effect.as(input.result)),
+    ),
   );
 
 const cleanupRunConfigMapsOnFailure = (input: {
@@ -390,12 +377,12 @@ const cleanupRunConfigMapsOnFailure = (input: {
   }).pipe(
     Effect.catch((cleanupError) =>
       Effect.fail(
-        new Error(
-          `Failed to clean up ConfigMaps after submit failure: ${errorMessage(input.error)}; cleanup failed: ${errorMessage(cleanupError)}`
-        )
-      )
+        new ArgoSubmitError({
+          message: `Failed to clean up ConfigMaps after submit failure: ${errorMessage(input.error)}; cleanup failed: ${errorMessage(cleanupError)}`,
+        }),
+      ),
     ),
-    Effect.flatMap(() => Effect.fail(input.error))
+    Effect.flatMap(() => Effect.fail(input.error)),
   );
 
 const createRunConfigMaps = (input: {
@@ -420,11 +407,11 @@ const createRunConfigMaps = (input: {
             Effect.tap(() =>
               Effect.sync(() => {
                 createdConfigMapNames.push(configMap.name);
-              })
-            )
-          )
+              }),
+            ),
+          ),
       ),
-      { concurrency: "unbounded" }
+      { concurrency: "unbounded" },
     );
     return createdConfigMapNames;
   }).pipe(
@@ -435,19 +422,19 @@ const createRunConfigMaps = (input: {
         error,
         namespace: input.namespace,
         options: input.options,
-      })
-    )
+      }),
+    ),
   );
 };
 
 const applyWorkflowFieldOverrides = (
   workflow: ArgoWorkflowManifest,
-  overrides: { podGC?: ArgoWorkflowPodGC } = {}
+  overrides: { podGC?: ArgoWorkflowPodGC } = {},
 ): ArgoWorkflowManifest => {
   if (overrides.podGC === undefined) {
     return workflow;
   }
-  return runnerArgoWorkflowManifestSchema.parse({
+  return parseStrictWithSchema(runnerArgoWorkflowManifestSchema, {
     ...workflow,
     spec: {
       ...workflow.spec,
@@ -459,10 +446,12 @@ const applyWorkflowFieldOverrides = (
 const workflowSubmitResult = (
   response: unknown,
   workflow: ArgoWorkflowManifest,
-  base: Omit<SubmitRunnerArgoWorkflowResult, "workflowName" | "workflowUid">
+  base: Omit<SubmitRunnerArgoWorkflowResult, "workflowName" | "workflowUid">,
 ): SubmitRunnerArgoWorkflowResult => {
-  const created = createdWorkflowSchema.parse(response);
-  return workflowSubmitResultSchema.parse({
+  const created = parseWithSchema(createdWorkflowSchema, response, {
+    onExcessProperty: "preserve",
+  });
+  return parseStrictWithSchema(workflowSubmitResultSchema, {
     ...base,
     workflowName: created.metadata.name ?? workflow.metadata.name,
     workflowUid: created.metadata.uid,
@@ -473,27 +462,17 @@ const submitWorkflowManifest = (input: {
   dependencies: SubmitRunnerArgoWorkflowDependencies;
   namespace: string;
   options: KubernetesArgoClientOptions;
-  resultExtras: Omit<
-    SubmitRunnerArgoWorkflowResult,
-    "namespace" | "workflowName" | "workflowUid"
-  >;
+  resultExtras: Omit<SubmitRunnerArgoWorkflowResult, "namespace" | "workflowName" | "workflowUid">;
   workflow: ArgoWorkflowManifest;
   workflowFieldOverrides?: {
     podGC?: ArgoWorkflowPodGC;
   };
-}): Effect.Effect<
-  SubmitRunnerArgoWorkflowResult,
-  unknown,
-  KubernetesArgoService
-> =>
+}): Effect.Effect<SubmitRunnerArgoWorkflowResult, unknown, KubernetesArgoService> =>
   Effect.gen(function* effectBody() {
     const service = yield* KubernetesArgoService;
-    const workflow = applyWorkflowFieldOverrides(
-      input.workflow,
-      input.workflowFieldOverrides
-    );
+    const workflow = applyWorkflowFieldOverrides(input.workflow, input.workflowFieldOverrides);
     const response = yield* service.createWorkflow({
-      body: runnerArgoWorkflowManifestSchema.parse(workflow),
+      body: parseStrictWithSchema(runnerArgoWorkflowManifestSchema, workflow),
       dependencies: input.dependencies,
       namespace: input.namespace,
       options: input.options,
@@ -509,19 +488,12 @@ const submitWorkflowWithRunConfigMaps = (input: {
   dependencies: SubmitRunnerArgoWorkflowDependencies;
   namespace: string;
   options: KubernetesArgoClientOptions;
-  resultExtras: Omit<
-    SubmitRunnerArgoWorkflowResult,
-    "namespace" | "workflowName" | "workflowUid"
-  >;
+  resultExtras: Omit<SubmitRunnerArgoWorkflowResult, "namespace" | "workflowName" | "workflowUid">;
   workflow: ArgoWorkflowManifest;
   workflowFieldOverrides?: {
     podGC?: ArgoWorkflowPodGC;
   };
-}): Effect.Effect<
-  SubmitRunnerArgoWorkflowResult,
-  unknown,
-  KubernetesArgoService
-> =>
+}): Effect.Effect<SubmitRunnerArgoWorkflowResult, unknown, KubernetesArgoService> =>
   submitWorkflowManifest({
     dependencies: input.dependencies,
     namespace: input.namespace,
@@ -537,7 +509,7 @@ const submitWorkflowWithRunConfigMaps = (input: {
         error,
         namespace: input.namespace,
         options: input.options,
-      })
+      }),
     ),
     Effect.flatMap((result) =>
       ownRunConfigMapsBestEffort({
@@ -546,18 +518,16 @@ const submitWorkflowWithRunConfigMaps = (input: {
         namespace: input.namespace,
         options: input.options,
         result,
-      })
-    )
+      }),
+    ),
   );
 
-export const buildCommandScheduleYaml = (
-  rawOptions: CommandScheduleOptions
-): string => {
-  const options = commandScheduleOptionsSchema.parse(rawOptions);
-  const scheduleId =
-    options.scheduleId ?? `custom-${randomBytes(8).toString("hex")}`;
+export const buildCommandScheduleYaml = (rawOptions: CommandScheduleOptions): string => {
+  const options = parseStrictWithSchema(commandScheduleOptionsSchema, rawOptions);
+  const scheduleId = options.scheduleId ?? `custom-${randomHex(8)}`;
+  const generatedAt = options.generatedAt ?? DateTime.nowUnsafe();
   const artifact: ScheduleArtifact = {
-    generated_at: options.generatedAt.toISOString(),
+    generated_at: DateTime.formatIso(generatedAt),
     kind: "pipeline-schedule",
     root_workflow: "root",
     schedule_id: scheduleId,
@@ -576,52 +546,46 @@ export const buildCommandScheduleYaml = (
       },
     },
   };
-  return stringify(
-    appendPullRequestDelivery(options.deliverPullRequest, artifact)
-  );
+  return stringify(appendPullRequestDelivery(options.deliverPullRequest, artifact));
 };
 
 const normalizeRunnerPayloadForSubmit = (input: {
   payload: RunnerCommandPayload;
   payloadJson: string;
 }): { payload: RunnerCommandPayload; payloadJson: string } => {
-  const repository = normalizeRunnerRepositoryForSubmit(
-    input.payload.repository
-  );
+  const repository = normalizeRunnerRepositoryForSubmit(input.payload.repository);
   if (repository === input.payload.repository) {
     return input;
   }
-  const payload = runnerCommandPayloadSchema.parse({
+  const payload = parseStrictWithSchema(runnerCommandPayloadSchema, {
     ...input.payload,
     repository,
   });
-  return { payload, payloadJson: JSON.stringify(payload) };
+  return { payload, payloadJson: encodeRunnerCommandPayloadJson(payload) };
 };
 
 const submitDynamicRunnerArgoWorkflowEffect = (
   rawOptions: SubmitDynamicRunnerArgoWorkflowOptions,
-  dependencies: SubmitRunnerArgoWorkflowDependencies
-): Effect.Effect<
-  SubmitRunnerArgoWorkflowResult,
-  unknown,
-  KubernetesArgoService
-> => {
+  dependencies: SubmitRunnerArgoWorkflowDependencies,
+): Effect.Effect<SubmitRunnerArgoWorkflowResult, unknown, KubernetesArgoService> => {
   const { config: _config, ...schemaOptions } = rawOptions;
-  const options =
-    submitDynamicRunnerArgoWorkflowOptionsSchema.parse(schemaOptions);
-  const parsedPayload = runnerCommandPayloadSchema.parse(
-    parseRunnerCommandPayload(options.payloadJson)
+  const options = parseStrictWithSchema(submitDynamicRunnerArgoWorkflowOptionsSchema, schemaOptions);
+  const parsedPayload = parseStrictWithSchema(
+    runnerCommandPayloadSchema,
+    parseRunnerCommandPayload(options.payloadJson),
   );
   const { payload, payloadJson } = normalizeRunnerPayloadForSubmit({
     payload: parsedPayload,
     payloadJson: options.payloadJson,
   });
   if (payload.workflow.id !== options.workflowId) {
-    throw new Error(
-      `Runner payload workflow '${payload.workflow.id}' does not match dynamic workflow '${options.workflowId}'`
+    return Effect.fail(
+      new ArgoSubmitError({
+        message: `Runner payload workflow '${payload.workflow.id}' does not match dynamic workflow '${options.workflowId}'`,
+      }),
     );
   }
-  const payloadConfigMapName = `pipeline-payload-${randomBytes(6).toString("hex")}`;
+  const payloadConfigMapName = `pipeline-payload-${randomHex(6)}`;
   const labels = {
     "pipeline.oisin.dev/project": payload.run.project,
     "pipeline.oisin.dev/run-id": payload.run.id,
@@ -688,23 +652,13 @@ const submitDynamicRunnerArgoWorkflowEffect = (
 
 export const submitDynamicRunnerArgoWorkflow = async (
   rawOptions: SubmitDynamicRunnerArgoWorkflowOptions,
-  dependencies: SubmitRunnerArgoWorkflowDependencies = {}
+  dependencies: SubmitRunnerArgoWorkflowDependencies = {},
 ): Promise<SubmitRunnerArgoWorkflowResult> =>
-  await Effect.runPromise(
-    Effect.provide(
-      Effect.suspend(() =>
-        submitDynamicRunnerArgoWorkflowEffect(rawOptions, dependencies)
-      ),
-      KubernetesArgoServiceLive
-    )
-  );
+  await runKubernetesArgoEffect(Effect.suspend(() => submitDynamicRunnerArgoWorkflowEffect(rawOptions, dependencies)));
 
 const compileSubmitArgoGraph = (
-  compiled: CompiledScheduleArtifact
-): Effect.Effect<
-  ReturnType<typeof compileArgoExecutionGraph>,
-  ArgoGraphCompilerError
-> =>
+  compiled: CompiledScheduleArtifact,
+): Effect.Effect<ReturnType<typeof compileArgoExecutionGraph>, ArgoGraphCompilerError> =>
   Effect.try({
     catch: (error) => {
       if (error instanceof ArgoGraphCompilerError) {
@@ -717,40 +671,36 @@ const compileSubmitArgoGraph = (
 
 const submitRunnerArgoWorkflowEffect = (
   rawOptions: SubmitRunnerArgoWorkflowOptions,
-  dependencies: SubmitRunnerArgoWorkflowDependencies
-): Effect.Effect<
-  SubmitRunnerArgoWorkflowResult,
-  unknown,
-  KubernetesArgoService
-> => {
+  dependencies: SubmitRunnerArgoWorkflowDependencies,
+): Effect.Effect<SubmitRunnerArgoWorkflowResult, unknown, KubernetesArgoService> => {
   const { config, ...schemaOptions } = rawOptions;
-  const options = submitRunnerArgoWorkflowOptionsSchema.parse(schemaOptions);
-  const parsedPayload = runnerCommandPayloadSchema.parse(
-    parseRunnerCommandPayload(options.payloadJson)
+  const options = parseStrictWithSchema(submitRunnerArgoWorkflowOptionsSchema, schemaOptions);
+  const parsedPayload = parseStrictWithSchema(
+    runnerCommandPayloadSchema,
+    parseRunnerCommandPayload(options.payloadJson),
   );
   const { payload, payloadJson } = normalizeRunnerPayloadForSubmit({
     payload: parsedPayload,
     payloadJson: options.payloadJson,
   });
-  const compiled = compileScheduleArtifact(
-    config,
-    parseScheduleArtifact(options.scheduleYaml, "schedule.yaml")
-  );
-  const payloadConfigMapName = `pipeline-payload-${randomBytes(6).toString("hex")}`;
-  const scheduleArtifactConfigMapName = `pipeline-schedule-${randomBytes(6).toString("hex")}`;
-  const taskDescriptorConfigMapName = `pipeline-task-descriptors-${randomBytes(6).toString("hex")}`;
+  const compiled = compileScheduleArtifact(config, parseScheduleArtifact(options.scheduleYaml, "schedule.yaml"));
+  const payloadConfigMapName = `pipeline-payload-${randomHex(6)}`;
+  const scheduleArtifactConfigMapName = `pipeline-schedule-${randomHex(6)}`;
+  const taskDescriptorConfigMapName = `pipeline-task-descriptors-${randomHex(6)}`;
   if (payload.workflow.id !== compiled.workflowId) {
-    throw new Error(
-      `Runner payload workflow '${payload.workflow.id}' does not match schedule workflow '${compiled.workflowId}'`
+    return Effect.fail(
+      new ArgoSubmitError({
+        message: `Runner payload workflow '${payload.workflow.id}' does not match schedule workflow '${compiled.workflowId}'`,
+      }),
     );
   }
   const graphEffect = compileSubmitArgoGraph(compiled).pipe(
     Effect.mapError(
       (error) =>
-        new Error(
-          `Schedule '${compiled.workflowId}' cannot be submitted: ${error.message}`
-        )
-    )
+        new ArgoSubmitError({
+          message: `Schedule '${compiled.workflowId}' cannot be submitted: ${error.message}`,
+        }),
+    ),
   );
   const labels = {
     "pipeline.oisin.dev/project": payload.run.project,
@@ -829,13 +779,6 @@ const submitRunnerArgoWorkflowEffect = (
 
 export const submitRunnerArgoWorkflow = async (
   rawOptions: SubmitRunnerArgoWorkflowOptions,
-  dependencies: SubmitRunnerArgoWorkflowDependencies = {}
+  dependencies: SubmitRunnerArgoWorkflowDependencies = {},
 ): Promise<SubmitRunnerArgoWorkflowResult> =>
-  await Effect.runPromise(
-    Effect.provide(
-      Effect.suspend(() =>
-        submitRunnerArgoWorkflowEffect(rawOptions, dependencies)
-      ),
-      KubernetesArgoServiceLive
-    )
-  );
+  await runKubernetesArgoEffect(Effect.suspend(() => submitRunnerArgoWorkflowEffect(rawOptions, dependencies)));

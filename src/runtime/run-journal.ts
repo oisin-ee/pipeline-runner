@@ -2,10 +2,7 @@ import { Effect, Option } from "effect";
 
 import type { RuntimeNodeResult } from "./contracts";
 import type { DurableRunStore } from "./durable-store/durable-store";
-import {
-  RunJournalFileService,
-  RunJournalFileServiceLive,
-} from "./services/run-journal-file-service";
+import { RunJournalFileService, RunJournalFileServiceLive } from "./services/run-journal-file-service";
 import { recordNodeResult } from "./step/step-node";
 
 /**
@@ -44,16 +41,14 @@ const parseJournalText = (text: Option.Option<string>): RuntimeNodeResult[] => {
 
 const recordJournalEffect = (
   path: string,
-  result: RuntimeNodeResult
+  result: RuntimeNodeResult,
 ): Effect.Effect<void, unknown, RunJournalFileService> =>
   Effect.gen(function* effectBody() {
     const files = yield* RunJournalFileService;
     yield* files.appendLine(path, `${JSON.stringify(result)}\n`);
   });
 
-const resumeCompletedEffect = (
-  path: string
-): Effect.Effect<RuntimeNodeResult[], unknown, RunJournalFileService> =>
+const resumeCompletedEffect = (path: string): Effect.Effect<RuntimeNodeResult[], unknown, RunJournalFileService> =>
   Effect.gen(function* effectBody() {
     const files = yield* RunJournalFileService;
     const text = yield* files.readTextIfExists(path);
@@ -67,10 +62,7 @@ const resumeCompletedEffect = (
  * DurableRunStore impls' `toRunJournal` delegate here, so there is exactly one
  * journal-adapter implementation rather than a copy per store.
  */
-export const buildRunJournal = (
-  store: DurableRunStore,
-  runId: string
-): RunJournal => ({
+export const buildRunJournal = (store: DurableRunStore, runId: string): RunJournal => ({
   record: (result) => {
     recordNodeResult({ result, runId, store });
   },
@@ -79,15 +71,7 @@ export const buildRunJournal = (
 
 export const fileRunJournal = (path: string): RunJournal => ({
   record: (result) => {
-    Effect.runSync(
-      Effect.provide(
-        recordJournalEffect(path, result),
-        RunJournalFileServiceLive
-      )
-    );
+    Effect.runSync(Effect.provide(recordJournalEffect(path, result), RunJournalFileServiceLive));
   },
-  resumeCompleted: () =>
-    Effect.runSync(
-      Effect.provide(resumeCompletedEffect(path), RunJournalFileServiceLive)
-    ),
+  resumeCompleted: () => Effect.runSync(Effect.provide(resumeCompletedEffect(path), RunJournalFileServiceLive)),
 });

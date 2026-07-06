@@ -1,5 +1,4 @@
 import { Effect, Option } from "effect";
-import type { Scope } from "effect";
 
 import type { PipelineConfigError } from "./config";
 import { loadMokaDbUrl } from "./moka-global-config";
@@ -8,18 +7,13 @@ import type { MokaRunManifest, RunTarget } from "./run-control/contracts";
 import { resolveRunControlStore } from "./run-control/run-control-store";
 import { formatConfigError as formatRuntimeConfigError } from "./runtime/config-error";
 import { createRuntimeContext } from "./runtime/context";
-import type {
-  PipelineRuntimeOptions,
-  PipelineRuntimeResult,
-  RuntimeNodeResult,
-} from "./runtime/contracts";
+import type { PipelineRuntimeOptions, PipelineRuntimeResult, RuntimeNodeResult } from "./runtime/contracts";
 import {
   acquireRunJournal as acquireRuntimeRunJournal,
   resolveResumeRuntimeOptions,
 } from "./runtime/journal-acquisition";
 import type { ResumeRuntimeOptions } from "./runtime/journal-acquisition";
 import { withOpencodeRuntime } from "./runtime/opencode-runtime";
-import type { RunJournal } from "./runtime/run-journal";
 import type { ScheduledDependencyOutputs } from "./runtime/scheduled-dependencies";
 import {
   executeScheduledWorkflowTaskWithContext,
@@ -52,43 +46,28 @@ export interface ResumeRunOptions extends ResumeRuntimeOptions {
   dbUrl?: string;
 }
 
-export const formatConfigError = (err: PipelineConfigError): string =>
-  formatRuntimeConfigError(err);
+export const formatConfigError = (err: PipelineConfigError): string => formatRuntimeConfigError(err);
 
 export const acquireRunJournal = (runId?: string, dbUrl?: string) =>
-  acquireRuntimeRunJournal(
-    Option.fromUndefinedOr(runId),
-    Option.fromUndefinedOr(dbUrl)
-  );
+  acquireRuntimeRunJournal(Option.fromUndefinedOr(runId), Option.fromUndefinedOr(dbUrl));
 
-export const runPipelineFromConfig = async (
-  options: PipelineRuntimeOptions
-): Promise<PipelineRuntimeResult> => {
+export const runPipelineFromConfig = async (options: PipelineRuntimeOptions): Promise<PipelineRuntimeResult> => {
   const dbUrl = loadMokaDbUrl();
   return await Effect.runPromise(
-    withOpencodeRuntime(options, (resolved) =>
-      runPipelineWithContext(createRuntimeContext(resolved), dbUrl)
-    )
+    withOpencodeRuntime(options, (resolved) => runPipelineWithContext(createRuntimeContext(resolved), dbUrl)),
   );
 };
 
-export const resumeRun = async (
-  options: ResumeRunOptions
-): Promise<PipelineRuntimeResult> => {
+export const resumeRun = async (options: ResumeRunOptions): Promise<PipelineRuntimeResult> => {
   const { dbUrl, ...runtimeOptions } = options;
   return await Effect.runPromise(
     Effect.scoped(
-      resolveResumeRuntimeOptions(
-        runtimeOptions,
-        Option.fromUndefinedOr(dbUrl)
-      ).pipe(
+      resolveResumeRuntimeOptions(runtimeOptions, Option.fromUndefinedOr(dbUrl)).pipe(
         Effect.flatMap((resolved) =>
-          withOpencodeRuntime(resolved, (inner) =>
-            resumeRunWithContext(createRuntimeContext(inner), dbUrl)
-          )
-        )
-      )
-    )
+          withOpencodeRuntime(resolved, (inner) => resumeRunWithContext(createRuntimeContext(inner), dbUrl)),
+        ),
+      ),
+    ),
   );
 };
 
@@ -106,9 +85,7 @@ export interface ResubmitRemoteRunInput {
   worktreePath?: string;
 }
 
-export type ResubmitRemoteRun = (
-  input: ResubmitRemoteRunInput
-) => Promise<MokaSubmitOutput>;
+export type ResubmitRemoteRun = (input: ResubmitRemoteRunInput) => Promise<MokaSubmitOutput>;
 
 /**
  * PIPE-94.8: the two-origin outcome of an origin-aware resume. A local-origin run
@@ -125,9 +102,7 @@ export type ResumeRunResult =
  * Postgres substrate or a live Argo cluster.
  */
 export interface ResumeByOriginDependencies {
-  readManifest?: (
-    options: ResumeRunOptions
-  ) => Promise<Option.Option<MokaRunManifest>>;
+  readManifest?: (options: ResumeRunOptions) => Promise<Option.Option<MokaRunManifest>>;
   resubmit?: ResubmitRemoteRun;
   runLocal?: (options: ResumeRunOptions) => Promise<PipelineRuntimeResult>;
 }
@@ -142,7 +117,7 @@ interface ResumeStrategyContext {
 const requireResubmit = (context: ResumeStrategyContext): ResubmitRemoteRun => {
   if (context.resubmit === undefined) {
     throw new Error(
-      `Cannot re-submit remote run '${context.options.runId}': no remote re-submit handler was provided to resumeRunByOrigin.`
+      `Cannot re-submit remote run '${context.options.runId}': no remote re-submit handler was provided to resumeRunByOrigin.`,
     );
   }
   return context.resubmit;
@@ -150,9 +125,7 @@ const requireResubmit = (context: ResumeStrategyContext): ResubmitRemoteRun => {
 
 const resolveResumeManifest = async (
   options: ResumeRunOptions,
-  readManifest: (
-    options: ResumeRunOptions
-  ) => Promise<Option.Option<MokaRunManifest>>
+  readManifest: (options: ResumeRunOptions) => Promise<Option.Option<MokaRunManifest>>,
 ): Promise<Option.Option<MokaRunManifest>> => {
   // db.url absent → the manifest is unreadable, so origin is unknown; fall back
   // to the local path, whose resume guard surfaces the clear "no durable store"
@@ -163,14 +136,12 @@ const resolveResumeManifest = async (
   return await readManifest(options);
 };
 
-const remoteResubmitInput = (
-  context: ResumeStrategyContext
-): ResubmitRemoteRunInput => {
+const remoteResubmitInput = (context: ResumeStrategyContext): ResubmitRemoteRunInput => {
   const manifest = Option.getOrThrow(context.manifest);
   const scheduleYaml = manifest.schedule;
   if (scheduleYaml === undefined || scheduleYaml.length === 0) {
     throw new Error(
-      `Cannot re-submit remote run '${context.options.runId}': the persisted manifest has no schedule to rebuild the Argo workflow from.`
+      `Cannot re-submit remote run '${context.options.runId}': the persisted manifest has no schedule to rebuild the Argo workflow from.`,
     );
   }
   return {
@@ -193,23 +164,13 @@ const remoteResubmitInput = (
  * `resubmit`: the resume command injects it (keeping core free of a CLI/submit
  * import cycle). A remote run with no injected `resubmit` fails clearly.
  */
-const resumeStrategies: Record<
-  RunTarget,
-  (context: ResumeStrategyContext) => Promise<ResumeRunResult>
-> = {
-  local: async (context) =>
-    await context
-      .runLocal(context.options)
-      .then((result) => ({ kind: "local", result })),
+const resumeStrategies: Record<RunTarget, (context: ResumeStrategyContext) => Promise<ResumeRunResult>> = {
+  local: async (context) => await context.runLocal(context.options).then((result) => ({ kind: "local", result })),
   remote: async (context) =>
-    await requireResubmit(context)(remoteResubmitInput(context)).then(
-      (submission) => ({ kind: "remote", submission })
-    ),
+    await requireResubmit(context)(remoteResubmitInput(context)).then((submission) => ({ kind: "remote", submission })),
 };
 
-const defaultReadResumeManifest = async (
-  options: ResumeRunOptions
-): Promise<Option.Option<MokaRunManifest>> => {
+const defaultReadResumeManifest = async (options: ResumeRunOptions): Promise<Option.Option<MokaRunManifest>> => {
   const { dbUrl } = options;
   if (dbUrl === undefined) {
     return Option.none();
@@ -218,16 +179,16 @@ const defaultReadResumeManifest = async (
   const manifest = await Effect.runPromise(
     Effect.scoped(
       resolveRunControlStore(dbUrl, worktreePath).pipe(
-        Effect.flatMap((store) => store.readRun({ runId: options.runId }))
-      )
-    )
+        Effect.flatMap((store) => store.readRun({ runId: options.runId })),
+      ),
+    ),
   );
   return Option.fromUndefinedOr(manifest);
 };
 
 export const resumeRunByOrigin = async (
   options: ResumeRunOptions,
-  dependencies: ResumeByOriginDependencies = {}
+  dependencies: ResumeByOriginDependencies = {},
 ): Promise<ResumeRunResult> => {
   const context: ResumeStrategyContext = {
     manifest: Option.none(),
@@ -236,28 +197,22 @@ export const resumeRunByOrigin = async (
     runLocal: dependencies.runLocal ?? resumeRun,
   };
   const readManifest = dependencies.readManifest ?? defaultReadResumeManifest;
-  return await resolveResumeManifest(options, readManifest).then(
-    async (manifest) => {
-      const target = Option.isNone(manifest) ? "local" : manifest.value.target;
-      return await resumeStrategies[target]({
-        ...context,
-        manifest,
-      });
-    }
-  );
+  return await resolveResumeManifest(options, readManifest).then(async (manifest) => {
+    const target = Option.isNone(manifest) ? "local" : manifest.value.target;
+    return await resumeStrategies[target]({
+      ...context,
+      manifest,
+    });
+  });
 };
 
 export const runScheduledWorkflowTask = async (
-  options: ScheduledWorkflowTaskRuntimeOptions
+  options: ScheduledWorkflowTaskRuntimeOptions,
 ): Promise<RuntimeNodeResult> => {
   const { dependencyOutputs, nodeId, ...runtimeOptions } = options;
   return await Effect.runPromise(
     withOpencodeRuntime(runtimeOptions, (resolved) =>
-      executeScheduledWorkflowTaskWithContext(
-        createRuntimeContext(resolved),
-        nodeId,
-        dependencyOutputs
-      )
-    )
+      executeScheduledWorkflowTaskWithContext(createRuntimeContext(resolved), nodeId, dependencyOutputs),
+    ),
   );
 };

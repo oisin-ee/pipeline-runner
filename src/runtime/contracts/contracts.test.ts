@@ -24,9 +24,7 @@ describe("runtime contracts", () => {
     expectTypeOf<PipelineRuntimeOptions>().toMatchTypeOf<{
       task: string;
     }>();
-    expectTypeOf<PipelineRuntimeResult["outcome"]>().toEqualTypeOf<
-      "CANCELLED" | "FAIL" | "PASS"
-    >();
+    expectTypeOf<PipelineRuntimeResult["outcome"]>().toEqualTypeOf<"CANCELLED" | "FAIL" | "PASS">();
     expectTypeOf<PipelineRuntimeEvent>().toMatchTypeOf<{ type: string }>();
     expectTypeOf<RuntimeFailure>().toMatchTypeOf<{
       evidence: string[];
@@ -34,17 +32,13 @@ describe("runtime contracts", () => {
       reason: string;
     }>();
     expectTypeOf<RuntimeGateResult["passed"]>().toEqualTypeOf<boolean>();
-    expectTypeOf<RuntimeGateResult["unmet"]>().toEqualTypeOf<
-      UnmetCriterion[] | undefined
-    >();
+    expectTypeOf<RuntimeGateResult["unmet"]>().toEqualTypeOf<UnmetCriterion[] | undefined>();
     expectTypeOf<UnmetCriterion>().toEqualTypeOf<{
       criterion: string;
       evidence: string[];
       reason: string;
     }>();
-    expectTypeOf<RuntimeNodeResult["status"]>().toEqualTypeOf<
-      "failed" | "passed"
-    >();
+    expectTypeOf<RuntimeNodeResult["status"]>().toEqualTypeOf<"failed" | "passed">();
   });
 
   it("exposes internal runtime configuration aliases for split modules", () => {
@@ -52,9 +46,7 @@ describe("runtime contracts", () => {
     expectTypeOf<AcceptanceGateSpec["kind"]>().toEqualTypeOf<"acceptance">();
     expectTypeOf<ArtifactGateSpec["kind"]>().toEqualTypeOf<"artifact">();
     expectTypeOf<BuiltinGateSpec["kind"]>().toEqualTypeOf<"builtin">();
-    expectTypeOf<
-      ChangedFilesGateSpec["kind"]
-    >().toEqualTypeOf<"changed_files">();
+    expectTypeOf<ChangedFilesGateSpec["kind"]>().toEqualTypeOf<"changed_files">();
     expectTypeOf<CommandGateSpec["kind"]>().toEqualTypeOf<"command">();
     expectTypeOf<VerdictGateSpec["kind"]>().toEqualTypeOf<"verdict">();
     expectTypeOf<HookBinding>().toMatchTypeOf<{

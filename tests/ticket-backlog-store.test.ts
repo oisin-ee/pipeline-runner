@@ -1,10 +1,4 @@
-import {
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -38,14 +32,10 @@ const writeTask = (root: string, filename: string, source: string): string => {
 };
 
 const loadStore = async (root: string) =>
-  await Effect.runPromise(
-    Effect.provide(loadBacklogTaskStoreEffect(root), RepoIoServiceLive)
-  );
+  await Effect.runPromise(Effect.provide(loadBacklogTaskStoreEffect(root), RepoIoServiceLive));
 
 const loadStoreExit = async (root: string) =>
-  await Effect.runPromiseExit(
-    Effect.provide(loadBacklogTaskStoreEffect(root), RepoIoServiceLive)
-  );
+  await Effect.runPromiseExit(Effect.provide(loadBacklogTaskStoreEffect(root), RepoIoServiceLive));
 
 describe("Backlog task store", () => {
   it("loads typed task records through the repository IO boundary", async () => {
@@ -80,7 +70,7 @@ describe("Backlog task store", () => {
         "- [x] #2 Preserves status markers; evidence: focused test.",
         "<!-- AC:END -->",
         "",
-      ].join("\n")
+      ].join("\n"),
     );
     const before = readFileSync(filePath, "utf-8");
 
@@ -110,11 +100,7 @@ describe("Backlog task store", () => {
 
   it("keeps expected parse failures in the Effect error channel", async () => {
     const root = makeBacklog();
-    writeTask(
-      root,
-      "pipe-1 - Bad.md",
-      "---\nid: PIPE-1\nstatus: Invalid\n---\n"
-    );
+    writeTask(root, "pipe-1 - Bad.md", "---\nid: PIPE-1\nstatus: Invalid\n---\n");
 
     const exit = await loadStoreExit(root);
 
@@ -129,16 +115,8 @@ describe("Backlog task store", () => {
 
   it("reports duplicate dotted task ids with both file paths", async () => {
     const root = makeBacklog();
-    writeTask(
-      root,
-      "pipe-41.7 - One.md",
-      "---\nid: PIPE-41.7\ntitle: One\nstatus: To Do\n---\n"
-    );
-    writeTask(
-      root,
-      "pipe-41.7 - Duplicate.md",
-      "---\nid: PIPE-41.7\ntitle: Duplicate\nstatus: To Do\n---\n"
-    );
+    writeTask(root, "pipe-41.7 - One.md", "---\nid: PIPE-41.7\ntitle: One\nstatus: To Do\n---\n");
+    writeTask(root, "pipe-41.7 - Duplicate.md", "---\nid: PIPE-41.7\ntitle: Duplicate\nstatus: To Do\n---\n");
 
     await expect(loadStore(root)).rejects.toThrow(DUPLICATE_ID_RE);
   });

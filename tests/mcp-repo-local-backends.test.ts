@@ -72,9 +72,7 @@ describe("repo-local MCP backend specs", () => {
       ["backlog", "/workspace/cwd"],
       ["fallow", "/workspace/prepared"],
     ]);
-    expect(
-      specs.flatMap((spec) => [spec.command, ...spec.args]).join(" ")
-    ).not.toMatch(NO_REPO_COPY_COMMAND_RE);
+    expect(specs.flatMap((spec) => [spec.command, ...spec.args]).join(" ")).not.toMatch(NO_REPO_COPY_COMMAND_RE);
     expect(specs.find((spec) => spec.id === "fallow")).toMatchObject({
       args: [],
       command: "fallow-mcp",
@@ -91,7 +89,7 @@ describe("repo-local MCP backend specs", () => {
           hostPath: "/workspace/prepared",
         },
         toolPrefixes: ["serena"],
-      })
+      }),
     );
   });
 

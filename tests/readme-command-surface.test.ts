@@ -2,11 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 
 import { describe, expect, it } from "vitest";
 
-const RUNBOOK_DOCS = [
-  "README.md",
-  "docs/operator-guide.md",
-  "docs/run-control.md",
-] as const;
+const RUNBOOK_DOCS = ["README.md", "docs/operator-guide.md", "docs/run-control.md"] as const;
 
 interface Requirement {
   label: string;
@@ -44,8 +40,7 @@ const MOKA_TICKET_READ_ONLY_BOUNDARY_PATTERN =
 const MOKA_TICKET_MUTATION_BOUNDARY_PATTERN =
   /mutate[\s\S]{0,240}next --claim[\s\S]{0,240}create --apply[\s\S]{0,240}ticket start[\s\S]{0,160}without `--dry-run`/iu;
 
-const MOKA_TICKET_START_DRY_RUN_BOUNDARY_PATTERN =
-  /ticket start --dry-run[\s\S]{0,160}read-only/iu;
+const MOKA_TICKET_START_DRY_RUN_BOUNDARY_PATTERN = /ticket start --dry-run[\s\S]{0,160}read-only/iu;
 
 const BACKLOG_CLI_MARKDOWN_BOUNDARY_PATTERN =
   /Backlog CLI[\s\S]{0,240}task creation and editing[\s\S]{0,240}direct markdown edits/iu;
@@ -77,13 +72,11 @@ const FLAG_DOCUMENTATION_REQUIREMENTS: Requirement[] = [
   },
   {
     label: "--effort choices explained as quick, normal, and thorough",
-    pattern:
-      /--effort[\s\S]{0,320}`?quick`?[\s\S]{0,320}`?normal`?[\s\S]{0,320}`?thorough`?/iu,
+    pattern: /--effort[\s\S]{0,320}`?quick`?[\s\S]{0,320}`?normal`?[\s\S]{0,320}`?thorough`?/iu,
   },
   {
     label: "read-only mode command example",
-    pattern:
-      /moka run[^\n]*(?:--read-only|--mode (?:read|read-only))[^\n]*"[^"]+"/u,
+    pattern: /moka run[^\n]*(?:--read-only|--mode (?:read|read-only))[^\n]*"[^"]+"/u,
   },
   {
     label: "write mode default explained",
@@ -115,19 +108,15 @@ const RUN_DIRECTORY_REQUIREMENTS: Requirement[] = [
   },
   {
     label: "sanitized export omits sensitive run artifacts",
-    pattern:
-      /(?:saniti[sz]ed|--sanitize)[\s\S]{0,360}(?:prompt|session|body|secret|token|credential)/iu,
+    pattern: /(?:saniti[sz]ed|--sanitize)[\s\S]{0,360}(?:prompt|session|body|secret|token|credential)/iu,
   },
 ];
 
-const SUBMIT_PRIMARY_COMMAND_PATTERN =
-  /`moka submit "<task>"`\s+\n\s*(?:Generates|Submits|Creates|Uses)\b/iu;
+const SUBMIT_PRIMARY_COMMAND_PATTERN = /`moka submit "<task>"`\s+\n\s*(?:Generates|Submits|Creates|Uses)\b/iu;
 
-const projectFile = (relativePath: string): URL =>
-  new URL(`../${relativePath}`, import.meta.url);
+const projectFile = (relativePath: string): URL => new URL(`../${relativePath}`, import.meta.url);
 
-const readProjectFile = (relativePath: string): string =>
-  readFileSync(projectFile(relativePath), "utf-8");
+const readProjectFile = (relativePath: string): string => readFileSync(projectFile(relativePath), "utf-8");
 
 const readOptionalProjectFile = (relativePath: string): string => {
   const file = projectFile(relativePath);
@@ -143,54 +132,35 @@ const markdownSection = (markdown: string, heading: string): string => {
   return markdown.slice(start, nextSection === -1 ? undefined : nextSection);
 };
 
-const commandSurfaceSection = (): string =>
-  markdownSection(readProjectFile("README.md"), "## Command Surface");
+const commandSurfaceSection = (): string => markdownSection(readProjectFile("README.md"), "## Command Surface");
 
 const operatorGuideSection = (heading: string): string =>
   markdownSection(readProjectFile("docs/operator-guide.md"), heading);
 
-const runbookDocs = (): string =>
-  RUNBOOK_DOCS.map(readOptionalProjectFile).join("\n\n");
+const runbookDocs = (): string => RUNBOOK_DOCS.map(readOptionalProjectFile).join("\n\n");
 
-const countOccurrences = (text: string, needle: string): number =>
-  text.split(needle).length - 1;
+const countOccurrences = (text: string, needle: string): number => text.split(needle).length - 1;
 
-const escapedRegExp = (source: string): string =>
-  source.replaceAll(/[.*+?^${}()|[\]\\]/gu, "\\$&");
+const escapedRegExp = (source: string): string => source.replaceAll(/[.*+?^${}()|[\]\\]/gu, "\\$&");
 
 const documentedCommandPattern = (command: string): RegExp => {
   const escapedCommand = escapedRegExp(command);
-  return new RegExp(
-    `(?:\`${escapedCommand}(?:\\s|\`)|^${escapedCommand}(?:\\s|$))`,
-    "mu"
-  );
+  return new RegExp(`(?:\`${escapedCommand}(?:\\s|\`)|^${escapedCommand}(?:\\s|$))`, "mu");
 };
 
-const missingRequirements = (
-  text: string,
-  requirements: readonly Requirement[]
-): string[] =>
-  requirements
-    .filter((requirement) => !requirement.pattern.test(text))
-    .map((requirement) => requirement.label);
+const missingRequirements = (text: string, requirements: readonly Requirement[]): string[] =>
+  requirements.filter((requirement) => !requirement.pattern.test(text)).map((requirement) => requirement.label);
 
 describe("README command surface", () => {
   it("makes moka run primary without duplicate submit/run examples", () => {
     const section = commandSurfaceSection();
-    const primaryRunExample =
-      'moka run "Implement PIPE-123 user-facing behavior"';
+    const primaryRunExample = 'moka run "Implement PIPE-123 user-facing behavior"';
 
     expect(section.indexOf('`moka run "<task>"`')).toBeGreaterThanOrEqual(0);
-    expect(section.indexOf('`moka run "<task>"`')).toBeLessThan(
-      section.indexOf("moka submit")
-    );
-    expect(
-      countOccurrences(section, "Implement PIPE-123 user-facing behavior")
-    ).toBe(1);
+    expect(section.indexOf('`moka run "<task>"`')).toBeLessThan(section.indexOf("moka submit"));
+    expect(countOccurrences(section, "Implement PIPE-123 user-facing behavior")).toBe(1);
     expect(section).toContain(primaryRunExample);
-    expect(section).not.toContain(
-      'moka submit "Implement PIPE-123 user-facing behavior"'
-    );
+    expect(section).not.toContain('moka submit "Implement PIPE-123 user-facing behavior"');
   });
 
   it.each(["moka quick", "moka execute", "moka inspect", "moka submit"])(
@@ -202,19 +172,17 @@ describe("README command surface", () => {
           `(alias|preset|compatibility)[\\s\\S]{0,180}${escapedRegExp(alias)}`,
           `${escapedRegExp(alias)}[\\s\\S]{0,180}(alias|preset|compatibility)`,
         ].join("|"),
-        "iu"
+        "iu",
       );
 
       expect(section).toMatch(aliasContext);
-    }
+    },
   );
 
   it("lists the canonical run and run-control commands", () => {
     const section = commandSurfaceSection();
 
-    const missingCommands = CANONICAL_COMMANDS.filter(
-      (command) => !documentedCommandPattern(command).test(section)
-    );
+    const missingCommands = CANONICAL_COMMANDS.filter((command) => !documentedCommandPattern(command).test(section));
 
     expect(missingCommands).toEqual([]);
   });
@@ -222,9 +190,7 @@ describe("README command surface", () => {
   it("explains target, effort, and read/write mode flags with examples", () => {
     const docs = runbookDocs();
 
-    expect(missingRequirements(docs, FLAG_DOCUMENTATION_REQUIREMENTS)).toEqual(
-      []
-    );
+    expect(missingRequirements(docs, FLAG_DOCUMENTATION_REQUIREMENTS)).toEqual([]);
   });
 
   it("explains the run directory layout and sanitized export", () => {
@@ -242,7 +208,7 @@ describe("README command surface", () => {
         `(compatibility|alias)[\\s\\S]{0,240}${escapedRegExp("moka submit")}`,
         `${escapedRegExp("moka submit")}[\\s\\S]{0,240}(compatibility|alias)`,
       ].join("|"),
-      "iu"
+      "iu",
     );
 
     expect(canonicalRemoteIndex).toBeGreaterThanOrEqual(0);

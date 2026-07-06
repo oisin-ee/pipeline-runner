@@ -13,8 +13,7 @@ export const OWNER_TS_MARKER_PREFIX = "// @oisincoveney/pipeline:";
 export const OWNER_YAML_MARKER_PREFIX = "# @oisincoveney/pipeline:";
 export const AGENTS_MD_START = "<!-- @oisincoveney/pipeline:agents:start -->";
 export const AGENTS_MD_END = "<!-- @oisincoveney/pipeline:agents:end -->";
-export const SINGLE_OPENCODE_PLUGIN_ARRAY_RE =
-  /\n {2}"plugin": \[\n {4}("[^"]+")\n {2}\]/u;
+export const SINGLE_OPENCODE_PLUGIN_ARRAY_RE = /\n {2}"plugin": \[\n {4}("[^"]+")\n {2}\]/u;
 export const OPENCODE_PROJECT_CONFIG_PATH = ".opencode/opencode.json";
 export const CLAUDE_PROJECT_CONFIG_PATH = ".claude/settings.json";
 export const CLAUDE_USER_CONFIG_PATH = ".claude.json";
@@ -44,26 +43,20 @@ export type HarnessHost = ActiveCommandHost | "codex" | "gemini";
  * does our test suite): Claude Code reads `CLAUDE_CONFIG_DIR`, Codex reads
  * `CODEX_HOME`, OpenCode reads `OPENCODE_CONFIG_DIR`/`XDG_CONFIG_HOME`.
  */
-const claudeGlobalConfigDir = (): string =>
-  process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), ".claude");
+const claudeGlobalConfigDir = (): string => process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), ".claude");
 
-const codexGlobalConfigDir = (): string =>
-  process.env.CODEX_HOME ?? join(homedir(), ".codex");
+const codexGlobalConfigDir = (): string => process.env.CODEX_HOME ?? join(homedir(), ".codex");
 
 const opencodeGlobalConfigDir = (): string =>
-  process.env.OPENCODE_CONFIG_DIR ??
-  join(process.env.XDG_CONFIG_HOME ?? join(homedir(), ".config"), "opencode");
+  process.env.OPENCODE_CONFIG_DIR ?? join(process.env.XDG_CONFIG_HOME ?? join(homedir(), ".config"), "opencode");
 
-const geminiGlobalConfigDir = (): string =>
-  process.env.GEMINI_CONFIG_DIR ?? join(homedir(), ".gemini");
+const geminiGlobalConfigDir = (): string => process.env.GEMINI_CONFIG_DIR ?? join(homedir(), ".gemini");
 
 const stripPrefix = (value: string, prefix: string): string => {
   if (value === prefix) {
     return "";
   }
-  return value.startsWith(`${prefix}/`)
-    ? value.slice(prefix.length + 1)
-    : value;
+  return value.startsWith(`${prefix}/`) ? value.slice(prefix.length + 1) : value;
 };
 
 /**
@@ -91,12 +84,7 @@ export const resolveHarnessTarget = (relPath: string): string => {
   }
   return join(opencodeGlobalConfigDir(), stripPrefix(normalized, ".opencode"));
 };
-export type InstallAction =
-  | "conflict"
-  | "create"
-  | "delete"
-  | "unchanged"
-  | "update";
+export type InstallAction = "conflict" | "create" | "delete" | "unchanged" | "update";
 
 export interface CommandInstallPlanItem {
   action: InstallAction;
@@ -167,10 +155,7 @@ export interface HostAdapter {
    * Return none() to fall back to the default overwrite behaviour.
    * Return { ok: false, content: _ } to surface a conflict without writing.
    */
-  mergeDefinition?(
-    definition: CommandDefinition,
-    existingContent: string
-  ): Option<MergeDefinitionResult>;
+  mergeDefinition?(definition: CommandDefinition, existingContent: string): Option<MergeDefinitionResult>;
   /**
    * Filesystem roots that may contain generated files owned by this host.
    * The orchestrator scans these roots to detect and remove obsolete files.
@@ -188,9 +173,7 @@ export type ProfileEntry = [string, PipelineConfig["profiles"][string]];
 export const profileEntries = (config: PipelineConfig): ProfileEntry[] =>
   Object.entries(config.profiles).toSorted(([a], [b]) => a.localeCompare(b));
 
-export const entrypointEntries = (
-  config: PipelineConfig
-): EntrypointEntry[] => {
+export const entrypointEntries = (config: PipelineConfig): EntrypointEntry[] => {
   const entries = Object.entries(config.entrypoints);
   return entries.length > 0
     ? entries
@@ -205,14 +188,10 @@ export const entrypointEntries = (
       ];
 };
 
-export const entrypointDescription = (
-  id: string,
-  entrypoint: PipelineConfig["entrypoints"][string]
-): string => entrypoint.description ?? `Run the ${id} workflow`;
+export const entrypointDescription = (id: string, entrypoint: PipelineConfig["entrypoints"][string]): string =>
+  entrypoint.description ?? `Run the ${id} workflow`;
 
-export const instructionsPointer = (
-  actor: PipelineConfig["profiles"][string]
-): string => {
+export const instructionsPointer = (actor: PipelineConfig["profiles"][string]): string => {
   if (actor.instructions.path !== undefined && actor.instructions.path !== "") {
     return `Instructions: ${actor.instructions.path}`;
   }
@@ -221,15 +200,10 @@ export const instructionsPointer = (
 
 export const compactLines = (lines: readonly string[]): string[] => [...lines];
 
-export const commandIdForHost = (
-  _host: ActiveCommandHost,
-  entrypointId: string
-): string => `${OPENCODE_COMMAND_PREFIX}${entrypointId}`;
+export const commandIdForHost = (_host: ActiveCommandHost, entrypointId: string): string =>
+  `${OPENCODE_COMMAND_PREFIX}${entrypointId}`;
 
-export const invocationForHost = (
-  host: ActiveCommandHost,
-  entrypointId = "execute"
-): string => {
+export const invocationForHost = (host: ActiveCommandHost, entrypointId = "execute"): string => {
   const prefix: Record<ActiveCommandHost, string> = {
     "claude-code": "/",
     opencode: "/",

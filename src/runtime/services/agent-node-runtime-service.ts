@@ -13,24 +13,18 @@ export class AgentNodeRuntimeService extends Context.Service<
     readonly executeRunner: (
       executor: RuntimeContext["executor"],
       plan: RunnerLaunchPlan,
-      options: RunnerExecutionOptions
-    ) => Effect.Effect<
-      Awaited<ReturnType<RuntimeContext["executor"]>>,
-      unknown
-    >;
+      options: RunnerExecutionOptions,
+    ) => Effect.Effect<Awaited<ReturnType<RuntimeContext["executor"]>>, unknown>;
     readonly readText: (path: string) => Effect.Effect<string>;
   }
 >()("AgentNodeRuntimeService") {}
 
-export const AgentNodeRuntimeServiceLive = Layer.succeed(
-  AgentNodeRuntimeService,
-  {
-    buildRepoMap: buildRepoMapContext,
-    executeRunner: (executor, plan, options) =>
-      Effect.tryPromise({
-        catch: (error) => error,
-        try: async () => await executor(plan, options),
-      }),
-    readText: (path) => Effect.sync(() => readFileSync(path, "utf-8")),
-  }
-);
+export const AgentNodeRuntimeServiceLive = Layer.succeed(AgentNodeRuntimeService, {
+  buildRepoMap: buildRepoMapContext,
+  executeRunner: (executor, plan, options) =>
+    Effect.tryPromise({
+      catch: (error) => error,
+      try: async () => await executor(plan, options),
+    }),
+  readText: (path) => Effect.sync(() => readFileSync(path, "utf-8")),
+});

@@ -1,10 +1,4 @@
-import {
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -38,8 +32,7 @@ const SELECTED_START_TASK = `PIPE-84.2 - Graph\n\nGraph description.\n\n${BACKLO
 const SELECTED_START_TITLE = "PIPE-84.2 - Graph";
 let logSpy: Option.Option<ReturnType<typeof vi.spyOn>> = Option.none();
 
-type ParseTicketCommandOptions = TicketCommandOptions &
-  Pick<CliProgramOptions, "runCommand">;
+type ParseTicketCommandOptions = TicketCommandOptions & Pick<CliProgramOptions, "runCommand">;
 
 interface BacklogCall {
   readonly args: readonly string[];
@@ -72,7 +65,7 @@ const writeTask = (
     parentTaskId?: string;
     status: "Done" | "In Progress" | "To Do";
     title: string;
-  }
+  },
 ): string => {
   const path = join(root, "backlog", "tasks", filename);
   writeFileSync(
@@ -82,9 +75,7 @@ const writeTask = (
       `id: ${input.id}`,
       `title: ${input.title}`,
       `status: ${input.status}`,
-      input.parentTaskId === undefined
-        ? ""
-        : `parent_task_id: ${input.parentTaskId}`,
+      input.parentTaskId === undefined ? "" : `parent_task_id: ${input.parentTaskId}`,
       ...(input.dependencies !== undefined && input.dependencies.length > 0
         ? ["dependencies:", ...input.dependencies.map((id) => `  - ${id}`)]
         : []),
@@ -102,7 +93,7 @@ const writeTask = (
       "",
     ]
       .filter((line) => line !== "")
-      .join("\n")
+      .join("\n"),
   );
   return path;
 };
@@ -160,14 +151,14 @@ const fileSnapshot = (paths: readonly string[]): Map<string, string> =>
 const parseTicketCommandWithOptions = async (
   root: string,
   args: readonly string[],
-  options: ParseTicketCommandOptions = {}
+  options: ParseTicketCommandOptions = {},
 ) => {
   process.env.PIPELINE_TARGET_PATH = root;
   const { runCommand, ...ticketCommand } = options;
   const { createCliProgram } = await import("../src/cli/program");
   await createCliProgram({ runCommand, ticketCommand }).parseAsync(
     ["node", "/repo/node_modules/.bin/moka", "ticket", ...args],
-    { from: "node" }
+    { from: "node" },
   );
 };
 
@@ -177,7 +168,7 @@ const parseTicketCommand = async (root: string, args: readonly string[]) => {
 
 const recordingBacklogLayer = (
   calls: BacklogCall[],
-  events?: string[]
+  events?: string[],
 ): NonNullable<TicketCommandOptions["backlogLayer"]> =>
   Layer.succeed(BacklogService, {
     run: (args, cwd) =>
@@ -200,16 +191,12 @@ describe("moka ticket read-only commands", () => {
   it("registers graph check, sequence, and next help", async () => {
     process.env.PIPELINE_TARGET_PATH = makeBacklogFixture().root;
     const { createCliProgram } = await import("../src/cli/program");
-    const ticketCommand = createCliProgram().commands.find(
-      (command) => command.name() === "ticket"
-    );
+    const ticketCommand = createCliProgram().commands.find((command) => command.name() === "ticket");
 
     expect(ticketCommand?.helpInformation()).toContain("graph");
     expect(ticketCommand?.helpInformation()).toContain("sequence");
     expect(ticketCommand?.helpInformation()).toContain("next");
-    expect(
-      ticketCommand?.commands.find((command) => command.name() === "graph")
-    ).toBeDefined();
+    expect(ticketCommand?.commands.find((command) => command.name() === "graph")).toBeDefined();
   });
 
   it("checks graph validity without mutating task markdown", async () => {
@@ -226,12 +213,7 @@ describe("moka ticket read-only commands", () => {
     const { root, taskFiles } = makeBacklogFixture();
     const before = fileSnapshot(taskFiles);
 
-    await parseTicketCommand(root, [
-      "sequence",
-      "--root",
-      "PIPE-84",
-      "--plain",
-    ]);
+    await parseTicketCommand(root, ["sequence", "--root", "PIPE-84", "--plain"]);
 
     expect(loggedOutput()).toContain("Sequence 1:\n  PIPE-84\n  PIPE-84.1");
     expect(loggedOutput()).toContain("Sequence 2:\n  PIPE-84.2");
@@ -262,22 +244,11 @@ describe("moka ticket read-only commands", () => {
         }),
     });
 
-    await parseTicketCommandWithOptions(
-      root,
-      ["next", "--claim", "--root", "PIPE-84"],
-      { backlogLayer }
-    );
+    await parseTicketCommandWithOptions(root, ["next", "--claim", "--root", "PIPE-84"], { backlogLayer });
 
     expect(backlogCalls).toEqual([
       {
-        args: [
-          "task",
-          "edit",
-          "PIPE-84.2",
-          "--status",
-          "In Progress",
-          "--plain",
-        ],
+        args: ["task", "edit", "PIPE-84.2", "--status", "In Progress", "--plain"],
         cwd: root,
       },
     ]);
@@ -298,19 +269,12 @@ describe("moka ticket read-only commands", () => {
     let thrown: unknown;
 
     try {
-      await parseTicketCommandWithOptions(
-        root,
-        ["next", "--claim", "--root", "PIPE-84"],
-        { backlogLayer }
-      );
+      await parseTicketCommandWithOptions(root, ["next", "--claim", "--root", "PIPE-84"], { backlogLayer });
     } catch (error) {
       thrown = error;
     }
 
-    const clearMessage = [
-      loggedOutput(),
-      thrown instanceof Error ? thrown.message : String(thrown ?? ""),
-    ].join("\n");
+    const clearMessage = [loggedOutput(), thrown instanceof Error ? thrown.message : String(thrown ?? "")].join("\n");
     expect(clearMessage).toMatch(NO_READY_TICKETS_PATTERN);
     expect(backlogCalls).toEqual([]);
     expect(fileSnapshot(taskFiles)).toEqual(before);
@@ -325,28 +289,15 @@ describe("moka ticket read-only commands", () => {
 
       await parseTicketCommandWithOptions(
         root,
-        [
-          "start",
-          "--dry-run",
-          "--root",
-          "PIPE-84",
-          "--effort",
-          "quick",
-          "--target",
-          "remote",
-        ],
+        ["start", "--dry-run", "--root", "PIPE-84", "--effort", "quick", "--target", "remote"],
         {
           backlogLayer: recordingBacklogLayer(backlogCalls),
           runCommand,
-        }
+        },
       );
 
-      expect(loggedOutput()).toContain(
-        `Selected ticket: ${SELECTED_START_TITLE}`
-      );
-      expect(loggedOutput()).toContain(
-        `moka run --effort quick --target remote '${SELECTED_START_TASK}'`
-      );
+      expect(loggedOutput()).toContain(`Selected ticket: ${SELECTED_START_TITLE}`);
+      expect(loggedOutput()).toContain(`moka run --effort quick --target remote '${SELECTED_START_TASK}'`);
       expect(backlogCalls).toEqual([]);
       expect(runCommand).not.toHaveBeenCalled();
       expect(fileSnapshot(taskFiles)).toEqual(before);
@@ -362,26 +313,15 @@ describe("moka ticket read-only commands", () => {
         return;
       });
 
-      await parseTicketCommandWithOptions(
-        root,
-        ["start", "--root", "PIPE-84"],
-        {
-          backlogLayer: recordingBacklogLayer(backlogCalls, events),
-          runCommand,
-        }
-      );
+      await parseTicketCommandWithOptions(root, ["start", "--root", "PIPE-84"], {
+        backlogLayer: recordingBacklogLayer(backlogCalls, events),
+        runCommand,
+      });
 
       expect(events).toEqual(["claim", "run"]);
       expect(backlogCalls).toEqual([
         {
-          args: [
-            "task",
-            "edit",
-            "PIPE-84.2",
-            "--status",
-            "In Progress",
-            "--plain",
-          ],
+          args: ["task", "edit", "PIPE-84.2", "--status", "In Progress", "--plain"],
           cwd: root,
         },
       ]);
@@ -389,12 +329,8 @@ describe("moka ticket read-only commands", () => {
       const runCall = runCommand.mock.calls[0][0];
       expect(runCall.task).toBe(SELECTED_START_TASK);
       expect(runCall.descriptionParts).toEqual([SELECTED_START_TASK]);
-      expect(runCall.descriptionParts.join("\n")).toContain(
-        SELECTED_START_TITLE
-      );
-      expect(runCall.descriptionParts.join("\n")).toContain(
-        "Graph description."
-      );
+      expect(runCall.descriptionParts.join("\n")).toContain(SELECTED_START_TITLE);
+      expect(runCall.descriptionParts.join("\n")).toContain("Graph description.");
       expect(runCall.flags).toMatchObject({
         effort: "normal",
         target: "local",
@@ -413,14 +349,10 @@ describe("moka ticket read-only commands", () => {
       const backlogCalls: BacklogCall[] = [];
       const runCommand = vi.fn(async (_: RunCommandCall) => {});
 
-      await parseTicketCommandWithOptions(
-        root,
-        ["start", "--root", "PIPE-84"],
-        {
-          backlogLayer: recordingBacklogLayer(backlogCalls),
-          runCommand,
-        }
-      );
+      await parseTicketCommandWithOptions(root, ["start", "--root", "PIPE-84"], {
+        backlogLayer: recordingBacklogLayer(backlogCalls),
+        runCommand,
+      });
 
       const runCall = runCommand.mock.calls[0][0];
       expect(runCall.ticketId).toBe("PIPE-84.2");
@@ -431,14 +363,10 @@ describe("moka ticket read-only commands", () => {
       const backlogCalls: BacklogCall[] = [];
       const runCommand = vi.fn(async (_: RunCommandCall) => {});
 
-      await parseTicketCommandWithOptions(
-        root,
-        ["start", "--root", "PIPE-84"],
-        {
-          backlogLayer: recordingBacklogLayer(backlogCalls),
-          runCommand,
-        }
-      );
+      await parseTicketCommandWithOptions(root, ["start", "--root", "PIPE-84"], {
+        backlogLayer: recordingBacklogLayer(backlogCalls),
+        runCommand,
+      });
 
       const runCall = runCommand.mock.calls[0][0];
       const instruction = runCall.task;
@@ -457,22 +385,15 @@ describe("moka ticket read-only commands", () => {
       let thrown: unknown;
 
       try {
-        await parseTicketCommandWithOptions(
-          root,
-          ["start", "--root", "PIPE-84"],
-          {
-            backlogLayer: recordingBacklogLayer(backlogCalls),
-            runCommand,
-          }
-        );
+        await parseTicketCommandWithOptions(root, ["start", "--root", "PIPE-84"], {
+          backlogLayer: recordingBacklogLayer(backlogCalls),
+          runCommand,
+        });
       } catch (error) {
         thrown = error;
       }
 
-      const clearMessage = [
-        loggedOutput(),
-        thrown instanceof Error ? thrown.message : String(thrown ?? ""),
-      ].join("\n");
+      const clearMessage = [loggedOutput(), thrown instanceof Error ? thrown.message : String(thrown ?? "")].join("\n");
       expect(clearMessage).toMatch(NO_READY_TICKETS_PATTERN);
       expect(backlogCalls).toEqual([]);
       expect(runCommand).not.toHaveBeenCalled();
@@ -489,28 +410,17 @@ describe("moka ticket read-only commands", () => {
       try {
         await parseTicketCommandWithOptions(
           root,
-          [
-            "start",
-            "--dry-run",
-            "--root",
-            "PIPE-84",
-            "--target",
-            "remote",
-            "--read-only",
-          ],
+          ["start", "--dry-run", "--root", "PIPE-84", "--target", "remote", "--read-only"],
           {
             backlogLayer: recordingBacklogLayer(backlogCalls),
             runCommand,
-          }
+          },
         );
       } catch (error) {
         thrown = error;
       }
 
-      const clearMessage = [
-        loggedOutput(),
-        thrown instanceof Error ? thrown.message : String(thrown ?? ""),
-      ].join("\n");
+      const clearMessage = [loggedOutput(), thrown instanceof Error ? thrown.message : String(thrown ?? "")].join("\n");
       expect(clearMessage).toMatch(REMOTE_READ_ONLY_PATTERN);
       expect(backlogCalls).toEqual([]);
       expect(runCommand).not.toHaveBeenCalled();
@@ -568,24 +478,13 @@ describe("moka ticket read-only commands", () => {
       const backlogCalls: BacklogCall[] = [];
       const runCommand = vi.fn(async (_: RunCommandCall) => {});
 
-      await parseTicketCommandWithOptions(
-        root,
-        ["start", "--root", "PIPE-84", ...testCase.args],
-        {
-          backlogLayer: recordingBacklogLayer(backlogCalls),
-          runCommand,
-        }
-      );
+      await parseTicketCommandWithOptions(root, ["start", "--root", "PIPE-84", ...testCase.args], {
+        backlogLayer: recordingBacklogLayer(backlogCalls),
+        runCommand,
+      });
 
       expect(backlogCalls).toHaveLength(1);
-      expect(backlogCalls[0]?.args).toEqual([
-        "task",
-        "edit",
-        "PIPE-84.2",
-        "--status",
-        "In Progress",
-        "--plain",
-      ]);
+      expect(backlogCalls[0]?.args).toEqual(["task", "edit", "PIPE-84.2", "--status", "In Progress", "--plain"]);
       expect(runCommand).toHaveBeenCalledTimes(1);
       const runCall = runCommand.mock.calls[0][0];
       expect(runCall.task).toBe(SELECTED_START_TASK);
@@ -599,9 +498,7 @@ describe("moka ticket read-only commands", () => {
     const { root, taskFiles } = makeBacklogFixture();
     const before = fileSnapshot(taskFiles);
     let launchPlan = Option.none<RunnerLaunchPlan>();
-    const ticketPlanExecutor = async (
-      plan: RunnerLaunchPlan
-    ): Promise<AgentResult> => {
+    const ticketPlanExecutor = async (plan: RunnerLaunchPlan): Promise<AgentResult> => {
       launchPlan = Option.some(plan);
       return {
         exitCode: 0,
@@ -655,16 +552,11 @@ describe("moka ticket read-only commands", () => {
       };
     };
 
-    await parseTicketCommandWithOptions(
-      root,
-      ["create", "add", "ticket", "dry-run", "--dry-run"],
-      { ticketPlanExecutor }
-    );
+    await parseTicketCommandWithOptions(root, ["create", "add", "ticket", "dry-run", "--dry-run"], {
+      ticketPlanExecutor,
+    });
 
-    const plan = Option.getOrThrowWith(
-      launchPlan,
-      () => new Error("Expected ticket create dry-run launch plan")
-    );
+    const plan = Option.getOrThrowWith(launchPlan, () => new Error("Expected ticket create dry-run launch plan"));
     expect(plan.profileId).toBe("moka-ticket-scoper");
     expect(plan.outputFormat).toBe("json_schema");
     expect(plan.args.join(" ")).toContain("add ticket dry-run");
@@ -711,11 +603,10 @@ describe("moka ticket read-only commands", () => {
         }),
     });
 
-    await parseTicketCommandWithOptions(
-      root,
-      ["create", "apply", "one", "child", "--apply", "--parent", "PIPE-84"],
-      { backlogLayer, ticketPlanExecutor }
-    );
+    await parseTicketCommandWithOptions(root, ["create", "apply", "one", "child", "--apply", "--parent", "PIPE-84"], {
+      backlogLayer,
+      ticketPlanExecutor,
+    });
 
     expect(backlogCalls.map((call) => call.args)).toEqual([
       [

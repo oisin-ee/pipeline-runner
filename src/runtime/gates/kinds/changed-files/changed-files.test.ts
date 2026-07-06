@@ -6,9 +6,7 @@ import { evaluateChangedFilesGate } from "./changed-files";
 
 const ctx = (files: string[]): Pick<RuntimeContext, "nodeStateStore"> => ({
   nodeStateStore: new NodeStateStore({
-    nodeSnapshots: new Map([
-      ["node-a", { files: new Set(files), fingerprints: new Map() }],
-    ]),
+    nodeSnapshots: new Map([["node-a", { files: new Set(files), fingerprints: new Map() }]]),
   }),
 });
 
@@ -18,12 +16,7 @@ describe("evaluateChangedFilesGate", () => {
       changed_files: { allow: ["src/**"], require_any: ["src/**"] },
       kind: "changed_files",
     };
-    const result = evaluateChangedFilesGate(
-      gate,
-      "cf:node-a",
-      "node-a",
-      ctx(["src/app.ts"])
-    );
+    const result = evaluateChangedFilesGate(gate, "cf:node-a", "node-a", ctx(["src/app.ts"]));
     expect(result.passed).toBe(true);
     expect(result.kind).toBe("changed_files");
   });
@@ -33,12 +26,7 @@ describe("evaluateChangedFilesGate", () => {
       changed_files: { deny: ["**/*.md"] },
       kind: "changed_files",
     };
-    const result = evaluateChangedFilesGate(
-      gate,
-      "cf:node-a",
-      "node-a",
-      ctx(["README.md"])
-    );
+    const result = evaluateChangedFilesGate(gate, "cf:node-a", "node-a", ctx(["README.md"]));
     expect(result.passed).toBe(false);
     expect(result.evidence).toContain("denied changes: README.md");
   });
@@ -59,12 +47,7 @@ describe("evaluateChangedFilesGate", () => {
       ".pipeline/runs/run-1/status.json",
       ".pipeline/runs/run-1/nodes/writer/stdout.jsonl",
     ];
-    const result = evaluateChangedFilesGate(
-      gate,
-      "cf:node-a",
-      "node-a",
-      ctx(files)
-    );
+    const result = evaluateChangedFilesGate(gate, "cf:node-a", "node-a", ctx(files));
     expect(result.passed).toBe(true);
     expect(JSON.stringify(result.evidence)).not.toContain(".pipeline");
   });
@@ -82,12 +65,10 @@ describe("evaluateChangedFilesGate", () => {
       gate,
       "cf:node-a",
       "node-a",
-      ctx(["src/app.ts", ".pipeline/custom-output.json"])
+      ctx(["src/app.ts", ".pipeline/custom-output.json"]),
     );
     expect(result.passed).toBe(false);
-    expect(result.evidence).toContain(
-      "changes outside allow list: .pipeline/custom-output.json"
-    );
+    expect(result.evidence).toContain("changes outside allow list: .pipeline/custom-output.json");
   });
 
   it("drops untracked files when include_untracked is false", () => {
@@ -96,12 +77,7 @@ describe("evaluateChangedFilesGate", () => {
       kind: "changed_files",
     };
     // src/app.ts covers require_any; scratch.txt is stripped as untracked
-    const result = evaluateChangedFilesGate(
-      gate,
-      "cf:node-a",
-      "node-a",
-      ctx(["?? scratch.txt", "src/app.ts"])
-    );
+    const result = evaluateChangedFilesGate(gate, "cf:node-a", "node-a", ctx(["?? scratch.txt", "src/app.ts"]));
     expect(result.passed).toBe(true);
   });
 });

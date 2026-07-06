@@ -3,11 +3,7 @@ import { Option } from "effect";
 import { flattenNodes } from "../../planning/graph";
 import type { AgentResult, RunnerLaunchPlan } from "../../runner";
 import { runtimeActorId } from "../actor-ids";
-import type {
-  RuntimeActorDescriptor,
-  RuntimeObservabilityEmitter,
-  RuntimeObservabilityEvent,
-} from "../actor-ids";
+import type { RuntimeActorDescriptor, RuntimeObservabilityEmitter, RuntimeObservabilityEvent } from "../actor-ids";
 import type {
   GateSpec,
   PipelineRuntimeEvent,
@@ -18,57 +14,27 @@ import type {
   RuntimeNodeResult,
   RuntimeStructuredOutput,
 } from "../contracts";
-import {
-  parseRuntimeOutput,
-  validateJsonSchemaSource,
-} from "../json-validation";
+import { parseRuntimeOutput, validateJsonSchemaSource } from "../json-validation";
 
 type RuntimeObservabilityType = RuntimeObservabilityEvent["type"];
-type RuntimeActorObservabilityEvent = Extract<
-  RuntimeObservabilityEvent,
-  { type: `runtime.actor.${string}` }
->;
-type RuntimeGateObservabilityEvent = Extract<
-  RuntimeObservabilityEvent,
-  { type: `runtime.gate.${string}` }
->;
-type RuntimeHookObservabilityEvent = Extract<
-  RuntimeObservabilityEvent,
-  { type: `runtime.hook.${string}` }
->;
-type RuntimeNodeObservabilityEvent = Extract<
-  RuntimeObservabilityEvent,
-  { type: `runtime.node.${string}` }
->;
-type RuntimeRetryObservabilityEvent = Extract<
-  RuntimeObservabilityEvent,
-  { type: `runtime.retry.${string}` }
->;
-type RuntimeStateObservabilityEvent = Extract<
-  RuntimeObservabilityEvent,
-  { type: `runtime.state.${string}` }
->;
+type RuntimeActorObservabilityEvent = Extract<RuntimeObservabilityEvent, { type: `runtime.actor.${string}` }>;
+type RuntimeGateObservabilityEvent = Extract<RuntimeObservabilityEvent, { type: `runtime.gate.${string}` }>;
+type RuntimeHookObservabilityEvent = Extract<RuntimeObservabilityEvent, { type: `runtime.hook.${string}` }>;
+type RuntimeNodeObservabilityEvent = Extract<RuntimeObservabilityEvent, { type: `runtime.node.${string}` }>;
+type RuntimeRetryObservabilityEvent = Extract<RuntimeObservabilityEvent, { type: `runtime.retry.${string}` }>;
+type RuntimeStateObservabilityEvent = Extract<RuntimeObservabilityEvent, { type: `runtime.state.${string}` }>;
 type RuntimePrimaryObservabilityEvent =
   | RuntimeActorObservabilityEvent
   | RuntimeHookObservabilityEvent
   | RuntimeStateObservabilityEvent;
-type RuntimeSecondaryObservabilityEvent = Exclude<
-  RuntimeObservabilityEvent,
-  RuntimePrimaryObservabilityEvent
->;
+type RuntimeSecondaryObservabilityEvent = Exclude<RuntimeObservabilityEvent, RuntimePrimaryObservabilityEvent>;
 type RuntimeGateTerminalObservabilityEvent = Exclude<
   RuntimeGateObservabilityEvent,
-  Extract<
-    RuntimeGateObservabilityEvent,
-    { type: "runtime.gate.finished" | "runtime.gate.started" }
-  >
+  Extract<RuntimeGateObservabilityEvent, { type: "runtime.gate.finished" | "runtime.gate.started" }>
 >;
 type RuntimeHookTerminalObservabilityEvent = Exclude<
   RuntimeHookObservabilityEvent,
-  Extract<
-    RuntimeHookObservabilityEvent,
-    { type: "runtime.hook.finished" | "runtime.hook.started" }
-  >
+  Extract<RuntimeHookObservabilityEvent, { type: "runtime.hook.finished" | "runtime.hook.started" }>
 >;
 type PlannedRuntimeNode = RuntimeContext["plan"]["topologicalOrder"][number];
 type RuntimeNodeProfile = RuntimeContext["config"]["profiles"][string];
@@ -79,93 +45,57 @@ interface RuntimeNodeRunnerFields {
   runnerId?: string;
 }
 
-const warningRuntimeObservabilityTypes: ReadonlySet<RuntimeObservabilityType> =
-  new Set([
-    "runtime.gate.cancelled",
-    "runtime.gate.failed",
-    "runtime.hook.failed",
-    "runtime.hook.timedOut",
-    "runtime.retry.exhausted",
-  ]);
-const primaryRuntimeObservabilityPrefixes = [
-  "runtime.actor.",
-  "runtime.hook.",
-  "runtime.state.",
-];
-const structuredOutputFormats: ReadonlySet<string> = new Set([
-  "json",
-  "json_schema",
-  "jsonl",
+const warningRuntimeObservabilityTypes: ReadonlySet<RuntimeObservabilityType> = new Set([
+  "runtime.gate.cancelled",
+  "runtime.gate.failed",
+  "runtime.hook.failed",
+  "runtime.hook.timedOut",
+  "runtime.retry.exhausted",
 ]);
+const primaryRuntimeObservabilityPrefixes = ["runtime.actor.", "runtime.hook.", "runtime.state."];
+const structuredOutputFormats: ReadonlySet<string> = new Set(["json", "json_schema", "jsonl"]);
 
-const runtimeObservabilityLevel = (
-  event: RuntimeObservabilityEvent
-): PipelineRuntimeObservabilityLevel =>
+const runtimeObservabilityLevel = (event: RuntimeObservabilityEvent): PipelineRuntimeObservabilityLevel =>
   warningRuntimeObservabilityTypes.has(event.type) ? "warn" : "info";
 
-const runtimeObservabilityNodeId = (
-  event: RuntimeObservabilityEvent
-): Option.Option<string> =>
+const runtimeObservabilityNodeId = (event: RuntimeObservabilityEvent): Option.Option<string> =>
   "nodeId" in event ? Option.fromUndefinedOr(event.nodeId) : Option.none();
 
 const isRuntimePrimaryObservabilityEvent = (
-  event: RuntimeObservabilityEvent
+  event: RuntimeObservabilityEvent,
 ): event is RuntimePrimaryObservabilityEvent =>
-  primaryRuntimeObservabilityPrefixes.some((prefix) =>
-    event.type.startsWith(prefix)
-  );
+  primaryRuntimeObservabilityPrefixes.some((prefix) => event.type.startsWith(prefix));
 
-const isRuntimeActorObservabilityEvent = (
-  event: RuntimeObservabilityEvent
-): event is RuntimeActorObservabilityEvent =>
+const isRuntimeActorObservabilityEvent = (event: RuntimeObservabilityEvent): event is RuntimeActorObservabilityEvent =>
   event.type.startsWith("runtime.actor.");
 
-const isRuntimeGateObservabilityEvent = (
-  event: RuntimeObservabilityEvent
-): event is RuntimeGateObservabilityEvent =>
+const isRuntimeGateObservabilityEvent = (event: RuntimeObservabilityEvent): event is RuntimeGateObservabilityEvent =>
   event.type.startsWith("runtime.gate.");
 
-const isRuntimeHookObservabilityEvent = (
-  event: RuntimeObservabilityEvent
-): event is RuntimeHookObservabilityEvent =>
+const isRuntimeHookObservabilityEvent = (event: RuntimeObservabilityEvent): event is RuntimeHookObservabilityEvent =>
   event.type.startsWith("runtime.hook.");
 
-const isRuntimeNodeObservabilityEvent = (
-  event: RuntimeObservabilityEvent
-): event is RuntimeNodeObservabilityEvent =>
+const isRuntimeNodeObservabilityEvent = (event: RuntimeObservabilityEvent): event is RuntimeNodeObservabilityEvent =>
   event.type.startsWith("runtime.node.");
 
-const isRuntimeRetryObservabilityEvent = (
-  event: RuntimeObservabilityEvent
-): event is RuntimeRetryObservabilityEvent =>
+const isRuntimeRetryObservabilityEvent = (event: RuntimeObservabilityEvent): event is RuntimeRetryObservabilityEvent =>
   event.type.startsWith("runtime.retry.");
 
-const isRuntimeStateObservabilityEvent = (
-  event: RuntimeObservabilityEvent
-): event is RuntimeStateObservabilityEvent =>
+const isRuntimeStateObservabilityEvent = (event: RuntimeObservabilityEvent): event is RuntimeStateObservabilityEvent =>
   event.type.startsWith("runtime.state.");
 
-const gateOutcome = (event: { passed: boolean }): string =>
-  event.passed ? "passed" : "failed";
+const gateOutcome = (event: { passed: boolean }): string => (event.passed ? "passed" : "failed");
 
 const gateReasonClause = (event: { reason?: string }): string =>
-  event.reason === undefined || event.reason.length === 0
-    ? ""
-    : `: ${event.reason}`;
+  event.reason === undefined || event.reason.length === 0 ? "" : `: ${event.reason}`;
 
-const gateTerminalOutcome = (
-  event: RuntimeGateTerminalObservabilityEvent
-): "cancelled" | "failed" =>
+const gateTerminalOutcome = (event: RuntimeGateTerminalObservabilityEvent): "cancelled" | "failed" =>
   event.type === "runtime.gate.cancelled" ? "cancelled" : "failed";
 
-const runtimeGateTerminalObservabilitySummary = (
-  event: RuntimeGateTerminalObservabilityEvent
-): string =>
+const runtimeGateTerminalObservabilitySummary = (event: RuntimeGateTerminalObservabilityEvent): string =>
   `gate ${event.gateId} ${gateTerminalOutcome(event)} for node ${event.nodeId}: ${event.reason}`;
 
-const runtimeGateObservabilitySummary = (
-  event: RuntimeGateObservabilityEvent
-): string => {
+const runtimeGateObservabilitySummary = (event: RuntimeGateObservabilityEvent): string => {
   if (event.type === "runtime.gate.started") {
     return `gate ${event.gateId} started for node ${event.nodeId}`;
   }
@@ -176,25 +106,18 @@ const runtimeGateObservabilitySummary = (
 };
 
 const hookNodeClause = (event: { nodeId?: string }): string =>
-  event.nodeId === undefined || event.nodeId.length === 0
-    ? ""
-    : ` for node ${event.nodeId}`;
+  event.nodeId === undefined || event.nodeId.length === 0 ? "" : ` for node ${event.nodeId}`;
 
-const hookOutcome = (event: { passed: boolean }): string =>
-  event.passed ? "passed" : "failed";
+const hookOutcome = (event: { passed: boolean }): string => (event.passed ? "passed" : "failed");
 
 const hookReasonClause = (event: { reason?: string }): string =>
-  event.reason === undefined || event.reason.length === 0
-    ? ""
-    : `: ${event.reason}`;
+  event.reason === undefined || event.reason.length === 0 ? "" : `: ${event.reason}`;
 
 const assertNeverRuntimeObservabilityEvent = (event: never): never => {
   throw new Error(`Unhandled runtime observability event: ${String(event)}`);
 };
 
-const runtimeActorObservabilitySummary = (
-  event: RuntimeActorObservabilityEvent
-): string => {
+const runtimeActorObservabilitySummary = (event: RuntimeActorObservabilityEvent): string => {
   switch (event.type) {
     case "runtime.actor.event": {
       return `${event.actor.kind} actor ${event.actor.id} received ${event.eventType}`;
@@ -208,9 +131,7 @@ const runtimeActorObservabilitySummary = (
   }
 };
 
-const hookTerminalOutcome = (
-  event: RuntimeHookTerminalObservabilityEvent
-): "failed" | "skipped" | "timed out" => {
+const hookTerminalOutcome = (event: RuntimeHookTerminalObservabilityEvent): "failed" | "skipped" | "timed out" => {
   switch (event.type) {
     case "runtime.hook.failed": {
       return "failed";
@@ -227,14 +148,10 @@ const hookTerminalOutcome = (
   }
 };
 
-const runtimeHookTerminalObservabilitySummary = (
-  event: RuntimeHookTerminalObservabilityEvent
-): string =>
+const runtimeHookTerminalObservabilitySummary = (event: RuntimeHookTerminalObservabilityEvent): string =>
   `hook ${event.hookId} ${hookTerminalOutcome(event)}${hookNodeClause(event)}: ${event.reason}`;
 
-const runtimeHookObservabilitySummary = (
-  event: RuntimeHookObservabilityEvent
-): string => {
+const runtimeHookObservabilitySummary = (event: RuntimeHookObservabilityEvent): string => {
   if (event.type === "runtime.hook.started") {
     return `hook ${event.hookId} started${hookNodeClause(event)}`;
   }
@@ -244,9 +161,7 @@ const runtimeHookObservabilitySummary = (
   return runtimeHookTerminalObservabilitySummary(event);
 };
 
-const runtimeNodeObservabilitySummary = (
-  event: RuntimeNodeObservabilityEvent
-): string => {
+const runtimeNodeObservabilitySummary = (event: RuntimeNodeObservabilityEvent): string => {
   switch (event.type) {
     case "runtime.node.finished": {
       return `node ${event.nodeId} finished with status ${event.status}`;
@@ -260,9 +175,7 @@ const runtimeNodeObservabilitySummary = (
   }
 };
 
-const runtimeRetryObservabilitySummary = (
-  event: RuntimeRetryObservabilityEvent
-): string => {
+const runtimeRetryObservabilitySummary = (event: RuntimeRetryObservabilityEvent): string => {
   switch (event.type) {
     case "runtime.retry.exhausted": {
       return `node ${event.nodeId} retry exhausted after attempt ${event.attempt} (${event.reason})`;
@@ -276,9 +189,7 @@ const runtimeRetryObservabilitySummary = (
   }
 };
 
-const runtimeSecondaryObservabilitySummary = (
-  event: RuntimeSecondaryObservabilityEvent
-): string => {
+const runtimeSecondaryObservabilitySummary = (event: RuntimeSecondaryObservabilityEvent): string => {
   if (isRuntimeGateObservabilityEvent(event)) {
     return runtimeGateObservabilitySummary(event);
   }
@@ -291,9 +202,7 @@ const runtimeSecondaryObservabilitySummary = (
   return assertNeverRuntimeObservabilityEvent(event);
 };
 
-const runtimeStateObservabilitySummary = (
-  event: RuntimeStateObservabilityEvent
-): string => {
+const runtimeStateObservabilitySummary = (event: RuntimeStateObservabilityEvent): string => {
   switch (event.type) {
     case "runtime.state.enter": {
       return `${event.actor.kind} actor ${event.actor.id} entered ${event.state}`;
@@ -307,9 +216,7 @@ const runtimeStateObservabilitySummary = (
   }
 };
 
-const runtimePrimaryObservabilitySummary = (
-  event: RuntimePrimaryObservabilityEvent
-): string => {
+const runtimePrimaryObservabilitySummary = (event: RuntimePrimaryObservabilityEvent): string => {
   if (isRuntimeActorObservabilityEvent(event)) {
     return runtimeActorObservabilitySummary(event);
   }
@@ -322,16 +229,14 @@ const runtimePrimaryObservabilitySummary = (
   return assertNeverRuntimeObservabilityEvent(event);
 };
 
-const runtimeObservabilitySummary = (
-  event: RuntimeObservabilityEvent
-): string =>
+const runtimeObservabilitySummary = (event: RuntimeObservabilityEvent): string =>
   isRuntimePrimaryObservabilityEvent(event)
     ? runtimePrimaryObservabilitySummary(event)
     : runtimeSecondaryObservabilitySummary(event);
 
 const runtimeObservabilityEventToPipelineEvent = (
   event: RuntimeObservabilityEvent,
-  workflowId: string
+  workflowId: string,
 ): PipelineRuntimeEvent => {
   const nodeId = runtimeObservabilityNodeId(event);
   return {
@@ -349,10 +254,7 @@ const runtimeObservabilityEventToPipelineEvent = (
 };
 
 export const createPublicRuntimeObservabilityEmitter =
-  (
-    reporter: (event: PipelineRuntimeEvent) => void,
-    workflowId: string
-  ): RuntimeObservabilityEmitter =>
+  (reporter: (event: PipelineRuntimeEvent) => void, workflowId: string): RuntimeObservabilityEmitter =>
   (event) => {
     reporter(runtimeObservabilityEventToPipelineEvent(event, workflowId));
   };
@@ -363,10 +265,7 @@ export const runtimeSystemId = (context: RuntimeContext): string =>
     workflowId: context.workflowId,
   });
 
-export const runtimeNodeActorDescriptor = (
-  context: RuntimeContext,
-  nodeId: string
-): RuntimeActorDescriptor => ({
+export const runtimeNodeActorDescriptor = (context: RuntimeContext, nodeId: string): RuntimeActorDescriptor => ({
   id: runtimeActorId("node", {
     nodeId,
     runId: context.runId,
@@ -376,17 +275,11 @@ export const runtimeNodeActorDescriptor = (
   systemId: runtimeSystemId(context),
 });
 
-export const emit = (
-  context: RuntimeContext,
-  event: PipelineRuntimeEvent
-): void => {
+export const emit = (context: RuntimeContext, event: PipelineRuntimeEvent): void => {
   context.reporter?.(event);
 };
 
-export const emitWorkflowFinish = (
-  context: RuntimeContext,
-  outcome: "CANCELLED" | "FAIL" | "PASS"
-): void => {
+export const emitWorkflowFinish = (context: RuntimeContext, outcome: "CANCELLED" | "FAIL" | "PASS"): void => {
   emit(context, {
     outcome,
     type: "workflow.finish",
@@ -400,7 +293,7 @@ export const emitWorkflowPlanned = (context: RuntimeContext): void => {
       node.needs.map((source) => ({
         source,
         target: node.id,
-      }))
+      })),
     ),
     nodes: context.plan.topologicalOrder.map((node) => {
       const planned = {
@@ -439,21 +332,13 @@ export const emitWorkflowStarted = (context: RuntimeContext): void => {
     // Include parallel children so the run-control store registers every node
     // the runtime will report on; otherwise a parallel child's session/result
     // update is rejected as an unknown node id.
-    nodeIds: flattenNodes(
-      context.plan.topologicalOrder,
-      (node) => node.children
-    ).map((node) => node.id),
+    nodeIds: flattenNodes(context.plan.topologicalOrder, (node) => node.children).map((node) => node.id),
     type: "workflow.start",
     workflowId: context.workflowId,
   });
 };
 
-export const emitGateStart = (
-  context: RuntimeContext,
-  nodeId: string,
-  gate: GateSpec,
-  gateId: string
-): void => {
+export const emitGateStart = (context: RuntimeContext, nodeId: string, gate: GateSpec, gateId: string): void => {
   emit(context, {
     gateId,
     kind: gate.kind,
@@ -471,17 +356,11 @@ export const emitGateStart = (
 };
 
 const gateResultReasonFields = (
-  result: RuntimeGateResult
+  result: RuntimeGateResult,
 ): Pick<Extract<PipelineRuntimeEvent, { type: "gate.finish" }>, "reason"> =>
-  result.reason === undefined || result.reason.length === 0
-    ? {}
-    : { reason: result.reason };
+  result.reason === undefined || result.reason.length === 0 ? {} : { reason: result.reason };
 
-const emitArtifactGateFinish = (
-  context: RuntimeContext,
-  gate: GateSpec,
-  result: RuntimeGateResult
-): void => {
+const emitArtifactGateFinish = (context: RuntimeContext, gate: GateSpec, result: RuntimeGateResult): void => {
   if (gate.kind !== "artifact") {
     return;
   }
@@ -495,11 +374,7 @@ const emitArtifactGateFinish = (
   });
 };
 
-export const emitGateFinish = (
-  context: RuntimeContext,
-  gate: GateSpec,
-  result: RuntimeGateResult
-): void => {
+export const emitGateFinish = (context: RuntimeContext, gate: GateSpec, result: RuntimeGateResult): void => {
   emitArtifactGateFinish(context, gate, result);
   emit(context, {
     evidence: result.evidence,
@@ -512,94 +387,67 @@ export const emitGateFinish = (
   });
 };
 
-const runtimeNodeById = (
-  context: RuntimeContext,
-  nodeId: string
-): Option.Option<PlannedRuntimeNode> =>
-  Option.fromNullishOr(
-    context.plan.topologicalOrder.find((item) => item.id === nodeId)
-  );
+const runtimeNodeById = (context: RuntimeContext, nodeId: string): Option.Option<PlannedRuntimeNode> =>
+  Option.fromNullishOr(context.plan.topologicalOrder.find((item) => item.id === nodeId));
 
 const runtimeNodeProfile = (
   context: RuntimeContext,
-  node: Option.Option<PlannedRuntimeNode>
+  node: Option.Option<PlannedRuntimeNode>,
 ): Option.Option<RuntimeNodeProfile> =>
   Option.flatMap(node, (value) =>
     value.profile === undefined || value.profile.length === 0
       ? Option.none()
-      : Option.some(context.config.profiles[value.profile])
+      : Option.some(context.config.profiles[value.profile]),
   );
 
-const runtimeNodeProfileField = (
-  node: Option.Option<PlannedRuntimeNode>
-): Pick<RuntimeNodeRunnerFields, "profile"> =>
+const runtimeNodeProfileField = (node: Option.Option<PlannedRuntimeNode>): Pick<RuntimeNodeRunnerFields, "profile"> =>
   Option.match(node, {
     onNone: () => ({}),
-    onSome: (value) =>
-      value.profile === undefined || value.profile.length === 0
-        ? {}
-        : { profile: value.profile },
+    onSome: (value) => (value.profile === undefined || value.profile.length === 0 ? {} : { profile: value.profile }),
   });
 
 const runtimeNodeRunnerIdField = (
-  profile: Option.Option<RuntimeNodeProfile>
+  profile: Option.Option<RuntimeNodeProfile>,
 ): Pick<RuntimeNodeRunnerFields, "runnerId"> =>
   Option.match(profile, {
     onNone: () => ({}),
-    onSome: (value) =>
-      value.runner.length === 0 ? {} : { runnerId: value.runner },
+    onSome: (value) => (value.runner.length === 0 ? {} : { runnerId: value.runner }),
   });
 
 const runtimeNodeRunnerFields = (
   node: Option.Option<PlannedRuntimeNode>,
-  profile: Option.Option<RuntimeNodeProfile>
+  profile: Option.Option<RuntimeNodeProfile>,
 ): RuntimeNodeRunnerFields => ({
   ...runtimeNodeProfileField(node),
   ...runtimeNodeRunnerIdField(profile),
 });
 
-const runtimeNodeOutputFormat = (
-  profile: Option.Option<RuntimeNodeProfile>
-): string =>
+const runtimeNodeOutputFormat = (profile: Option.Option<RuntimeNodeProfile>): string =>
   Option.match(profile, {
     onNone: () => "text",
     onSome: (value) => value.output?.format ?? "text",
   });
 
 const nodeOutputProfileField = (
-  node: PlannedRuntimeNode
-): Pick<
-  Extract<PipelineRuntimeEvent, { type: "node.output.recorded" }>,
-  "profile"
-> =>
-  node.profile === undefined || node.profile.length === 0
-    ? {}
-    : { profile: node.profile };
+  node: PlannedRuntimeNode,
+): Pick<Extract<PipelineRuntimeEvent, { type: "node.output.recorded" }>, "profile"> =>
+  node.profile === undefined || node.profile.length === 0 ? {} : { profile: node.profile };
 
 const nodeOutputSchemaField = (
-  profile: Option.Option<RuntimeNodeProfile>
-): Pick<
-  Extract<PipelineRuntimeEvent, { type: "node.output.recorded" }>,
-  "schemaPath"
-> =>
+  profile: Option.Option<RuntimeNodeProfile>,
+): Pick<Extract<PipelineRuntimeEvent, { type: "node.output.recorded" }>, "schemaPath"> =>
   Option.match(profile, {
     onNone: () => ({}),
     onSome: (value) =>
-      value.output?.schema_path === undefined ||
-      value.output.schema_path.length === 0
+      value.output?.schema_path === undefined || value.output.schema_path.length === 0
         ? {}
         : { schemaPath: value.output.schema_path },
   });
 
 const nodeOutputParseErrorField = (
-  parsed: ReturnType<typeof parseRuntimeOutput>
-): Pick<
-  Extract<PipelineRuntimeEvent, { type: "node.output.recorded" }>,
-  "parseError"
-> =>
-  parsed.error === undefined || parsed.error.length === 0
-    ? {}
-    : { parseError: parsed.error };
+  parsed: ReturnType<typeof parseRuntimeOutput>,
+): Pick<Extract<PipelineRuntimeEvent, { type: "node.output.recorded" }>, "parseError"> =>
+  parsed.error === undefined || parsed.error.length === 0 ? {} : { parseError: parsed.error };
 
 const nodeOutputRecordedEvent = (input: {
   attempt: number;
@@ -618,24 +466,16 @@ const nodeOutputRecordedEvent = (input: {
   ...nodeOutputParseErrorField(input.parsed),
 });
 
-const isStructuredOutputFormat = (
-  format: string
-): format is StructuredOutputFormat => structuredOutputFormats.has(format);
+const isStructuredOutputFormat = (format: string): format is StructuredOutputFormat =>
+  structuredOutputFormats.has(format);
 
-const structuredOutputNodeId = (
-  context: RuntimeContext,
-  nodeId: string
-): string =>
-  context.parentParallelNodeId !== undefined &&
-  context.parentParallelNodeId.length > 0
+const structuredOutputNodeId = (context: RuntimeContext, nodeId: string): string =>
+  context.parentParallelNodeId !== undefined && context.parentParallelNodeId.length > 0
     ? `${context.parentParallelNodeId}.${nodeId}`
     : nodeId;
 
-const structuredOutputParentFields = (
-  context: RuntimeContext
-): Pick<RuntimeStructuredOutput, "parentParallelNodeId"> =>
-  context.parentParallelNodeId !== undefined &&
-  context.parentParallelNodeId.length > 0
+const structuredOutputParentFields = (context: RuntimeContext): Pick<RuntimeStructuredOutput, "parentParallelNodeId"> =>
+  context.parentParallelNodeId !== undefined && context.parentParallelNodeId.length > 0
     ? { parentParallelNodeId: context.parentParallelNodeId }
     : {};
 
@@ -643,30 +483,20 @@ const structuredOutputProfileFields = (output: {
   profileId?: string;
   schemaPath?: string;
 }): Pick<RuntimeStructuredOutput, "profileId" | "schemaPath"> => ({
-  ...(output.profileId === undefined || output.profileId.length === 0
-    ? {}
-    : { profileId: output.profileId }),
-  ...(output.schemaPath === undefined || output.schemaPath.length === 0
-    ? {}
-    : { schemaPath: output.schemaPath }),
+  ...(output.profileId === undefined || output.profileId.length === 0 ? {} : { profileId: output.profileId }),
+  ...(output.schemaPath === undefined || output.schemaPath.length === 0 ? {} : { schemaPath: output.schemaPath }),
 });
 
 const structuredOutputSchemaValidation = (
   context: RuntimeContext,
   output: unknown,
-  schemaPath: string
+  schemaPath: string,
 ): RuntimeStructuredOutput["validation"] => {
-  const validation = validateJsonSchemaSource(
-    JSON.stringify(output),
-    schemaPath,
-    context.worktreePath
-  );
+  const validation = validateJsonSchemaSource(JSON.stringify(output), schemaPath, context.worktreePath);
   return {
     evidence: validation.evidence,
     passed: validation.passed,
-    ...(validation.reason === undefined || validation.reason.length === 0
-      ? {}
-      : { reason: validation.reason }),
+    ...(validation.reason === undefined || validation.reason.length === 0 ? {} : { reason: validation.reason }),
     status: validation.passed ? "valid" : "invalid",
   };
 };
@@ -677,7 +507,7 @@ const structuredOutputValidation = (
     output: unknown;
     parseError?: string;
     schemaPath?: string;
-  }
+  },
 ): RuntimeStructuredOutput["validation"] => {
   if (output.parseError !== undefined && output.parseError.length > 0) {
     return {
@@ -688,11 +518,7 @@ const structuredOutputValidation = (
     };
   }
   return output.schemaPath !== undefined && output.schemaPath.length > 0
-    ? structuredOutputSchemaValidation(
-        context,
-        output.output,
-        output.schemaPath
-      )
+    ? structuredOutputSchemaValidation(context, output.output, output.schemaPath)
     : {
         evidence: ["structured output has no schema"],
         passed: true,
@@ -710,7 +536,7 @@ const recordStructuredOutput = (
     parseError?: string;
     profileId?: string;
     schemaPath?: string;
-  }
+  },
 ): void => {
   if (!isStructuredOutputFormat(output.format)) {
     return;
@@ -731,7 +557,7 @@ export const emitNodeOutputRecorded = (
   context: RuntimeContext,
   node: PlannedRuntimeNode,
   attempt: number,
-  output: string
+  output: string,
 ): void => {
   const profile = runtimeNodeProfile(context, Option.some(node));
   const format = runtimeNodeOutputFormat(profile);
@@ -755,18 +581,12 @@ export const emitNodeOutputRecorded = (
   emit(context, event);
 };
 
-export const emitAgentStart = (
-  context: RuntimeContext,
-  plan: RunnerLaunchPlan,
-  attempt: number
-): void => {
+export const emitAgentStart = (context: RuntimeContext, plan: RunnerLaunchPlan, attempt: number): void => {
   emit(context, {
     attempt,
     nodeId: plan.nodeId,
     type: "agent.start",
-    ...(plan.profileId === undefined || plan.profileId.length === 0
-      ? {}
-      : { profile: plan.profileId }),
+    ...(plan.profileId === undefined || plan.profileId.length === 0 ? {} : { profile: plan.profileId }),
     runnerId: plan.runnerId,
   });
 };
@@ -775,27 +595,21 @@ export const emitAgentFinish = (
   context: RuntimeContext,
   plan: RunnerLaunchPlan,
   attempt: number,
-  result: AgentResult
+  result: AgentResult,
 ): void => {
   emit(context, {
     attempt,
     exitCode: result.exitCode,
     nodeId: plan.nodeId,
     type: "agent.finish",
-    ...(plan.profileId === undefined || plan.profileId.length === 0
-      ? {}
-      : { profile: plan.profileId }),
+    ...(plan.profileId === undefined || plan.profileId.length === 0 ? {} : { profile: plan.profileId }),
     runnerId: plan.runnerId,
   });
 };
 
-const prefixedChildNodeId = (parentNodeId: string, nodeId: string): string =>
-  `${parentNodeId}.${nodeId}`;
+const prefixedChildNodeId = (parentNodeId: string, nodeId: string): string => `${parentNodeId}.${nodeId}`;
 
-const prefixNodeIdEvent = (
-  parentNodeId: string,
-  event: PipelineRuntimeEvent
-): PipelineRuntimeEvent =>
+const prefixNodeIdEvent = (parentNodeId: string, event: PipelineRuntimeEvent): PipelineRuntimeEvent =>
   "nodeId" in event && typeof event.nodeId === "string"
     ? {
         ...event,
@@ -804,23 +618,15 @@ const prefixNodeIdEvent = (
       }
     : { ...event, parentNodeId };
 
-const prefixNodeIdsEvent = (
-  parentNodeId: string,
-  event: PipelineRuntimeEvent
-): PipelineRuntimeEvent =>
+const prefixNodeIdsEvent = (parentNodeId: string, event: PipelineRuntimeEvent): PipelineRuntimeEvent =>
   event.type === "workflow.start"
     ? {
         ...event,
-        nodeIds: event.nodeIds.map((nodeId) =>
-          prefixedChildNodeId(parentNodeId, nodeId)
-        ),
+        nodeIds: event.nodeIds.map((nodeId) => prefixedChildNodeId(parentNodeId, nodeId)),
       }
     : event;
 
-const prefixWorkflowGraphEvent = (
-  parentNodeId: string,
-  event: PipelineRuntimeEvent
-): PipelineRuntimeEvent =>
+const prefixWorkflowGraphEvent = (parentNodeId: string, event: PipelineRuntimeEvent): PipelineRuntimeEvent =>
   event.type === "workflow.planned"
     ? {
         ...event,
@@ -835,19 +641,10 @@ const prefixWorkflowGraphEvent = (
       }
     : event;
 
-const prefixChildRuntimeEvent = (
-  parentNodeId: string,
-  event: PipelineRuntimeEvent
-): PipelineRuntimeEvent =>
-  prefixWorkflowGraphEvent(
-    parentNodeId,
-    prefixNodeIdsEvent(parentNodeId, prefixNodeIdEvent(parentNodeId, event))
-  );
+const prefixChildRuntimeEvent = (parentNodeId: string, event: PipelineRuntimeEvent): PipelineRuntimeEvent =>
+  prefixWorkflowGraphEvent(parentNodeId, prefixNodeIdsEvent(parentNodeId, prefixNodeIdEvent(parentNodeId, event)));
 
-export const childReporter = (
-  context: RuntimeContext,
-  parentNodeId: string
-): PipelineRuntimeOptions["reporter"] => {
+export const childReporter = (context: RuntimeContext, parentNodeId: string): PipelineRuntimeOptions["reporter"] => {
   if (context.reporter === undefined) {
     return undefined;
   }
@@ -858,11 +655,7 @@ export const childReporter = (
 
 const now = (): string => new Date().toISOString();
 
-export const emitNodeStart = (
-  context: RuntimeContext,
-  node: PlannedRuntimeNode,
-  attempt: number
-): void => {
+export const emitNodeStart = (context: RuntimeContext, node: PlannedRuntimeNode, attempt: number): void => {
   const profile = runtimeNodeProfile(context, Option.some(node));
   emit(context, {
     attempt,
@@ -878,10 +671,7 @@ export const emitNodeStart = (
   });
 };
 
-export const emitNodeFinish = (
-  context: RuntimeContext,
-  result: RuntimeNodeResult
-): void => {
+export const emitNodeFinish = (context: RuntimeContext, result: RuntimeNodeResult): void => {
   const node = runtimeNodeById(context, result.nodeId);
   const profile = runtimeNodeProfile(context, node);
   emit(context, {

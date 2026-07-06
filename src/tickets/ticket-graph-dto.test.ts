@@ -1,20 +1,17 @@
-import { Effect } from "effect";
+import * as Effect from "effect/Effect";
 import { describe, expect, it } from "vitest";
 
+import { parseWithSchema } from "../schema-boundary";
 import type { BacklogTaskRecord } from "./backlog-task-store";
 import { buildTicketGraphEffect } from "./ticket-graph";
-import {
-  loopStateSchema,
-  serializeTicketGraph,
-  ticketGraphDtoSchema,
-} from "./ticket-graph-dto";
+import { LOOP_STATES, loopStateSchema, serializeTicketGraph, ticketGraphDtoSchema } from "./ticket-graph-dto";
 import type { LoopState } from "./ticket-graph-dto";
 
 // Minimal task factory — only the fields ticket-graph cares about.
 const makeTask = (
   id: string,
   dependencies: string[] = [],
-  overrides: Partial<BacklogTaskRecord> = {}
+  overrides: Partial<BacklogTaskRecord> = {},
 ): BacklogTaskRecord => ({
   acceptanceCriteria: [],
   dependencies,
@@ -28,37 +25,24 @@ const makeTask = (
 });
 
 // Sync helper — our tasks have no cycles so this always succeeds.
-const buildGraph = (tasks: BacklogTaskRecord[]) =>
-  Effect.runSync(buildTicketGraphEffect(tasks));
+const buildGraph = (tasks: BacklogTaskRecord[]) => Effect.runSync(buildTicketGraphEffect(tasks));
 
 describe("loopStateSchema", () => {
   it("accepts all five lifecycle values", () => {
-    const values: LoopState[] = [
-      "queued",
-      "running",
-      "merging",
-      "passed",
-      "blocked",
-    ];
+    const values: LoopState[] = ["queued", "running", "merging", "passed", "blocked"];
     for (const v of values) {
-      expect(loopStateSchema.parse(v)).toBe(v);
+      expect(parseWithSchema(loopStateSchema, v)).toBe(v);
     }
   });
 
   it("rejects an unknown status string", () => {
-    expect(() => loopStateSchema.parse("unknown")).toThrow();
+    expect(() => parseWithSchema(loopStateSchema, "unknown")).toThrow();
   });
 
   it("is the single source of truth — enum options are the full set", () => {
     // AC3: the exported enum options are exactly the five defined states; no extra
     // literal is silently recognised elsewhere.
-    expect(loopStateSchema.options).toStrictEqual([
-      "queued",
-      "running",
-      "merging",
-      "passed",
-      "blocked",
-    ]);
+    expect(LOOP_STATES).toStrictEqual(["queued", "running", "merging", "passed", "blocked"]);
   });
 });
 
@@ -112,7 +96,7 @@ describe("serializeTicketGraph", () => {
     const tasks = [makeTask("A"), makeTask("B", ["A"])];
     const graph = buildGraph(tasks);
     const dto = Effect.runSync(serializeTicketGraph(graph));
-    expect(() => ticketGraphDtoSchema.parse(dto)).not.toThrow();
+    expect(() => parseWithSchema(ticketGraphDtoSchema, dto)).not.toThrow();
   });
 
   it("node fields include id, title, status, priority, loopState", () => {

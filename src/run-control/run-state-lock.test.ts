@@ -30,7 +30,7 @@ describe("run-state lock", () => {
     await expect(
       withRunStateLock(() => {
         throw new Error("boom");
-      })
+      }),
     ).rejects.toThrow("boom");
 
     let recovered = false;

@@ -52,19 +52,14 @@ interface SecretRef {
 // global config, then absent. dbAuth/mcpGatewayAuth were previously read
 // unconditionally from global config with no per-invocation override, which
 // breaks the moment you target a cluster that doesn't have that secret name.
-const resolveOptionalSecretRef = (
-  flags: SecretRefFlags,
-  fromGlobalConfig?: SecretRef
-) => {
+const resolveOptionalSecretRef = (flags: SecretRefFlags, fromGlobalConfig?: SecretRef) => {
   if (flags.skip === true) {
     return;
   }
   if (flags.secretName !== undefined && flags.secretName !== "") {
     return {
       secretName: flags.secretName,
-      ...(flags.secretKey !== undefined && flags.secretKey !== ""
-        ? { secretKey: flags.secretKey }
-        : {}),
+      ...(flags.secretKey !== undefined && flags.secretKey !== "" ? { secretKey: flags.secretKey } : {}),
     };
   }
   return fromGlobalConfig;
@@ -79,10 +74,7 @@ interface SecretNameFlags {
 // field with no separate key -- the mounted key is fixed (see
 // appendNpmRegistryAuthStorage), so there is nothing for a "secret key" flag to
 // override.
-const resolveOptionalSecretName = (
-  flags: SecretNameFlags,
-  fromGlobalConfig?: string
-) => {
+const resolveOptionalSecretName = (flags: SecretNameFlags, fromGlobalConfig?: string) => {
   if (flags.skip === true) {
     return;
   }
@@ -90,19 +82,12 @@ const resolveOptionalSecretName = (
 };
 
 type MokaSubmitInput = Parameters<typeof submitMoka>[0];
-type MokaSubmitCommonOptions = Omit<
-  MokaSubmitInput,
-  "commandArgv" | "mode" | "schedulePath" | "task" | "type"
->;
+type MokaSubmitCommonOptions = Omit<MokaSubmitInput, "commandArgv" | "mode" | "schedulePath" | "task" | "type">;
 
-const resolveMokaEventUrl = (
-  flags: MokaSubmitFlags,
-  globalConfig?: MokaGlobalConfig
-) => flags.eventUrl ?? globalConfig?.momokaya.submit.eventUrl;
+const resolveMokaEventUrl = (flags: MokaSubmitFlags, globalConfig?: MokaGlobalConfig) =>
+  flags.eventUrl ?? globalConfig?.momokaya.submit.eventUrl;
 
-const resolveMokaBrokerAuth = (
-  globalConfig?: MokaGlobalConfig
-): MokaSubmitCommonOptions["brokerAuth"] => {
+const resolveMokaBrokerAuth = (globalConfig?: MokaGlobalConfig): MokaSubmitCommonOptions["brokerAuth"] => {
   const brokerAuth = globalConfig?.momokaya.submit.brokerAuth;
   if (brokerAuth === undefined) {
     throw new Error("momokaya.submit.brokerAuth is required for remote submit");
@@ -113,12 +98,9 @@ const resolveMokaBrokerAuth = (
 const submitMokaCommandInput = (
   input: string[],
   flags: MokaSubmitFlags,
-  commonOptions: MokaSubmitCommonOptions
+  commonOptions: MokaSubmitCommonOptions,
 ): MokaSubmitInput => {
-  if (
-    flags.quick === true ||
-    (flags.schedule !== undefined && flags.schedule !== "")
-  ) {
+  if (flags.quick === true || (flags.schedule !== undefined && flags.schedule !== "")) {
     throw new Error("--command cannot be combined with --quick or --schedule");
   }
   if (input.length === 0) {
@@ -135,7 +117,7 @@ const submitMokaCommandInput = (
 const submitMokaGraphInput = (
   input: string[],
   flags: MokaSubmitFlags,
-  commonOptions: MokaSubmitCommonOptions
+  commonOptions: MokaSubmitCommonOptions,
 ): MokaSubmitInput => {
   const task = input.join(" ").trim();
   if (task === "") {
@@ -150,10 +132,7 @@ const submitMokaGraphInput = (
   };
 };
 
-const addRunnerArgoOptions = (
-  command: Command,
-  options: ArgoCommandOptionOptions = {}
-): Command => {
+const addRunnerArgoOptions = (command: Command, options: ArgoCommandOptionOptions = {}): Command => {
   command
     .option("--name <name>", "Workflow metadata.name")
     .option("--generate-name <prefix>", "Workflow metadata.generateName")
@@ -169,7 +148,7 @@ const addRunnerArgoOptions = (
     .addOption(
       new Option("--image-pull-policy <policy>", "runner image pull policy")
         .choices(["Always", "IfNotPresent", "Never"])
-        .default("Always")
+        .default("Always"),
     )
     .option("--image-pull-secret <name>", "imagePullSecret name");
 };
@@ -181,51 +160,25 @@ export const addMokaSubmitOptions = (command: Command): Command =>
       .option("--command", "treat input after -- as explicit argv")
       .option("--schedule <path>", "approved schedule YAML to submit")
       .option("--event-url <url>", "runner event sink URL")
-      .option(
-        "--open-pr",
-        "append an open-pull-request delivery node (preview-labelled PR)"
-      )
+      .option("--open-pr", "append an open-pull-request delivery node (preview-labelled PR)")
       .option("--task <text>", "task description for command-mode metadata")
-      .option(
-        "--db-auth-secret-name <name>",
-        "override momokaya.submit.dbAuth secret name"
-      )
-      .option(
-        "--db-auth-secret-key <key>",
-        "override momokaya.submit.dbAuth secret key"
-      )
-      .option(
-        "--skip-db-auth",
-        "omit MOKA_DB_URL injection regardless of global config"
-      )
-      .option(
-        "--mcp-gateway-auth-secret-name <name>",
-        "override momokaya.submit.mcpGatewayAuth secret name"
-      )
-      .option(
-        "--mcp-gateway-auth-secret-key <key>",
-        "override momokaya.submit.mcpGatewayAuth secret key"
-      )
+      .option("--db-auth-secret-name <name>", "override momokaya.submit.dbAuth secret name")
+      .option("--db-auth-secret-key <key>", "override momokaya.submit.dbAuth secret key")
+      .option("--skip-db-auth", "omit MOKA_DB_URL injection regardless of global config")
+      .option("--mcp-gateway-auth-secret-name <name>", "override momokaya.submit.mcpGatewayAuth secret name")
+      .option("--mcp-gateway-auth-secret-key <key>", "override momokaya.submit.mcpGatewayAuth secret key")
       .option(
         "--skip-mcp-gateway-auth",
-        "omit PIPELINE_MCP_GATEWAY_AUTHORIZATION injection regardless of global config"
+        "omit PIPELINE_MCP_GATEWAY_AUTHORIZATION injection regardless of global config",
       )
-      .option(
-        "--npm-registry-auth-secret-name <name>",
-        "override momokaya.submit.npmRegistryAuthSecretName"
-      )
-      .option(
-        "--skip-npm-registry-auth",
-        "omit the /root/.npmrc mount regardless of global config"
-      ),
+      .option("--npm-registry-auth-secret-name <name>", "override momokaya.submit.npmRegistryAuthSecretName")
+      .option("--skip-npm-registry-auth", "omit the /root/.npmrc mount regardless of global config"),
     {
       kubeconfig: true,
-    }
+    },
   );
 
-export const parseImagePullPolicy = (
-  value?: string
-): "Always" | "IfNotPresent" | "Never" => {
+export const parseImagePullPolicy = (value?: string): "Always" | "IfNotPresent" | "Never" => {
   if (value === "IfNotPresent" || value === "Never") {
     return value;
   }
@@ -249,7 +202,7 @@ const mokaCommonSubmitOptions = (input: {
         secretName: input.flags.dbAuthSecretName,
         skip: input.flags.skipDbAuth,
       },
-      momokaya?.submit.dbAuth
+      momokaya?.submit.dbAuth,
     ),
     delivery: { pullRequest: input.flags.openPr === true },
     eventAuthSecretKey: momokaya?.submit.eventAuthSecretKey,
@@ -260,8 +213,7 @@ const mokaCommonSubmitOptions = (input: {
     githubAuthSecretName: momokaya?.submit.githubAuthSecretName,
     image: input.flags.image,
     imagePullPolicy: parseImagePullPolicy(input.flags.imagePullPolicy),
-    imagePullSecretName:
-      input.flags.imagePullSecret ?? momokaya?.submit.imagePullSecretName,
+    imagePullSecretName: input.flags.imagePullSecret ?? momokaya?.submit.imagePullSecretName,
     kubeContext: input.flags.kubeContext ?? momokaya?.kubernetes.context,
     kubeconfigPath: input.flags.kubeconfig ?? momokaya?.kubernetes.kubeconfig,
     mcpGatewayAuth: resolveOptionalSecretRef(
@@ -270,7 +222,7 @@ const mokaCommonSubmitOptions = (input: {
         secretName: input.flags.mcpGatewayAuthSecretName,
         skip: input.flags.skipMcpGatewayAuth,
       },
-      momokaya?.submit.mcpGatewayAuth
+      momokaya?.submit.mcpGatewayAuth,
     ),
     name: input.flags.name,
     namespace: input.flags.namespace ?? momokaya?.kubernetes.namespace,
@@ -279,10 +231,9 @@ const mokaCommonSubmitOptions = (input: {
         secretName: input.flags.npmRegistryAuthSecretName,
         skip: input.flags.skipNpmRegistryAuth,
       },
-      momokaya?.submit.npmRegistryAuthSecretName
+      momokaya?.submit.npmRegistryAuthSecretName,
     ),
-    serviceAccountName:
-      input.flags.serviceAccount ?? momokaya?.submit.serviceAccountName,
+    serviceAccountName: input.flags.serviceAccount ?? momokaya?.submit.serviceAccountName,
     worktreePath: input.cwd,
   };
 };
@@ -307,16 +258,11 @@ export const buildMokaSubmitInputFromCli = (input: {
   return submitMokaGraphInput(input.input, input.flags, commonOptions);
 };
 
-export const runMokaSubmitFromCli = async (
-  input: string[],
-  flags: MokaSubmitFlags
-): ReturnType<typeof submitMoka> => {
+export const runMokaSubmitFromCli = async (input: string[], flags: MokaSubmitFlags): ReturnType<typeof submitMoka> => {
   const cwd = process.env.PIPELINE_TARGET_PATH ?? process.cwd();
   const config = loadPipelineConfig(cwd, {
     allowMissingLintFileReferences: true,
   });
   const globalConfig = loadMokaGlobalConfig() ?? undefined;
-  return await submitMoka(
-    buildMokaSubmitInputFromCli({ config, cwd, flags, globalConfig, input })
-  );
+  return await submitMoka(buildMokaSubmitInputFromCli({ config, cwd, flags, globalConfig, input }));
 };

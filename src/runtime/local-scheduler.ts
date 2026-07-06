@@ -1,39 +1,25 @@
 import { Context, Effect, Layer, Option } from "effect";
 
 import type { WorkflowExecutionPlan } from "../planning/compile";
-import type {
-  PipelineRuntimeResult,
-  RuntimeContext,
-  RuntimeFailure,
-  RuntimeNodeResult,
-} from "./contracts";
+import type { PipelineRuntimeResult, RuntimeContext, RuntimeFailure, RuntimeNodeResult } from "./contracts";
 import type { RunJournal } from "./run-journal";
 import { runWorkflowScheduler } from "./scheduler";
 import { runWorkflowLifecycle } from "./workflow-lifecycle";
-import type {
-  WorkflowHookEvent,
-  WorkflowHookResult,
-} from "./workflow-lifecycle";
+import type { WorkflowHookEvent, WorkflowHookResult } from "./workflow-lifecycle";
 
 export interface PipelineScheduler {
-  runWorkflow(
-    plan: WorkflowExecutionPlan,
-    context: RuntimeContext
-  ): Promise<PipelineRuntimeResult>;
+  runWorkflow(plan: WorkflowExecutionPlan, context: RuntimeContext): Promise<PipelineRuntimeResult>;
 }
 
 export interface LocalSchedulerOptions {
   buildResult: (
     outcome: PipelineRuntimeResult["outcome"],
     nodes: RuntimeNodeResult[],
-    failure?: RuntimeFailure
+    failure?: RuntimeFailure,
   ) => PipelineRuntimeResult;
   emitWorkflowPlanned: (context: RuntimeContext) => void;
   emitWorkflowStarted: (context: RuntimeContext) => void;
-  executeNode: (
-    nodeId: string,
-    context: RuntimeContext
-  ) => Promise<RuntimeNodeResult>;
+  executeNode: (nodeId: string, context: RuntimeContext) => Promise<RuntimeNodeResult>;
   isCancelled: (context: RuntimeContext) => boolean;
   markNodeReady: (nodeId: string, context: RuntimeContext) => void;
   // PIPE-83.10: durability provider. Returns Some journal for crash-resume,
@@ -42,25 +28,18 @@ export interface LocalSchedulerOptions {
   runWorkflowHook: (
     event: WorkflowHookEvent,
     context: RuntimeContext,
-    failure?: RuntimeFailure
+    failure?: RuntimeFailure,
   ) => Promise<WorkflowHookResult> | WorkflowHookResult;
-  shouldContinueAfterNodeResult: (
-    result: RuntimeNodeResult,
-    context: RuntimeContext
-  ) => boolean;
+  shouldContinueAfterNodeResult: (result: RuntimeNodeResult, context: RuntimeContext) => boolean;
   skipNode: (nodeId: string, reason: string, context: RuntimeContext) => void;
 }
 
-const LocalSchedulerOptionsService = Context.Service<LocalSchedulerOptions>(
-  "LocalSchedulerOptionsService"
-);
+const LocalSchedulerOptionsService = Context.Service<LocalSchedulerOptions>("LocalSchedulerOptionsService");
 
 const localSchedulerOptionsLive = (options: LocalSchedulerOptions) =>
   Layer.succeed(LocalSchedulerOptionsService, options);
 
-const scheduleNode = (
-  node: WorkflowExecutionPlan["topologicalOrder"][number]
-) => ({
+const scheduleNode = (node: WorkflowExecutionPlan["topologicalOrder"][number]) => ({
   category: node.category,
   dependents: node.dependents,
   id: node.id,
@@ -68,11 +47,7 @@ const scheduleNode = (
   needs: node.needs,
 });
 
-const schedulerInput = (
-  plan: WorkflowExecutionPlan,
-  context: RuntimeContext,
-  options: LocalSchedulerOptions
-) => ({
+const schedulerInput = (plan: WorkflowExecutionPlan, context: RuntimeContext, options: LocalSchedulerOptions) => ({
   failFast: plan.execution.failFast,
   fanOutWidth: context.config.token_budget.fan_out_width,
   isCancelled: () => options.isCancelled(context),
@@ -83,18 +58,13 @@ const schedulerInput = (
   maxParallelNodes: context.maxParallelNodes,
   nodes: plan.topologicalOrder.map(scheduleNode),
   runNode: async (nodeId: string) => await options.executeNode(nodeId, context),
-  shouldContinueAfterNodeResult: (result: RuntimeNodeResult) =>
-    options.shouldContinueAfterNodeResult(result, context),
+  shouldContinueAfterNodeResult: (result: RuntimeNodeResult) => options.shouldContinueAfterNodeResult(result, context),
   skipNode: (nodeId: string, reason: string) => {
     options.skipNode(nodeId, reason, context);
   },
 });
 
-const lifecycleInput = (
-  plan: WorkflowExecutionPlan,
-  context: RuntimeContext,
-  options: LocalSchedulerOptions
-) => ({
+const lifecycleInput = (plan: WorkflowExecutionPlan, context: RuntimeContext, options: LocalSchedulerOptions) => ({
   buildResult: options.buildResult,
   emitWorkflowPlanned: () => {
     options.emitWorkflowPlanned(context);
@@ -102,8 +72,7 @@ const lifecycleInput = (
   emitWorkflowStarted: () => {
     options.emitWorkflowStarted(context);
   },
-  executeWorkflow: async () =>
-    await runWorkflowScheduler(schedulerInput(plan, context, options)),
+  executeWorkflow: async () => await runWorkflowScheduler(schedulerInput(plan, context, options)),
   isCancelled: () => options.isCancelled(context),
   runWorkflowHook: async (event: WorkflowHookEvent, failure?: RuntimeFailure) =>
     await options.runWorkflowHook(event, context, failure),
@@ -111,18 +80,13 @@ const lifecycleInput = (
 
 const runLocalWorkflowEffect = (
   plan: WorkflowExecutionPlan,
-  context: RuntimeContext
-): Effect.Effect<
-  PipelineRuntimeResult,
-  unknown,
-  Context.Service.Identifier<typeof LocalSchedulerOptionsService>
-> =>
+  context: RuntimeContext,
+): Effect.Effect<PipelineRuntimeResult, unknown, Context.Service.Identifier<typeof LocalSchedulerOptionsService>> =>
   Effect.gen(function* effectBody() {
     const options = yield* LocalSchedulerOptionsService;
     const lifecycle = yield* Effect.tryPromise({
       catch: (error) => error,
-      try: async () =>
-        await runWorkflowLifecycle(lifecycleInput(plan, context, options)),
+      try: async () => await runWorkflowLifecycle(lifecycleInput(plan, context, options)),
     });
     return lifecycle.result;
   });
@@ -139,22 +103,14 @@ export class LocalScheduler implements PipelineScheduler {
     this.options = options;
   }
 
-  async runWorkflow(
-    plan: WorkflowExecutionPlan,
-    context: RuntimeContext
-  ): Promise<PipelineRuntimeResult> {
+  async runWorkflow(plan: WorkflowExecutionPlan, context: RuntimeContext): Promise<PipelineRuntimeResult> {
     const { options } = this;
     if (!options) {
-      throw new Error(
-        "LocalScheduler requires runtime options to run workflow"
-      );
+      throw new Error("LocalScheduler requires runtime options to run workflow");
     }
 
     return await Effect.runPromise(
-      Effect.provide(
-        runLocalWorkflowEffect(plan, context),
-        localSchedulerOptionsLive(options)
-      )
+      Effect.provide(runLocalWorkflowEffect(plan, context), localSchedulerOptionsLive(options)),
     );
   }
 }

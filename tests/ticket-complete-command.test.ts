@@ -1,10 +1,4 @@
-import {
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -44,7 +38,7 @@ afterEach(() => {
 
 const writeTicket = (
   root: string,
-  input: { acceptanceCriteria: readonly string[]; id: string; title: string }
+  input: { acceptanceCriteria: readonly string[]; id: string; title: string },
 ): string => {
   mkdirSync(join(root, "backlog", "tasks"), { recursive: true });
   const acceptanceBlock =
@@ -52,9 +46,7 @@ const writeTicket = (
       ? [
           "## Acceptance Criteria",
           "<!-- AC:BEGIN -->",
-          ...input.acceptanceCriteria.map(
-            (text, index) => `- [ ] #${index + 1} ${text}`
-          ),
+          ...input.acceptanceCriteria.map((text, index) => `- [ ] #${index + 1} ${text}`),
           "<!-- AC:END -->",
         ]
       : [];
@@ -75,14 +67,12 @@ const writeTicket = (
       "",
       ...acceptanceBlock,
       "",
-    ].join("\n")
+    ].join("\n"),
   );
   return path;
 };
 
-const recordingBacklogLayer = (
-  calls: BacklogCall[]
-): NonNullable<TicketCommandOptions["backlogLayer"]> =>
+const recordingBacklogLayer = (calls: BacklogCall[]): NonNullable<TicketCommandOptions["backlogLayer"]> =>
   Layer.succeed(BacklogService, {
     run: (args, cwd) =>
       Effect.sync(() => {
@@ -94,13 +84,13 @@ const recordingBacklogLayer = (
 const runComplete = async (
   root: string,
   args: readonly string[],
-  backlogLayer: NonNullable<TicketCommandOptions["backlogLayer"]>
+  backlogLayer: NonNullable<TicketCommandOptions["backlogLayer"]>,
 ): Promise<void> => {
   process.env.PIPELINE_TARGET_PATH = root;
   const { createCliProgram } = await import("../src/cli/program");
   await createCliProgram({ ticketCommand: { backlogLayer } }).parseAsync(
     ["node", "/repo/node_modules/.bin/moka", "ticket", "complete", ...args],
-    { from: "node" }
+    { from: "node" },
   );
 };
 
@@ -123,11 +113,7 @@ describe("moka ticket complete", () => {
     const before = readFileSync(path, "utf-8");
     const calls: BacklogCall[] = [];
 
-    await runComplete(
-      root,
-      ["PIPE-1", "--evidence", "1=looks done to me"],
-      recordingBacklogLayer(calls)
-    );
+    await runComplete(root, ["PIPE-1", "--evidence", "1=looks done to me"], recordingBacklogLayer(calls));
 
     const output = loggedOutput();
     expect(output).toContain("PIPE-1 NOT completed");
@@ -172,11 +158,7 @@ describe("moka ticket complete", () => {
       title: "Json",
     });
 
-    await runComplete(
-      root,
-      ["PIPE-3", "--evidence", "1=evidence", "--json"],
-      recordingBacklogLayer([])
-    );
+    await runComplete(root, ["PIPE-3", "--evidence", "1=evidence", "--json"], recordingBacklogLayer([]));
 
     const parsed: unknown = JSON.parse(loggedOutput());
     expect(parsed).toMatchObject({

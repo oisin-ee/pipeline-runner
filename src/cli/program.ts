@@ -32,20 +32,14 @@ const registerSubmitCommand = (program: Command): void => {
     program
       .command("submit")
       .description("Submit work to Momokaya as an Argo Workflow.")
-      .argument(
-        "[input...]",
-        "task description, or command argv with --command"
-      )
+      .argument("[input...]", "task description, or command argv with --command"),
   ).action(async (input: string[], flags: MokaSubmitFlags) => {
     const result = await runMokaSubmitFromCli(input, flags);
     printMokaSubmitResult(result);
   });
 };
 
-const registerApplicationCommands = (
-  program: Command,
-  options: CliProgramOptions
-): void => {
+const registerApplicationCommands = (program: Command, options: CliProgramOptions): void => {
   const dispatchResolvedRunCommand = registerRunCommands(program, {
     runCommand: options.runCommand,
   });
@@ -64,10 +58,7 @@ const registerApplicationCommands = (
   });
 };
 
-const configureEntrypointHelp = (
-  program: Command,
-  configuredEntrypointCommands: Set<string>
-): void => {
+const configureEntrypointHelp = (program: Command, configuredEntrypointCommands: Set<string>): void => {
   if (configuredEntrypointCommands.size === 0) {
     return;
   }
@@ -81,35 +72,24 @@ const configureEntrypointHelp = (
   });
 };
 
-const runEntrypointCommand = async (
-  entrypoint: string,
-  task: string
-): Promise<void> => {
+const runEntrypointCommand = async (entrypoint: string, task: string): Promise<void> => {
   await execute(task, { entrypoint });
 };
 
-const registerEntrypointCommands = (
-  program: Command,
-  configuredPipeline: PipelineConfig
-): void => {
+const registerEntrypointCommands = (program: Command, configuredPipeline: PipelineConfig): void => {
   const configuredEntrypointCommands = registerConfiguredEntrypointCommands(
     program,
     configuredPipeline,
-    runEntrypointCommand
+    runEntrypointCommand,
   );
   configureEntrypointHelp(program, configuredEntrypointCommands);
 };
 
 const isPackageVersionRecord = (value: unknown): value is { version: string } =>
-  typeof value === "object" &&
-  value !== null &&
-  "version" in value &&
-  typeof value.version === "string";
+  typeof value === "object" && value !== null && "version" in value && typeof value.version === "string";
 
 const readPackageVersion = (): string => {
-  const packageJson = JSON.parse(
-    readFileSync(new URL("../../package.json", import.meta.url), "utf-8")
-  );
+  const packageJson = JSON.parse(readFileSync(new URL("../../package.json", import.meta.url), "utf-8"));
   if (!isPackageVersionRecord(packageJson)) {
     throw new Error("Unable to read @oisincoveney/pipeline package version.");
   }
@@ -117,11 +97,7 @@ const readPackageVersion = (): string => {
 };
 
 const createBaseProgram = (): Command =>
-  new Command()
-    .name("moka")
-    .description("Submit work to Momokaya")
-    .version(readPackageVersion())
-    .exitOverride();
+  new Command().name("moka").description("Submit work to Momokaya").version(readPackageVersion()).exitOverride();
 
 const loadConfiguredEntrypoints = (cwd: string): PipelineConfig =>
   loadPipelineConfig(cwd, {
@@ -142,8 +118,7 @@ export const createCliProgram = (options: CliProgramOptions = {}): Command => {
 export const runCliEffect = (argv: string[]): Effect.Effect<void, unknown> =>
   Effect.tryPromise({
     catch: (error) => error,
-    try: async () =>
-      await createCliProgram().parseAsync(argv, { from: "node" }),
+    try: async () => await createCliProgram().parseAsync(argv, { from: "node" }),
   }).pipe(Effect.asVoid);
 
 export const runCli = async (argv: string[]): Promise<void> => {

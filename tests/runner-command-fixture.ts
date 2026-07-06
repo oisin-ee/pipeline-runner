@@ -1,14 +1,9 @@
-import {
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
 import { buildCommandScheduleYaml } from "../src/argo-submit";
+import { isRecord, isStringValue, parseJson, stringRecord } from "../src/safe-json";
 
 const RUNNER_COMMAND = ["node", "-e", "console.log('runner command ok')"];
 const tempDirs: string[] = [];
@@ -36,15 +31,11 @@ export const cleanupRunnerCommandFixtures = (): void => {
   }
 };
 
-export const writeRunnerCommandFixture = (
-  options: RunnerCommandFixtureOptions = {}
-): RunnerCommandFixture => {
+export const writeRunnerCommandFixture = (options: RunnerCommandFixtureOptions = {}): RunnerCommandFixture => {
   const runId = options.runId ?? "run-1";
   const scheduleId = options.scheduleId ?? runId;
   const workflowId = options.workflowId ?? `schedule-${runId}-root`;
-  const dir = mkdtempSync(
-    join(tmpdir(), options.tempPrefix ?? "runner-command-")
-  );
+  const dir = mkdtempSync(join(tmpdir(), options.tempPrefix ?? "runner-command-"));
   tempDirs.push(dir);
 
   const descriptorPath = join(dir, "task.json");
@@ -85,7 +76,7 @@ export const writeRunnerCommandFixture = (
       workflow: {
         id: workflowId,
       },
-    })
+    }),
   );
   writeFileSync(
     schedulePath,
@@ -94,7 +85,7 @@ export const writeRunnerCommandFixture = (
       generatedAt: new Date("2026-06-10T00:00:00.000Z"),
       scheduleId,
       task: "Run explicit command",
-    })
+    }),
   );
 
   return { descriptorPath, dir, payloadPath, schedulePath };
@@ -103,42 +94,38 @@ export const writeRunnerCommandFixture = (
 export const commandHookResult =
   (options: { failEvent?: string } = {}) =>
   (_command: string, _args: string[], execaOptions?: unknown) => {
-    const env = (execaOptions as { env?: Record<string, string> } | undefined)
-      ?.env;
-    const inputPath = env?.PIPELINE_HOOK_INPUT ?? "";
-    const resultPath = env?.PIPELINE_HOOK_RESULT ?? "";
+    const env = stringRecord(isRecord(execaOptions) ? execaOptions.env : undefined);
+    const inputPath = stringRecordField(env, "PIPELINE_HOOK_INPUT");
+    const resultPath = stringRecordField(env, "PIPELINE_HOOK_RESULT");
     if (inputPath.length === 0 || resultPath.length === 0) {
       return { exitCode: 1, stderr: "missing hook env", stdout: "" };
     }
-    const input = JSON.parse(readFileSync(inputPath, "utf-8")) as {
-      event: { type: string };
-    };
-    const status = input.event.type === options.failEvent ? "fail" : "pass";
+    const input = parseJson(readFileSync(inputPath, "utf-8"), "hook input");
+    const event = isRecord(input) && isRecord(input.event) ? input.event : {};
+    const eventType = isStringValue(event.type) ? event.type : "";
+    const status = eventType === options.failEvent ? "fail" : "pass";
     writeFileSync(
       resultPath,
       JSON.stringify({
         status,
-        summary: `${input.event.type} ${status}`,
-      })
+        summary: `${eventType} ${status}`,
+      }),
     );
     return { exitCode: 0, stderr: "", stdout: "" };
   };
 
-export const captureEventBatches =
-  (batches: unknown[][]) =>
-  async (_input: RequestInfo | URL, init?: RequestInit) => {
-    const body = JSON.parse(String(init?.body ?? "{}")) as {
-      events?: unknown[];
-    };
-    batches.push(body.events ?? []);
-    return new Response(null, { status: 200 });
-  };
+const stringRecordField = (record: Record<string, string>, key: string): string => {
+  const value: unknown = Reflect.get(record, key);
+  return isStringValue(value) ? value : "";
+};
 
-const writeProjectFile = (
-  root: string,
-  path: string,
-  content: string
-): void => {
+export const captureEventBatches = (batches: unknown[][]) => async (_input: RequestInfo | URL, init?: RequestInit) => {
+  const body = parseJson(String(init?.body ?? "{}"), "runner event batch");
+  batches.push(isRecord(body) && Array.isArray(body.events) ? body.events : []);
+  return new Response(null, { status: 200 });
+};
+
+const writeProjectFile = (root: string, path: string, content: string): void => {
   const fullPath = join(root, path);
   mkdirSync(dirname(fullPath), { recursive: true });
   writeFileSync(fullPath, content);
@@ -154,10 +141,7 @@ const lifecycleHookYaml = (event: string): string => {
 `;
 };
 
-export const writeLifecycleConfig = (
-  project: string,
-  events: string[]
-): void => {
+export const writeLifecycleConfig = (project: string, events: string[]): void => {
   writeProjectFile(
     project,
     ".pipeline/runners.yaml",
@@ -169,7 +153,7 @@ runners:
     capabilities:
       native_subagents: false
       output_formats: [text]
-`
+`,
   );
   writeProjectFile(
     project,
@@ -179,7 +163,7 @@ profiles:
   orchestrator:
     runner: command
     instructions: { inline: Orchestrate }
-`
+`,
   );
   writeProjectFile(
     project,
@@ -201,31 +185,72 @@ ${events.map((event) => lifecycleHookYaml(event)).join("")}workflows:
       - id: command
         kind: command
         command: [node, -e, "console.log('ok')"]
-`
+`,
   );
 };
 
-const flattenedEvents = (batches: unknown[][]): RunnerEvent[] =>
-  batches.flat() as RunnerEvent[];
+interface RunnerEventFinalResult {
+  outcome: string;
+  workflowId: string;
+}
 
-export const eventTypes = (batches: unknown[][]): string[] =>
-  flattenedEvents(batches).map((event) => event.type);
+interface RunnerEventHookResult {
+  event?: string;
+  status?: string;
+}
+
+type EventFinalResult = readonly [] | readonly [RunnerEventFinalResult];
+type EventHookResult = readonly [] | readonly [RunnerEventHookResult];
+
+const eventResult = (value: unknown): EventFinalResult => {
+  if (!isRecord(value) || !isStringValue(value.outcome) || !isStringValue(value.workflowId)) {
+    return [];
+  }
+  return [{ outcome: value.outcome, workflowId: value.workflowId }];
+};
+
+const hookResult = (value: unknown): EventHookResult => {
+  if (!isRecord(value)) {
+    return [];
+  }
+  return [
+    {
+      ...(isStringValue(value.event) ? { event: value.event } : {}),
+      ...(isStringValue(value.status) ? { status: value.status } : {}),
+    },
+  ];
+};
+
+const runnerEvent = (value: unknown): RunnerEvent[] => {
+  if (!isRecord(value) || !isStringValue(value.type)) {
+    return [];
+  }
+  const [finalResult] = eventResult(value.finalResult);
+  const [hookResultValue] = hookResult(value.hookResult);
+  return [
+    {
+      ...(finalResult === undefined ? {} : { finalResult }),
+      ...(hookResultValue === undefined ? {} : { hookResult: hookResultValue }),
+      type: value.type,
+    },
+  ];
+};
+
+const flattenedEvents = (batches: unknown[][]): RunnerEvent[] => batches.flatMap((batch) => batch.flatMap(runnerEvent));
+
+export const eventTypes = (batches: unknown[][]): string[] => flattenedEvents(batches).map((event) => event.type);
 
 export const hookResultEvents = (batches: unknown[][]): RunnerEvent[] =>
   flattenedEvents(batches).filter((event) => event.type === "hook.result");
 
-export const finalResults = (
-  batches: unknown[][]
-): { outcome: string; workflowId: string }[] =>
+export const finalResults = (batches: unknown[][]): RunnerEventFinalResult[] =>
   flattenedEvents(batches)
     .filter((event) => event.type === "workflow.finish")
     .map((event) => event.finalResult)
-    .filter((result): result is { outcome: string; workflowId: string } =>
-      Boolean(result)
-    );
+    .filter((result): result is RunnerEventFinalResult => Boolean(result));
 
 interface RunnerEvent {
-  finalResult?: { outcome: string; workflowId: string };
-  hookResult?: { event?: string; status?: string };
+  finalResult?: RunnerEventFinalResult;
+  hookResult?: RunnerEventHookResult;
   type: string;
 }

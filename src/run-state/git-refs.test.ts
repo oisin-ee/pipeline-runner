@@ -1,11 +1,5 @@
 import { execFileSync } from "node:child_process";
-import {
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -26,8 +20,7 @@ const COMMITTER = { email: "git@oisin.ee", name: "oisin-bot" };
 const SHA_RE = /^[0-9a-f]{40}$/u;
 // Mirrors the Conventional Commits subject that a target repo's commit-msg hook
 // (e.g. jalgpall-web's `conventional-commits` lefthook) enforces.
-const CONVENTIONAL_SUBJECT_RE =
-  /^(build|chore|ci|docs|feat|fix|perf|refactor|revert|style|test)(\(.+\))?!?: .+/u;
+const CONVENTIONAL_SUBJECT_RE = /^(build|chore|ci|docs|feat|fix|perf|refactor|revert|style|test)(\(.+\))?!?: .+/u;
 
 afterEach(() => {
   for (const dir of tempDirs.splice(0)) {
@@ -60,11 +53,7 @@ const configureGit = (cwd: string): void => {
   git(cwd, "config", "user.email", COMMITTER.email);
 };
 
-const seedRemote = (
-  fixture: string,
-  remotePath: string,
-  seedPath: string
-): string => {
+const seedRemote = (fixture: string, remotePath: string, seedPath: string): string => {
   const remoteUrl = pathToFileURL(remotePath).href;
   git(fixture, "init", "--bare", "--initial-branch=main", remotePath);
   git(fixture, "clone", remoteUrl, seedPath);
@@ -110,8 +99,7 @@ describe("runner Git refs", () => {
       },
     });
 
-    const finalRef =
-      "refs/heads/pipeline/runs/run-git-refs/workflow-git-refs/final";
+    const finalRef = "refs/heads/pipeline/runs/run-git-refs/workflow-git-refs/final";
 
     await prepareRunnerGitWorkspace(payload, { workspacePath: leftPath });
     configureGit(leftPath);
@@ -161,9 +149,7 @@ describe("runner Git refs", () => {
     // repo's Conventional Commits commit-msg hook (the bare `pipeline: <node>`
     // form was rejected with exit 1 by jalgpall-web's hook).
     const subjects = git(checkPath, "log", "--format=%s").trim().split("\n");
-    const checkpointSubjects = subjects.filter((subject) =>
-      subject.startsWith("chore(pipeline):")
-    );
+    const checkpointSubjects = subjects.filter((subject) => subject.startsWith("chore(pipeline):"));
     expect(checkpointSubjects).toContain(runnerCommitMessage("right"));
     for (const subject of checkpointSubjects) {
       expect(subject).toMatch(CONVENTIONAL_SUBJECT_RE);
@@ -200,8 +186,7 @@ describe("runner Git refs", () => {
         id: "workflow-git-retry-ref",
       },
     });
-    const retriedNodeRef =
-      "refs/heads/pipeline/runs/run-git-retry-ref/workflow-git-retry-ref/nodes/red-tests";
+    const retriedNodeRef = "refs/heads/pipeline/runs/run-git-retry-ref/workflow-git-retry-ref/nodes/red-tests";
 
     await prepareRunnerGitWorkspace(payload, {
       workspacePath: firstAttemptPath,
@@ -229,12 +214,8 @@ describe("runner Git refs", () => {
     git(checkPath, "fetch", "origin", retriedNodeRef);
     git(checkPath, "checkout", "FETCH_HEAD");
 
-    expect(readFileSync(join(checkPath, "passed-attempt.txt"), "utf-8")).toBe(
-      "passed\n"
-    );
-    expect(() =>
-      readFileSync(join(checkPath, "failed-attempt.txt"), "utf-8")
-    ).toThrow();
+    expect(readFileSync(join(checkPath, "passed-attempt.txt"), "utf-8")).toBe("passed\n");
+    expect(() => readFileSync(join(checkPath, "failed-attempt.txt"), "utf-8")).toThrow();
   });
 
   it("writes mounted username and password credentials to a writable store for runner git commands", async () => {
@@ -278,11 +259,9 @@ describe("runner Git refs", () => {
           id: "workflow-git-credentials",
         },
       }),
-      { workspacePath: worktreePath }
+      { workspacePath: worktreePath },
     );
 
-    expect(readFileSync(writablePath, "utf-8")).toBe(
-      "https://x-access-token:token%20value@example.test\n"
-    );
+    expect(readFileSync(writablePath, "utf-8")).toBe("https://x-access-token:token%20value@example.test\n");
   });
 });

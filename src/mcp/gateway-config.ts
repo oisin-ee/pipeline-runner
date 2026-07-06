@@ -14,17 +14,12 @@ const profileNeedsMcpGateway = (actor: ActorConfig | void): boolean =>
 
 export const configuredGateway = (config: PipelineConfig): McpGatewayConfig => {
   if (!config.mcp_gateway) {
-    throw new PipelineMcpGatewayError(
-      "Profiles that declare mcp_servers require top-level mcp_gateway configuration."
-    );
+    throw new PipelineMcpGatewayError("Profiles that declare mcp_servers require top-level mcp_gateway configuration.");
   }
   return config.mcp_gateway;
 };
 
-export const gatewayUrl = (
-  gateway: McpGatewayConfig,
-  env: NodeJS.ProcessEnv = process.env
-): string => {
+export const gatewayUrl = (gateway: McpGatewayConfig, env: NodeJS.ProcessEnv = process.env): string => {
   const url = env[gateway.url_env];
   if (url !== undefined && url !== "") {
     return url;
@@ -35,22 +30,15 @@ export const gatewayUrl = (
   if (gateway.mode === "local") {
     return DEFAULT_LOCAL_GATEWAY_URL;
   }
-  throw new PipelineMcpGatewayError(
-    `MCP gateway URL is required. Set ${gateway.url_env}.`
-  );
+  throw new PipelineMcpGatewayError(`MCP gateway URL is required. Set ${gateway.url_env}.`);
 };
 
-export const renderGatewayConfig = (
-  config: PipelineConfig,
-  env: NodeJS.ProcessEnv = process.env
-): string => {
+export const renderGatewayConfig = (config: PipelineConfig, env: NodeJS.ProcessEnv = process.env): string => {
   const gateway = configuredGateway(config);
   return [
     `provider: ${gateway.provider}`,
     `mode: ${gateway.mode}`,
-    gateway.url !== undefined && gateway.url !== ""
-      ? `url: ${gateway.url}`
-      : "",
+    gateway.url !== undefined && gateway.url !== "" ? `url: ${gateway.url}` : "",
     `url_env: ${gateway.url_env}`,
     `authorization_env: ${gateway.authorization_env}`,
     gateway.default_profile !== undefined && gateway.default_profile !== ""
@@ -62,13 +50,9 @@ export const renderGatewayConfig = (
     .join("\n");
 };
 
-export const gatewayAuthorizationHeader = (gateway: McpGatewayConfig): string =>
-  `{env:${gateway.authorization_env}}`;
+export const gatewayAuthorizationHeader = (gateway: McpGatewayConfig): string => `{env:${gateway.authorization_env}}`;
 
-const gatewayServer = (
-  config: PipelineConfig,
-  env: NodeJS.ProcessEnv
-): McpServerConfig => {
+const gatewayServer = (config: PipelineConfig, env: NodeJS.ProcessEnv): McpServerConfig => {
   const gateway = configuredGateway(config);
   const url = gatewayUrl(gateway, env);
   return {
@@ -82,7 +66,7 @@ const gatewayServer = (
 export const gatewayServerForProfile = (
   config: PipelineConfig | void,
   actor: ActorConfig | void,
-  env: NodeJS.ProcessEnv = process.env
+  env: NodeJS.ProcessEnv = process.env,
 ): Record<string, McpServerConfig> => {
   if (config === undefined || !profileNeedsMcpGateway(actor)) {
     return {};

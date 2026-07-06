@@ -16,13 +16,8 @@ const SUPPRESSION_MARKERS = [["fallow", "ignore"].join("-")];
 
 describe("PIPE-45.11 agent-node owner boundaries", () => {
   it("keeps agent-node.ts as the execution entrypoint", () => {
-    const missingOwners = AGENT_NODE_OWNER_FILES.filter(
-      (path) => !existsSync(join(ROOT, path))
-    );
-    const source = readFileSync(
-      join(ROOT, "src/runtime/agent-node/agent-node.ts"),
-      "utf-8"
-    );
+    const missingOwners = AGENT_NODE_OWNER_FILES.filter((path) => !existsSync(join(ROOT, path)));
+    const source = readFileSync(join(ROOT, "src/runtime/agent-node/agent-node.ts"), "utf-8");
 
     expect(missingOwners).toEqual([]);
     expect(source.split("\n").length).toBeLessThanOrEqual(AGENT_NODE_MAX_LINES);

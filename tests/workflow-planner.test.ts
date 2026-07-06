@@ -7,16 +7,11 @@ import { afterAll, describe, expect, it } from "vitest";
 
 import type { PipelineConfig } from "../src/config";
 import { loadPipelineConfig } from "../src/config";
-import {
-  compileWorkflowPlan,
-  WorkflowPlannerError,
-} from "../src/planning/compile";
+import { compileWorkflowPlan, WorkflowPlannerError } from "../src/planning/compile";
 
 // Literal pipeline template tokens; interpolating the inner literal keeps the
 // "${" sequence out of the source so noTemplateCurlyInString stays satisfied.
-const DEFAULT_PROJECT = mkdtempSync(
-  join(tmpdir(), "workflow-planner-default-")
-);
+const DEFAULT_PROJECT = mkdtempSync(join(tmpdir(), "workflow-planner-default-"));
 const DEFAULT_CONFIG = loadPipelineConfig(DEFAULT_PROJECT, {
   allowMissingLintFileReferences: true,
 });
@@ -37,32 +32,50 @@ const capturePlannerError = (action: () => unknown): WorkflowPlannerError => {
   throw new Error("Expected WorkflowPlannerError");
 };
 
-const cloneConfig = (config: PipelineConfig = DEFAULT_CONFIG): PipelineConfig =>
-  structuredClone(config);
+const cloneConfig = (config: PipelineConfig = DEFAULT_CONFIG): PipelineConfig => structuredClone(config);
 
-const commandNode = (
-  id: string,
-  needs?: string[]
-): PipelineConfig["workflows"][string]["nodes"][number] => ({
+const withWorkflow = (
+  config: PipelineConfig,
+  workflowId: string,
+  workflow: PipelineConfig["workflows"][string],
+  defaultWorkflow = config.default_workflow,
+): PipelineConfig => ({
+  ...config,
+  default_workflow: defaultWorkflow,
+  workflows: {
+    ...config.workflows,
+    [workflowId]: workflow,
+  },
+});
+
+const withWorkflowNodes = (
+  config: PipelineConfig,
+  workflowId: string,
+  nodes: PipelineConfig["workflows"][string]["nodes"],
+): PipelineConfig =>
+  withWorkflow(config, workflowId, {
+    ...config.workflows[workflowId],
+    nodes,
+  });
+
+const commandNode = (id: string, needs?: string[]): PipelineConfig["workflows"][string]["nodes"][number] => ({
   command: ["echo", id],
   id,
   kind: "command",
   ...(needs ? { needs } : {}),
 });
 
-const genericWorkflowConfig = (): PipelineConfig => {
-  const config = cloneConfig();
-  config.default_workflow = "scratch";
-  config.workflows.scratch = {
-    nodes: [commandNode("start")],
-  };
-  return config;
-};
+const genericWorkflowConfig = (): PipelineConfig =>
+  withWorkflow(
+    cloneConfig(),
+    "scratch",
+    {
+      nodes: [commandNode("start")],
+    },
+    "scratch",
+  );
 
-const deterministicDagNodes = (
-  size: number,
-  seed: number
-): PipelineConfig["workflows"][string]["nodes"] => {
+const deterministicDagNodes = (size: number, seed: number): PipelineConfig["workflows"][string]["nodes"] => {
   let state = seed;
   const random = () => {
     state = (state * 1_664_525 + 1_013_904_223) % 2 ** 32;
@@ -82,35 +95,20 @@ const deterministicDagNodes = (
 const batchIds = (plan: ReturnType<typeof compileWorkflowPlan>): string[][] =>
   plan.parallelBatches.map((batch) => batch.map((node) => node.id));
 
-const dependentIds = (
-  plan: ReturnType<typeof compileWorkflowPlan>
-): Record<string, string[]> =>
-  Object.fromEntries(
-    plan.topologicalOrder.map((node) => [node.id, node.dependents])
-  );
+const dependentIds = (plan: ReturnType<typeof compileWorkflowPlan>): Record<string, string[]> =>
+  Object.fromEntries(plan.topologicalOrder.map((node) => [node.id, node.dependents]));
 
-const graphlibSuccessorIds = (
-  plan: ReturnType<typeof compileWorkflowPlan>
-): Record<string, string[]> =>
-  Object.fromEntries(
-    plan.topologicalOrder.map((node) => [
-      node.id,
-      plan.graph.successors(node.id) ?? [],
-    ])
-  );
+const graphlibSuccessorIds = (plan: ReturnType<typeof compileWorkflowPlan>): Record<string, string[]> =>
+  Object.fromEntries(plan.topologicalOrder.map((node) => [node.id, plan.graph.successors(node.id) ?? []]));
 
-const graphlibReferenceBatchIds = (
-  plan: ReturnType<typeof compileWorkflowPlan>
-): string[][] => {
+const graphlibReferenceBatchIds = (plan: ReturnType<typeof compileWorkflowPlan>): string[][] => {
   const completed = new Set<string>();
   const remaining = [...plan.topologicalOrder];
   const batches: string[][] = [];
 
   while (remaining.length > 0) {
     const batch = remaining.filter((node) =>
-      (plan.graph.predecessors(node.id) ?? []).every((need) =>
-        completed.has(need)
-      )
+      (plan.graph.predecessors(node.id) ?? []).every((need) => completed.has(need)),
     );
     batch.sort((a, b) => a.index - b.index);
     batches.push(batch.map((node) => node.id));
@@ -123,9 +121,8 @@ const graphlibReferenceBatchIds = (
   return batches;
 };
 
-const graphlibReferenceTopologicalOrder = (
-  plan: ReturnType<typeof compileWorkflowPlan>
-): string[] => alg.topsort(plan.graph);
+const graphlibReferenceTopologicalOrder = (plan: ReturnType<typeof compileWorkflowPlan>): string[] =>
+  alg.topsort(plan.graph);
 
 describe("compileWorkflowPlan", () => {
   it("compiles the package default inspect workflow into stable topological order", () => {
@@ -134,9 +131,7 @@ describe("compileWorkflowPlan", () => {
     expect(plan.workflowId).toBe("inspect");
     expect(plan.execution).toEqual({ failFast: false });
     expect(plan.topologicalOrder.map((node) => node.id)).toEqual(["inspect"]);
-    expect(
-      plan.parallelBatches.map((batch) => batch.map((node) => node.id))
-    ).toEqual([["inspect"]]);
+    expect(plan.parallelBatches.map((batch) => batch.map((node) => node.id))).toEqual([["inspect"]]);
     expect(plan.topologicalOrder[0]).toMatchObject({
       dependents: [],
       kind: "agent",
@@ -163,8 +158,7 @@ describe("compileWorkflowPlan", () => {
   });
 
   it("preserves task_context on parallel children", () => {
-    const config = genericWorkflowConfig();
-    config.workflows.scratch.nodes = [
+    const config = withWorkflowNodes(genericWorkflowConfig(), "scratch", [
       {
         id: "fanout",
         kind: "parallel",
@@ -174,16 +168,14 @@ describe("compileWorkflowPlan", () => {
             kind: "agent",
             profile: "moka-researcher",
             task_context: {
-              acceptance_criteria: [
-                { id: "1", text: "Preserve child branch context." },
-              ],
+              acceptance_criteria: [{ id: "1", text: "Preserve child branch context." }],
               id: "PIPE-41.8",
               title: "Branch context",
             },
           },
         ],
       } as PipelineConfig["workflows"][string]["nodes"][number],
-    ];
+    ]);
 
     const plan = compileWorkflowPlan(config, "scratch");
 
@@ -195,8 +187,7 @@ describe("compileWorkflowPlan", () => {
   });
 
   it("identifies independent nodes as parallelizable with deterministic ordering", () => {
-    const config = genericWorkflowConfig();
-    config.workflows.parallel = {
+    const config = withWorkflow(genericWorkflowConfig(), "parallel", {
       nodes: [
         {
           id: "research",
@@ -228,7 +219,7 @@ describe("compileWorkflowPlan", () => {
           profile: "moka-verifier",
         },
       ],
-    };
+    });
 
     const plan = compileWorkflowPlan(config, "parallel");
 
@@ -239,26 +230,17 @@ describe("compileWorkflowPlan", () => {
       "quality",
       "verify",
     ]);
-    expect(
-      plan.parallelBatches.map((batch) => batch.map((node) => node.id))
-    ).toEqual([
+    expect(plan.parallelBatches.map((batch) => batch.map((node) => node.id))).toEqual([
       ["research"],
       ["unit-tests", "typecheck"],
       ["quality"],
       ["verify"],
     ]);
-    expect(plan.topologicalOrder.map((node) => node.kind)).toEqual([
-      "agent",
-      "command",
-      "builtin",
-      "group",
-      "agent",
-    ]);
+    expect(plan.topologicalOrder.map((node) => node.kind)).toEqual(["agent", "command", "builtin", "group", "agent"]);
   });
 
   it("treats group child nodes as implicit dependencies", () => {
-    const config = genericWorkflowConfig();
-    config.workflows.grouped = {
+    const config = withWorkflow(genericWorkflowConfig(), "grouped", {
       nodes: [
         {
           id: "left",
@@ -276,28 +258,19 @@ describe("compileWorkflowPlan", () => {
           nodes: ["left", "right"],
         },
       ],
-    };
+    });
 
     const plan = compileWorkflowPlan(config, "grouped");
 
-    expect(plan.topologicalOrder.map((node) => node.id)).toEqual([
-      "left",
-      "right",
-      "quality",
-    ]);
-    expect(
-      plan.topologicalOrder.find((node) => node.id === "quality")
-    ).toMatchObject({
+    expect(plan.topologicalOrder.map((node) => node.id)).toEqual(["left", "right", "quality"]);
+    expect(plan.topologicalOrder.find((node) => node.id === "quality")).toMatchObject({
       needs: ["left", "right"],
     });
-    expect(
-      plan.parallelBatches.map((batch) => batch.map((node) => node.id))
-    ).toEqual([["left", "right"], ["quality"]]);
+    expect(plan.parallelBatches.map((batch) => batch.map((node) => node.id))).toEqual([["left", "right"], ["quality"]]);
   });
 
   it("deduplicates and sorts merged explicit and implicit group dependencies", () => {
-    const config = genericWorkflowConfig();
-    config.workflows.grouped = {
+    const config = withWorkflow(genericWorkflowConfig(), "grouped", {
       nodes: [
         commandNode("zeta"),
         commandNode("alpha"),
@@ -308,13 +281,11 @@ describe("compileWorkflowPlan", () => {
           nodes: ["alpha", "zeta", "alpha"],
         },
       ],
-    };
+    });
 
     const plan = compileWorkflowPlan(config, "grouped");
 
-    expect(
-      plan.topologicalOrder.find((node) => node.id === "quality")?.needs
-    ).toEqual(["alpha", "zeta"]);
+    expect(plan.topologicalOrder.find((node) => node.id === "quality")?.needs).toEqual(["alpha", "zeta"]);
   });
 
   it("matches graphlib-derived batches and dependents for representative DAG shapes", () => {
@@ -354,17 +325,12 @@ describe("compileWorkflowPlan", () => {
     ];
 
     for (const testCase of cases) {
-      const config = genericWorkflowConfig();
-      config.workflows.scratch.nodes = testCase.nodes;
+      const config = withWorkflowNodes(genericWorkflowConfig(), "scratch", testCase.nodes);
 
       const plan = compileWorkflowPlan(config, "scratch");
 
-      expect(batchIds(plan), testCase.name).toEqual(
-        graphlibReferenceBatchIds(plan)
-      );
-      expect(dependentIds(plan), testCase.name).toEqual(
-        graphlibSuccessorIds(plan)
-      );
+      expect(batchIds(plan), testCase.name).toEqual(graphlibReferenceBatchIds(plan));
+      expect(dependentIds(plan), testCase.name).toEqual(graphlibSuccessorIds(plan));
     }
   });
 
@@ -395,24 +361,18 @@ describe("compileWorkflowPlan", () => {
       },
       {
         name: "shared dependencies",
-        nodes: [
-          commandNode("a"),
-          commandNode("b"),
-          commandNode("c", ["a", "b"]),
-          commandNode("d", ["a"]),
-        ],
+        nodes: [commandNode("a"), commandNode("b"), commandNode("c", ["a", "b"]), commandNode("d", ["a"])],
       },
     ];
 
     for (const testCase of cases) {
-      const config = genericWorkflowConfig();
-      config.workflows.scratch.nodes = testCase.nodes;
+      const config = withWorkflowNodes(genericWorkflowConfig(), "scratch", testCase.nodes);
 
       const plan = compileWorkflowPlan(config, "scratch");
 
       expect(
         plan.topologicalOrder.map((node) => node.id),
-        testCase.name
+        testCase.name,
       ).toEqual(graphlibReferenceTopologicalOrder(plan));
     }
   });
@@ -420,35 +380,28 @@ describe("compileWorkflowPlan", () => {
   it("matches graphlib planning metadata for deterministic generated DAGs", () => {
     for (const size of [1, 2, 5, 10, 25, 50]) {
       for (const seed of [1, 2, 3, 5, 8, 13, 21]) {
-        const config = genericWorkflowConfig();
-        config.workflows.scratch.nodes = deterministicDagNodes(size, seed);
+        const config = withWorkflowNodes(genericWorkflowConfig(), "scratch", deterministicDagNodes(size, seed));
 
         const plan = compileWorkflowPlan(config, "scratch");
         const caseName = `size=${size} seed=${seed}`;
 
         expect(
           plan.topologicalOrder.map((node) => node.id),
-          caseName
+          caseName,
         ).toEqual(graphlibReferenceTopologicalOrder(plan));
-        expect(batchIds(plan), caseName).toEqual(
-          graphlibReferenceBatchIds(plan)
-        );
-        expect(dependentIds(plan), caseName).toEqual(
-          graphlibSuccessorIds(plan)
-        );
+        expect(batchIds(plan), caseName).toEqual(graphlibReferenceBatchIds(plan));
+        expect(dependentIds(plan), caseName).toEqual(graphlibSuccessorIds(plan));
       }
     }
   });
 
   it("compiles long generated dependency chains without recursive topsort overflow", () => {
-    const config = genericWorkflowConfig();
-    config.workflows.scratch.nodes = Array.from(
-      { length: 10_000 },
-      (_, index) =>
-        commandNode(
-          `node-${index}`,
-          index === 0 ? undefined : [`node-${index - 1}`]
-        )
+    const config = withWorkflowNodes(
+      genericWorkflowConfig(),
+      "scratch",
+      Array.from({ length: 10_000 }, (_, index) =>
+        commandNode(`node-${index}`, index === 0 ? undefined : [`node-${index - 1}`]),
+      ),
     );
 
     const plan = compileWorkflowPlan(config, "scratch");
@@ -460,8 +413,7 @@ describe("compileWorkflowPlan", () => {
   });
 
   it("normalizes workflow execution settings", () => {
-    const config = genericWorkflowConfig();
-    config.workflows.limited = {
+    const config = withWorkflow(genericWorkflowConfig(), "limited", {
       execution: {
         fail_fast: true,
         max_parallel_nodes: 2,
@@ -481,7 +433,7 @@ describe("compileWorkflowPlan", () => {
           timeout_ms: 5000,
         },
       ],
-    };
+    });
 
     const plan = compileWorkflowPlan(config, "limited");
 
@@ -502,9 +454,7 @@ describe("compileWorkflowPlan", () => {
   });
 
   it("rejects missing workflows", () => {
-    const error = capturePlannerError(() =>
-      compileWorkflowPlan(DEFAULT_CONFIG, "missing")
-    );
+    const error = capturePlannerError(() => compileWorkflowPlan(DEFAULT_CONFIG, "missing"));
 
     expect(error.code).toBe("WORKFLOW_MISSING_WORKFLOW");
     expect(error.message).toContain("not declared");
@@ -512,8 +462,7 @@ describe("compileWorkflowPlan", () => {
   });
 
   it("rejects duplicate node ids", () => {
-    const config = genericWorkflowConfig();
-    config.workflows.scratch.nodes = [
+    const config = withWorkflowNodes(genericWorkflowConfig(), "scratch", [
       {
         id: "research",
         kind: "agent",
@@ -524,11 +473,9 @@ describe("compileWorkflowPlan", () => {
         kind: "agent",
         profile: "moka-test-writer",
       },
-    ];
+    ]);
 
-    const error = capturePlannerError(() =>
-      compileWorkflowPlan(config, "scratch")
-    );
+    const error = capturePlannerError(() => compileWorkflowPlan(config, "scratch"));
 
     expect(error.code).toBe("WORKFLOW_DUPLICATE_NODE");
     expect(error.message).toContain("duplicate node id 'research'");
@@ -536,17 +483,16 @@ describe("compileWorkflowPlan", () => {
   });
 
   it("rejects orphan dependencies", () => {
-    const config = genericWorkflowConfig();
-    config.workflows.scratch.nodes[0] = {
-      id: "research",
-      kind: "agent",
-      needs: ["missing"],
-      profile: "moka-researcher",
-    };
+    const config = withWorkflowNodes(genericWorkflowConfig(), "scratch", [
+      {
+        id: "research",
+        kind: "agent",
+        needs: ["missing"],
+        profile: "moka-researcher",
+      },
+    ]);
 
-    const error = capturePlannerError(() =>
-      compileWorkflowPlan(config, "scratch")
-    );
+    const error = capturePlannerError(() => compileWorkflowPlan(config, "scratch"));
 
     expect(error.code).toBe("WORKFLOW_MISSING_DEPENDENCY");
     expect(error.message).toContain("missing dependency 'missing'");
@@ -554,8 +500,7 @@ describe("compileWorkflowPlan", () => {
   });
 
   it("rejects dependency cycles", () => {
-    const config = genericWorkflowConfig();
-    config.workflows.scratch.nodes = [
+    const config = withWorkflowNodes(genericWorkflowConfig(), "scratch", [
       {
         id: "a",
         kind: "agent",
@@ -568,11 +513,9 @@ describe("compileWorkflowPlan", () => {
         needs: ["a"],
         profile: "moka-test-writer",
       },
-    ];
+    ]);
 
-    const error = capturePlannerError(() =>
-      compileWorkflowPlan(config, "scratch")
-    );
+    const error = capturePlannerError(() => compileWorkflowPlan(config, "scratch"));
 
     expect(error.code).toBe("WORKFLOW_CYCLE");
     expect(error.message).toContain("dependency cycle");
@@ -580,18 +523,15 @@ describe("compileWorkflowPlan", () => {
   });
 
   it("rejects malformed group references", () => {
-    const config = genericWorkflowConfig();
-    config.workflows.scratch.nodes = [
+    const config = withWorkflowNodes(genericWorkflowConfig(), "scratch", [
       {
         id: "quality",
         kind: "group",
         nodes: ["missing-child"],
       },
-    ];
+    ]);
 
-    const error = capturePlannerError(() =>
-      compileWorkflowPlan(config, "scratch")
-    );
+    const error = capturePlannerError(() => compileWorkflowPlan(config, "scratch"));
 
     expect(error.code).toBe("WORKFLOW_GROUP_REFERENCE");
     expect(error.message).toContain("missing child node 'missing-child'");

@@ -42,9 +42,7 @@ export const createSerializedWriteQueue = (): SerializedWriteQueue => {
       const drain = tail;
       await drain;
 
-      const failure = failures.find(
-        (entry) => entry.sequence <= drainThroughSequence
-      );
+      const failure = failures.find((entry) => entry.sequence <= drainThroughSequence);
       removeFailuresThrough(drainThroughSequence);
       if (failure) {
         throw failure.error;

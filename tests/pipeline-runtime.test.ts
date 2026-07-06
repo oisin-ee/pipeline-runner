@@ -1,25 +1,17 @@
 import { execFileSync } from "node:child_process";
-import {
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
-import { Option } from "effect";
+import * as Option from "effect/Option";
 import { execa } from "execa";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { parsePipelineConfigParts } from "../src/config";
+import type { PipelineConfig } from "../src/config";
 import { loadMokaGlobalConfig } from "../src/moka-global-config";
 import type { MokaGlobalConfig } from "../src/moka-global-config";
-import {
-  runPipelineFromConfig,
-  runScheduledWorkflowTask,
-} from "../src/pipeline-runtime";
+import { runPipelineFromConfig, runScheduledWorkflowTask } from "../src/pipeline-runtime";
 import type { PipelineRuntimeEvent } from "../src/pipeline-runtime";
 import type { RunnerLaunchPlan } from "../src/runner";
 
@@ -56,16 +48,12 @@ let gitMock: GitMock;
     add: vi.fn<(...args: unknown[]) => Promise<unknown>>(async () => {}),
     addConfig: vi.fn<(...args: unknown[]) => Promise<unknown>>(async () => {}),
     commit: vi.fn<(...args: unknown[]) => Promise<unknown>>(async () => {}),
-    raw: vi.fn<(...commands: (string | string[])[]) => Promise<string>>(
-      async () => ""
-    ),
-    revparse: vi.fn<(options: string[]) => Promise<string>>(
-      async () => "base-sha"
-    ),
+    raw: vi.fn<(...commands: (string | string[])[]) => Promise<string>>(async () => ""),
+    revparse: vi.fn<(options: string[]) => Promise<string>>(async () => "base-sha"),
     status: vi.fn(
       async (_options?: { baseDir?: string }): Promise<GitStatusResult> => ({
         files: [],
-      })
+      }),
     ),
   };
   gitMock = {
@@ -98,14 +86,10 @@ const isStringRecord = (value: unknown): value is Record<string, string> => {
   if (typeof value !== "object" || value === null) {
     return false;
   }
-  return Object.values(value).every(
-    (item: unknown) => typeof item === "string"
-  );
+  return Object.values(value).every((item: unknown) => typeof item === "string");
 };
 
-const commandHookEnv = (
-  options: unknown
-): Option.Option<Record<string, string>> => {
+const commandHookEnv = (options: unknown): Option.Option<Record<string, string>> => {
   if (typeof options !== "object" || options === null) {
     return Option.none();
   }
@@ -148,27 +132,23 @@ const tempProject = (): string => {
   return dir;
 };
 
-const writeProjectFile = (
-  root: string,
-  path: string,
-  content: string
-): void => {
+const writeProjectFile = (root: string, path: string, content: string): void => {
   const fullPath = join(root, path);
   mkdirSync(dirname(fullPath), { recursive: true });
   writeFileSync(fullPath, content);
 };
 
 const gitStatusSnapshot = (
-  baseDir?: string
+  baseDir?: string,
 ): {
   files: { path: string }[];
 } => {
   try {
-    const stdout = execFileSync(
-      "git",
-      ["status", "--porcelain", "--untracked-files=all"],
-      { cwd: baseDir, encoding: "utf-8", stdio: ["ignore", "pipe", "ignore"] }
-    );
+    const stdout = execFileSync("git", ["status", "--porcelain", "--untracked-files=all"], {
+      cwd: baseDir,
+      encoding: "utf-8",
+      stdio: ["ignore", "pipe", "ignore"],
+    });
     return {
       files: stdout
         .split(LINE_SPLIT_RE)
@@ -189,9 +169,7 @@ beforeEach(() => {
   gitMock.client.commit.mockResolvedValue(RESOLVED_VOID);
   gitMock.client.raw.mockResolvedValue("");
   gitMock.client.revparse.mockResolvedValue("base-sha");
-  gitMock.client.status.mockImplementation(async (options) =>
-    gitStatusSnapshot(options?.baseDir)
-  );
+  gitMock.client.status.mockImplementation(async (options) => gitStatusSnapshot(options?.baseDir));
 });
 
 const initCommittedGitProject = (project: string, files: string[]): void => {
@@ -271,9 +249,62 @@ runners:
 `,
   });
 
-const structuredVerdictSchemaProject = (
-  options: { repairEnabled?: boolean } = {}
-) => {
+const withProfilePatch = (
+  config: PipelineConfig,
+  profileId: string,
+  patch: Partial<PipelineConfig["profiles"][string]>,
+): PipelineConfig => ({
+  ...config,
+  profiles: {
+    ...config.profiles,
+    [profileId]: {
+      ...config.profiles[profileId],
+      ...patch,
+    },
+  },
+});
+
+const withRunnerPatch = (
+  config: PipelineConfig,
+  runnerId: string,
+  patch: Partial<PipelineConfig["runners"][string]>,
+): PipelineConfig => ({
+  ...config,
+  runners: {
+    ...config.runners,
+    [runnerId]: {
+      ...config.runners[runnerId],
+      ...patch,
+    },
+  },
+});
+
+const withDefaultWorkflowFirstNodeTaskContext = (
+  config: PipelineConfig,
+  taskContext: {
+    acceptance_criteria: { id: string; text: string }[];
+    description: string;
+    id: string;
+    title: string;
+  },
+): PipelineConfig => ({
+  ...config,
+  workflows: {
+    ...config.workflows,
+    default: {
+      ...config.workflows.default,
+      nodes: [
+        {
+          ...config.workflows.default.nodes[0],
+          task_context: taskContext,
+        },
+        ...config.workflows.default.nodes.slice(1),
+      ],
+    },
+  },
+});
+
+const structuredVerdictSchemaProject = (options: { repairEnabled?: boolean } = {}) => {
   const project = tempProject();
   writeProjectFile(
     project,
@@ -283,20 +314,25 @@ const structuredVerdictSchemaProject = (
       properties: { verdict: { enum: ["PASS"], type: "string" } },
       required: ["verdict"],
       type: "object",
-    })
+    }),
   );
-  const config = baseConfig(`
+  const config = withProfilePatch(
+    baseConfig(`
   structured-flow:
     nodes:
       - id: structured
         kind: agent
         profile: structured
-`);
-  config.profiles.structured.output = {
-    format: "json_schema",
-    ...(options.repairEnabled === false ? { repair: { enabled: false } } : {}),
-    schema_path: "schema.json",
-  };
+`),
+    "structured",
+    {
+      output: {
+        format: "json_schema",
+        ...(options.repairEnabled === false ? { repair: { enabled: false } } : {}),
+        schema_path: "schema.json",
+      },
+    },
+  );
   return { config, project };
 };
 
@@ -306,9 +342,7 @@ const executor = (outputs: Record<string, string | string[]>) => {
     const current = counts.get(plan.nodeId) ?? 0;
     counts.set(plan.nodeId, current + 1);
     const value = outputs[plan.nodeId] ?? "ok";
-    const stdout = Array.isArray(value)
-      ? (value.at(current) ?? value.at(-1) ?? "")
-      : value;
+    const stdout = Array.isArray(value) ? (value.at(current) ?? value.at(-1) ?? "") : value;
     return { exitCode: stdout === "__FAIL__" ? 1 : 0, stdout };
   };
 };
@@ -324,10 +358,7 @@ const commandHookSuccess =
       },
     });
     if (hookResultPath.length > 0) {
-      writeFileSync(
-        hookResultPath,
-        JSON.stringify({ status: "pass", summary: stdout })
-      );
+      writeFileSync(hookResultPath, JSON.stringify({ status: "pass", summary: stdout }));
     }
     return { exitCode: 0, stderr: "", stdout };
   };
@@ -348,10 +379,7 @@ describe("runPipelineFromConfig", () => {
     });
 
     expect(result.outcome).toBe("PASS");
-    expect(result.agentInvocations.map((plan) => plan.nodeId)).toEqual([
-      "a",
-      "b",
-    ]);
+    expect(result.agentInvocations.map((plan) => plan.nodeId)).toEqual(["a", "b"]);
     expect(result.nodeStates.a).toMatchObject({
       attempts: 1,
       status: "passed",
@@ -380,25 +408,17 @@ describe("runPipelineFromConfig", () => {
     expect(result.outcome).toBe("FAIL");
     const serialized = JSON.stringify(result);
     expect(serialized).toContain("DISTINCT_REAL_CAUSE_42");
-    expect(serialized).not.toContain(
-      "An unknown error occurred in Effect.tryPromise"
-    );
+    expect(serialized).not.toContain("An unknown error occurred in Effect.tryPromise");
   });
 
   it("renders node-specific task context in agent prompts", async () => {
     const project = tempProject();
-    const config = baseConfig();
-    config.workflows.default.nodes[0] = {
-      ...config.workflows.default.nodes[0],
-      task_context: {
-        acceptance_criteria: [
-          { id: "1", text: "The prompt includes node context." },
-        ],
-        description: "Use the node ticket instead of the parent task.",
-        id: "PIPE-41.7",
-        title: "Propagate node context",
-      },
-    } as (typeof config.workflows.default.nodes)[number];
+    const config = withDefaultWorkflowFirstNodeTaskContext(baseConfig(), {
+      acceptance_criteria: [{ id: "1", text: "The prompt includes node context." }],
+      description: "Use the node ticket instead of the parent task.",
+      id: "PIPE-41.7",
+      title: "Propagate node context",
+    });
     const seen: RunnerLaunchPlan[] = [];
 
     await runPipelineFromConfig({
@@ -426,11 +446,7 @@ describe("runPipelineFromConfig", () => {
   it("loads configured rules, skills, and MCP servers into agent boundaries", async () => {
     const project = tempProject();
     writeProjectFile(project, "rules/test-first.md", "Always write tests.");
-    writeProjectFile(
-      project,
-      ".agents/skills/research/SKILL.md",
-      "Use repository research."
-    );
+    writeProjectFile(project, ".agents/skills/research/SKILL.md", "Use repository research.");
     const config = parsePipelineConfigParts({
       pipeline: `
 version: 1
@@ -647,9 +663,7 @@ runners:
       config,
       executor: async (plan) => {
         starts.set(plan.nodeId, performance.now());
-        await new Promise((resolve) =>
-          setTimeout(resolve, delays.get(plan.nodeId) ?? 0)
-        );
+        await new Promise((resolve) => setTimeout(resolve, delays.get(plan.nodeId) ?? 0));
         finishes.set(plan.nodeId, performance.now());
         return { exitCode: 0, stdout: plan.nodeId };
       },
@@ -659,9 +673,7 @@ runners:
     });
 
     expect(result.outcome).toBe("PASS");
-    expect(starts.get("child-fast") ?? 0).toBeLessThan(
-      finishes.get("slow") ?? 0
-    );
+    expect(starts.get("child-fast") ?? 0).toBeLessThan(finishes.get("slow") ?? 0);
   });
 
   it("continues independent ready branches after a non fail-fast failure", async () => {
@@ -795,9 +807,7 @@ runners:
       kind: "artifact",
       passed: false,
     });
-    expect(result.agentInvocations.map((plan) => plan.nodeId)).toEqual([
-      "produce",
-    ]);
+    expect(result.agentInvocations.map((plan) => plan.nodeId)).toEqual(["produce"]);
   });
 
   it("retries failed gated nodes", async () => {
@@ -898,9 +908,7 @@ runners:
     });
 
     expect(result.outcome).toBe("PASS");
-    expect(
-      events.filter((event) => event.type === "runtime.observability")
-    ).toEqual(
+    expect(events.filter((event) => event.type === "runtime.observability")).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
           name: "runtime.hook.started",
@@ -921,7 +929,7 @@ runners:
           summary: "node flaky retry scheduled for attempt 2 (gate_failure)",
           type: "runtime.observability",
         }),
-      ])
+      ]),
     );
     expect(JSON.stringify(events)).not.toContain('snapshot":{"');
   });
@@ -984,7 +992,7 @@ runners:
     expect(mockExeca).toHaveBeenCalledWith(
       "uvx",
       ["semgrep", "scan", "--config=p/ci", "--error", "--", "src/app.ts"],
-      expect.objectContaining({ cwd: project })
+      expect.objectContaining({ cwd: project }),
     );
   });
 
@@ -1013,26 +1021,10 @@ runners:
         writeProjectFile(project, "src/app.ts", "export const value = 2;\n");
         // Supervisor run-state written into the worktree WHILE the node runs;
         // none of it is on the allow list. Before PIPE-85 these failed the gate.
-        writeProjectFile(
-          project,
-          ".pipeline/runs/run-fixture/status.json",
-          '{"status":"running"}\n'
-        );
-        writeProjectFile(
-          project,
-          ".pipeline/runs/run-fixture/runtime-events.jsonl",
-          "{}\n"
-        );
-        writeProjectFile(
-          project,
-          ".pipeline/runs/run-fixture/nodes/green-edit/stdout.jsonl",
-          "{}\n"
-        );
-        writeProjectFile(
-          project,
-          ".pipeline/journal/run-fixture.jsonl",
-          "{}\n"
-        );
+        writeProjectFile(project, ".pipeline/runs/run-fixture/status.json", '{"status":"running"}\n');
+        writeProjectFile(project, ".pipeline/runs/run-fixture/runtime-events.jsonl", "{}\n");
+        writeProjectFile(project, ".pipeline/runs/run-fixture/nodes/green-edit/stdout.jsonl", "{}\n");
+        writeProjectFile(project, ".pipeline/journal/run-fixture.jsonl", "{}\n");
         return { exitCode: 0, stdout: "done" };
       },
       task: "run-state gate",
@@ -1041,12 +1033,8 @@ runners:
     });
 
     expect(result.outcome, JSON.stringify(result, null, 2)).toBe("PASS");
-    expect(
-      result.nodes.find((node) => node.nodeId === "green-edit")
-    ).toMatchObject({ status: "passed" });
-    const changedGate = result.gates.find(
-      (gate) => gate.gateId === "changed-policy"
-    );
+    expect(result.nodes.find((node) => node.nodeId === "green-edit")).toMatchObject({ status: "passed" });
+    const changedGate = result.gates.find((gate) => gate.gateId === "changed-policy");
     expect(changedGate).toMatchObject({
       kind: "changed_files",
       passed: true,
@@ -1088,9 +1076,7 @@ runners:
     expect(result.outcome).toBe("FAIL");
     expect(result.nodes[0]).toMatchObject({ attempts: 1, status: "failed" });
     expect(mockExeca).toHaveBeenCalledTimes(1);
-    expect(
-      events.filter((event) => event.type === "runtime.observability")
-    ).toEqual(
+    expect(events.filter((event) => event.type === "runtime.observability")).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
           level: "warn",
@@ -1099,7 +1085,7 @@ runners:
           summary: "node flaky retry exhausted after attempt 1 (gate_failure)",
           type: "runtime.observability",
         }),
-      ])
+      ]),
     );
   });
 
@@ -1136,11 +1122,7 @@ runners:
 
     expect(result.outcome).toBe("PASS");
     expect(timeouts).toEqual([1234]);
-    expect(mockExeca).toHaveBeenCalledWith(
-      "node",
-      ["slow.js"],
-      expect.objectContaining({ timeout: 2345 })
-    );
+    expect(mockExeca).toHaveBeenCalledWith("node", ["slow.js"], expect.objectContaining({ timeout: 2345 }));
   });
 
   it("retries timed-out command nodes when retry_on includes timeout", async () => {
@@ -1215,25 +1197,28 @@ runners:
 
     const node = result.nodes.find((entry) => entry.nodeId === "structured");
     expect(node).toMatchObject({ exitCode: 70, status: "failed" });
-    expect(
-      result.gates.find((gate) => gate.kind === "json_schema")
-    ).toBeUndefined();
+    expect(result.gates.find((gate) => gate.kind === "json_schema")).toBeUndefined();
   });
 
   it("validates package standard implementation output without repo-local schema files", async () => {
     const project = tempProject();
-    const config = baseConfig(`
+    const config = withProfilePatch(
+      baseConfig(`
   structured-flow:
     nodes:
       - id: structured
         kind: agent
         profile: structured
-`);
-    config.profiles.structured.output = {
-      format: "json_schema",
-      repair: { enabled: false },
-      schema_path: ".pipeline/schemas/implementation.schema.json",
-    };
+`),
+      "structured",
+      {
+        output: {
+          format: "json_schema",
+          repair: { enabled: false },
+          schema_path: ".pipeline/schemas/implementation.schema.json",
+        },
+      },
+    );
 
     const result = await runPipelineFromConfig({
       config,
@@ -1279,18 +1264,23 @@ runners:
 
   it("fails package standard implementation output when a change omits why", async () => {
     const project = tempProject();
-    const config = baseConfig(`
+    const config = withProfilePatch(
+      baseConfig(`
   structured-flow:
     nodes:
       - id: structured
         kind: agent
         profile: structured
-`);
-    config.profiles.structured.output = {
-      format: "json_schema",
-      repair: { enabled: false },
-      schema_path: ".pipeline/schemas/implementation.schema.json",
-    };
+`),
+      "structured",
+      {
+        output: {
+          format: "json_schema",
+          repair: { enabled: false },
+          schema_path: ".pipeline/schemas/implementation.schema.json",
+        },
+      },
+    );
 
     const result = await runPipelineFromConfig({
       config,
@@ -1328,20 +1318,25 @@ runners:
         properties: { id: { format: "uuid", type: "string" } },
         required: ["id"],
         type: "object",
-      })
+      }),
     );
-    const config = baseConfig(`
+    const config = withProfilePatch(
+      baseConfig(`
   structured-flow:
     nodes:
       - id: structured
         kind: agent
         profile: structured
-`);
-    config.profiles.structured.output = {
-      format: "json_schema",
-      repair: { enabled: false },
-      schema_path: "schema.json",
-    };
+`),
+      "structured",
+      {
+        output: {
+          format: "json_schema",
+          repair: { enabled: false },
+          schema_path: "schema.json",
+        },
+      },
+    );
 
     const result = await runPipelineFromConfig({
       config,
@@ -1360,18 +1355,22 @@ runners:
   });
 
   it("selects the latest OpenCode text event that validates against the profile schema", async () => {
-    const { config, project } = structuredVerdictSchemaProject({
+    const fixture = structuredVerdictSchemaProject({
       repairEnabled: false,
     });
-    config.runners.opencode = {
-      capabilities: {
-        native_subagents: true,
-        output_formats: ["text", "json", "json_schema"],
-      },
-      command: "opencode",
-      type: "opencode",
-    };
-    config.profiles.structured.runner = "opencode";
+    const config = withProfilePatch(
+      withRunnerPatch(fixture.config, "opencode", {
+        capabilities: {
+          native_subagents: true,
+          output_formats: ["text", "json", "json_schema"],
+        },
+        command: "opencode",
+        type: "opencode",
+      }),
+      "structured",
+      { runner: "opencode" },
+    );
+    const { project } = fixture;
     const opencodeEvents = [
       JSON.stringify({
         part: {
@@ -1399,9 +1398,7 @@ runners:
 
     expect(result.outcome).toBe("PASS");
     expect(result.nodes[0].output).toBe('{"verdict":"PASS"}');
-    expect(result.nodes[0].evidence).toContain(
-      "selected valid structured output for structured"
-    );
+    expect(result.nodes[0].evidence).toContain("selected valid structured output for structured");
     expect(result.agentInvocations).toHaveLength(1);
   });
 
@@ -1434,10 +1431,7 @@ runners:
         seen.push(plan);
         return {
           exitCode: 0,
-          stdout:
-            plan.nodeId === "structured:output-repair"
-              ? '```json\n{"verdict":"PASS"}\n```'
-              : "verdict is pass",
+          stdout: plan.nodeId === "structured:output-repair" ? '```json\n{"verdict":"PASS"}\n```' : "verdict is pass",
         };
       },
       task: "schema",
@@ -1447,17 +1441,12 @@ runners:
 
     expect(result.outcome).toBe("PASS");
     expect(result.nodes[0].output).toBe('{"verdict":"PASS"}');
-    expect(result.nodes[0].evidence).toContain(
-      "output repair passed for structured after attempt 1"
-    );
+    expect(result.nodes[0].evidence).toContain("output repair passed for structured after attempt 1");
     expect(result.gates[0]).toMatchObject({
       kind: "json_schema",
       passed: true,
     });
-    expect(seen.map((plan) => plan.nodeId)).toEqual([
-      "structured",
-      "structured:output-repair",
-    ]);
+    expect(seen.map((plan) => plan.nodeId)).toEqual(["structured", "structured:output-repair"]);
     expect(seen[1]).toMatchObject({
       outputFormat: "text",
       profileId: "structured:output-repair",
@@ -1473,10 +1462,7 @@ runners:
       config,
       executor: (plan) => ({
         exitCode: 0,
-        stdout:
-          plan.nodeId === "structured:output-repair"
-            ? '{"verdict":"FAIL"}'
-            : "verdict is pass",
+        stdout: plan.nodeId === "structured:output-repair" ? '{"verdict":"FAIL"}' : "verdict is pass",
       }),
       task: "schema",
       workflowId: "structured-flow",
@@ -1484,9 +1470,7 @@ runners:
     });
 
     expect(result.outcome).toBe("FAIL");
-    expect(result.nodes[0].evidence).toContain(
-      "output repair failed for structured after attempt 1"
-    );
+    expect(result.nodes[0].evidence).toContain("output repair failed for structured after attempt 1");
     expect(result.gates[0]).toMatchObject({
       kind: "json_schema",
       passed: false,
@@ -1571,7 +1555,7 @@ runners:
         "acceptance criterion 'AC2' verdict 'FAIL'",
         "extra acceptance criterion 'EXTRA'",
         "missing acceptance criterion 'AC3'",
-      ])
+      ]),
     );
     // Structured refusal (PIPE-90.1): the failed gate carries one actionable
     // unmet entry per criterion, not just the flat evidence strings.
@@ -1592,7 +1576,7 @@ runners:
           evidence: ["criterion 'AC3' absent from acceptance report"],
           reason: "missing acceptance criterion 'AC3'",
         },
-      ])
+      ]),
     );
   });
 
@@ -1616,13 +1600,16 @@ runners:
             kind: verdict
             target: stdout
 `);
-    config.profiles.a.scheduling_roles = ["implementation"];
-    config.profiles.b.scheduling_roles = ["coverage"];
+    const runtimeConfig = withProfilePatch(
+      withProfilePatch(config, "a", { scheduling_roles: ["implementation"] }),
+      "b",
+      { scheduling_roles: ["coverage"] },
+    );
     const seen: RunnerLaunchPlan[] = [];
     let reviewAttempt = 0;
 
     const result = await runPipelineFromConfig({
-      config,
+      config: runtimeConfig,
       executor: (plan) => {
         seen.push(plan);
         if (plan.nodeId === "review") {
@@ -1652,15 +1639,13 @@ runners:
                     ],
                     evidence: ["all criteria pass after remediation"],
                     verdict: "PASS",
-                  }
+                  },
             ),
           };
         }
         return {
           exitCode: 0,
-          stdout: plan.nodeId.includes(":remediate:")
-            ? "remediated implementation output"
-            : "implementation output",
+          stdout: plan.nodeId.includes(":remediate:") ? "remediated implementation output" : "implementation output",
         };
       },
       task: "acceptance remediation",
@@ -1672,12 +1657,7 @@ runners:
     });
 
     expect(result.outcome).toBe("PASS");
-    expect(seen.map((plan) => plan.nodeId)).toEqual([
-      "implement",
-      "review",
-      "implement:remediate:review:1",
-      "review",
-    ]);
+    expect(seen.map((plan) => plan.nodeId)).toEqual(["implement", "review", "implement:remediate:review:1", "review"]);
     expect(seen[2]?.args.join("\n")).toContain("Coverage failure feedback:");
     expect(seen[2]?.args.join("\n")).toContain("acceptance criterion 'AC1'");
     expect(result.nodeStates.review).toMatchObject({
@@ -1714,13 +1694,16 @@ runners:
             kind: verdict
             target: stdout
 `);
-    config.profiles.a.scheduling_roles = ["implementation"];
-    config.profiles.b.scheduling_roles = ["coverage"];
+    const runtimeConfig = withProfilePatch(
+      withProfilePatch(config, "a", { scheduling_roles: ["implementation"] }),
+      "b",
+      { scheduling_roles: ["coverage"] },
+    );
     const seen: string[] = [];
     let reviewAttempt = 0;
 
     const result = await runPipelineFromConfig({
-      config,
+      config: runtimeConfig,
       executor: (plan) => {
         seen.push(plan.nodeId);
         if (plan.nodeId === "review") {
@@ -1730,19 +1713,15 @@ runners:
             stdout: JSON.stringify(
               reviewAttempt === 1
                 ? {
-                    acceptance: [
-                      { evidence: ["fails"], id: "AC1", verdict: "FAIL" },
-                    ],
+                    acceptance: [{ evidence: ["fails"], id: "AC1", verdict: "FAIL" }],
                     evidence: ["AC1 fails"],
                     verdict: "FAIL",
                   }
                 : {
-                    acceptance: [
-                      { evidence: ["passes"], id: "AC1", verdict: "PASS" },
-                    ],
+                    acceptance: [{ evidence: ["passes"], id: "AC1", verdict: "PASS" }],
                     evidence: ["AC1 passes"],
                     verdict: "PASS",
-                  }
+                  },
             ),
           };
         }
@@ -1805,13 +1784,16 @@ runners:
             kind: verdict
             target: stdout
 `);
-    config.profiles.a.scheduling_roles = ["implementation"];
-    config.profiles.b.scheduling_roles = ["coverage"];
+    const runtimeConfig = withProfilePatch(
+      withProfilePatch(config, "a", { scheduling_roles: ["implementation"] }),
+      "b",
+      { scheduling_roles: ["coverage"] },
+    );
     const seen: string[] = [];
     let reviewAttempt = 0;
 
     const result = await runPipelineFromConfig({
-      config,
+      config: runtimeConfig,
       executor: (plan) => {
         seen.push(plan.nodeId);
         if (plan.nodeId === "review") {
@@ -1821,19 +1803,15 @@ runners:
             stdout: JSON.stringify(
               reviewAttempt === 1
                 ? {
-                    acceptance: [
-                      { evidence: ["fails"], id: "AC1", verdict: "FAIL" },
-                    ],
+                    acceptance: [{ evidence: ["fails"], id: "AC1", verdict: "FAIL" }],
                     evidence: ["AC1 fails"],
                     verdict: "FAIL",
                   }
                 : {
-                    acceptance: [
-                      { evidence: ["passes"], id: "AC1", verdict: "PASS" },
-                    ],
+                    acceptance: [{ evidence: ["passes"], id: "AC1", verdict: "PASS" }],
                     evidence: ["AC1 passes"],
                     verdict: "PASS",
-                  }
+                  },
             ),
           };
         }
@@ -1884,19 +1862,20 @@ runners:
             kind: builtin
             builtin: typecheck
 `);
-    config.profiles.a.scheduling_roles = ["implementation"];
-    config.profiles.b.scheduling_roles = ["coverage"];
+    const runtimeConfig = withProfilePatch(
+      withProfilePatch(config, "a", { scheduling_roles: ["implementation"] }),
+      "b",
+      { scheduling_roles: ["coverage"] },
+    );
     const seen: RunnerLaunchPlan[] = [];
 
     const result = await runPipelineFromConfig({
-      config,
+      config: runtimeConfig,
       executor: (plan) => {
         seen.push(plan);
         return {
           exitCode: 0,
-          stdout: plan.nodeId.includes(":remediate:")
-            ? "remediated implementation output"
-            : "node output",
+          stdout: plan.nodeId.includes(":remediate:") ? "remediated implementation output" : "node output",
         };
       },
       task: "builtin remediation",
@@ -1905,20 +1884,11 @@ runners:
     });
 
     expect(result.outcome).toBe("PASS");
-    expect(seen.map((plan) => plan.nodeId)).toEqual([
-      "implement",
-      "verify",
-      "implement:remediate:verify:1",
-      "verify",
-    ]);
+    expect(seen.map((plan) => plan.nodeId)).toEqual(["implement", "verify", "implement:remediate:verify:1", "verify"]);
     const remediationPrompt = seen[2]?.args.join("\n") ?? "";
     expect(remediationPrompt).toContain("Failed gate:\nverify-typecheck");
-    expect(remediationPrompt).toContain(
-      "builtin 'typecheck' exited 1: node -e process.exit(1)"
-    );
-    expect(remediationPrompt).toContain(
-      "builtin 'typecheck' produced no output"
-    );
+    expect(remediationPrompt).toContain("builtin 'typecheck' exited 1: node -e process.exit(1)");
+    expect(remediationPrompt).toContain("builtin 'typecheck' produced no output");
   });
 
   it("mechanical remediation remediates upstream implementation nodes when downstream mechanical nodes fail", async () => {
@@ -1927,8 +1897,7 @@ runners:
     mockExeca
       .mockRejectedValueOnce({
         exitCode: 1,
-        stderr:
-          "eslint(require-await): Async function has no `await` expression.",
+        stderr: "eslint(require-await): Async function has no `await` expression.",
         stdout: "",
       })
       .mockResolvedValueOnce({ exitCode: 0, stderr: "", stdout: "ok" });
@@ -1943,18 +1912,18 @@ runners:
         builtin: lint
         needs: [implement]
 `);
-    config.profiles.a.scheduling_roles = ["implementation"];
+    const runtimeConfig = withProfilePatch(config, "a", {
+      scheduling_roles: ["implementation"],
+    });
     const seen: RunnerLaunchPlan[] = [];
 
     const result = await runPipelineFromConfig({
-      config,
+      config: runtimeConfig,
       executor: (plan) => {
         seen.push(plan);
         return {
           exitCode: 0,
-          stdout: plan.nodeId.includes(":remediate:")
-            ? "removed async keyword"
-            : "implementation output",
+          stdout: plan.nodeId.includes(":remediate:") ? "removed async keyword" : "implementation output",
         };
       },
       task: "mechanical remediation",
@@ -1963,16 +1932,11 @@ runners:
     });
 
     expect(result.outcome).toBe("PASS");
-    expect(seen.map((plan) => plan.nodeId)).toEqual([
-      "implement",
-      "implement:remediate:mechanical-lint:1",
-    ]);
+    expect(seen.map((plan) => plan.nodeId)).toEqual(["implement", "implement:remediate:mechanical-lint:1"]);
     const remediationPrompt = seen[1]?.args.join("\n") ?? "";
     expect(remediationPrompt).toContain("Coverage node:\nmechanical-lint");
     expect(remediationPrompt).toContain("Failed gate:\nmechanical-lint");
-    expect(remediationPrompt).toContain(
-      "eslint(require-await): Async function has no `await` expression."
-    );
+    expect(remediationPrompt).toContain("eslint(require-await): Async function has no `await` expression.");
     expect(result.nodeStates["mechanical-lint"]).toMatchObject({
       attempts: 2,
       status: "passed",
@@ -1985,8 +1949,7 @@ runners:
     mockExeca
       .mockRejectedValueOnce({
         exitCode: 1,
-        stderr:
-          "eslint(require-await): Async function has no `await` expression.",
+        stderr: "eslint(require-await): Async function has no `await` expression.",
         stdout: "",
       })
       .mockResolvedValueOnce({ exitCode: 0, stderr: "", stdout: "ok" });
@@ -2001,11 +1964,13 @@ runners:
         builtin: lint
         needs: [implement]
 `);
-    config.profiles.a.scheduling_roles = ["implementation"];
+    const runtimeConfig = withProfilePatch(config, "a", {
+      scheduling_roles: ["implementation"],
+    });
     const seen: RunnerLaunchPlan[] = [];
 
     const result = await runScheduledWorkflowTask({
-      config,
+      config: runtimeConfig,
       executor: (plan) => {
         seen.push(plan);
         return {
@@ -2024,9 +1989,7 @@ runners:
       nodeId: "mechanical-lint",
       status: "passed",
     });
-    expect(seen.map((plan) => plan.nodeId)).toEqual([
-      "implement:remediate:mechanical-lint:1",
-    ]);
+    expect(seen.map((plan) => plan.nodeId)).toEqual(["implement:remediate:mechanical-lint:1"]);
   });
 
   it("injects stdout gate JSON contracts into agent prompts", async () => {
@@ -2054,9 +2017,7 @@ runners:
         return {
           exitCode: 0,
           stdout: JSON.stringify({
-            acceptance: [
-              { evidence: ["reviewed AC1"], id: "AC1", verdict: "PASS" },
-            ],
+            acceptance: [{ evidence: ["reviewed AC1"], id: "AC1", verdict: "PASS" }],
             evidence: ["reviewed all criteria"],
             verdict: "PASS",
           }),
@@ -2329,7 +2290,7 @@ runners:
                 slowAbortObserved = true;
                 resolve({ exitCode: 1, stdout: "aborted" });
               },
-              { once: true }
+              { once: true },
             );
             setTimeout(() => {
               resolve({ exitCode: 0, stdout: "slow done" });
@@ -2404,7 +2365,7 @@ runners:
           status: "passed",
           type: "node.finish",
         }),
-      ])
+      ]),
     );
   });
 
@@ -2438,10 +2399,7 @@ runners:
 
     expect(result.outcome).toBe("FAIL");
     expect(result.gates[0].evidence).toEqual(
-      expect.arrayContaining([
-        "denied changes: src/app.ts",
-        "missing required changes matching: tests/**/*.test.ts",
-      ])
+      expect.arrayContaining(["denied changes: src/app.ts", "missing required changes matching: tests/**/*.test.ts"]),
     );
   });
 
@@ -2460,11 +2418,13 @@ runners:
             changed_files:
               require_any: ["tests/**/*.test.ts"]
 `);
-    config.profiles.a.filesystem = { mode: "workspace-write" };
+    const runtimeConfig = withProfilePatch(config, "a", {
+      filesystem: { mode: "workspace-write" },
+    });
     const seen: RunnerLaunchPlan[] = [];
 
     const result = await runPipelineFromConfig({
-      config,
+      config: runtimeConfig,
       executor: (plan) => {
         seen.push(plan);
         if (plan.nodeId.includes(":remediate:")) {
@@ -2479,14 +2439,9 @@ runners:
     });
 
     expect(result.outcome).toBe("PASS");
-    expect(seen.map((plan) => plan.nodeId)).toEqual([
-      "writer",
-      "writer:remediate:tests-only:1",
-    ]);
+    expect(seen.map((plan) => plan.nodeId)).toEqual(["writer", "writer:remediate:tests-only:1"]);
     expect(seen[1]?.args.join("\n")).toContain("Gate failure feedback:");
-    expect(seen[1]?.args.join("\n")).toContain(
-      "missing required changes matching: tests/**/*.test.ts"
-    );
+    expect(seen[1]?.args.join("\n")).toContain("missing required changes matching: tests/**/*.test.ts");
     expect(result.nodeStates.writer).toMatchObject({
       attempts: 2,
       status: "passed",
@@ -2527,9 +2482,7 @@ runners:
     });
 
     expect(result.outcome).toBe("PASS");
-    expect(result.gates[0].evidence).toEqual([
-      "changed files: tests/existing.test.ts",
-    ]);
+    expect(result.gates[0].evidence).toEqual(["changed files: tests/existing.test.ts"]);
   });
 
   it("counts an already-dirty tracked test file even when the node restores it to clean", async () => {
@@ -2542,16 +2495,8 @@ runners:
     });
     execFileSync(
       "git",
-      [
-        "-c",
-        "user.email=pipeline@example.invalid",
-        "-c",
-        "user.name=Pipeline Test",
-        "commit",
-        "-m",
-        "baseline",
-      ],
-      { cwd: project, stdio: "ignore" }
+      ["-c", "user.email=pipeline@example.invalid", "-c", "user.name=Pipeline Test", "commit", "-m", "baseline"],
+      { cwd: project, stdio: "ignore" },
     );
     writeProjectFile(project, "tests/existing.test.ts", "dirty before\n");
     const config = baseConfig(`
@@ -2579,9 +2524,7 @@ runners:
     });
 
     expect(result.outcome).toBe("PASS");
-    expect(result.gates[0].evidence).toEqual([
-      "changed files: tests/existing.test.ts",
-    ]);
+    expect(result.gates[0].evidence).toEqual(["changed files: tests/existing.test.ts"]);
   });
 
   it("runs command hooks with file input and required failure semantics", async () => {
@@ -2656,7 +2599,7 @@ runners:
           PIPELINE_HOOK_INPUT: expect.any(String),
           PIPELINE_HOOK_RESULT: expect.any(String),
         }),
-      })
+      }),
     );
     expect(result.agentInvocations).toEqual([]);
   });
@@ -2725,10 +2668,7 @@ runners:
     });
 
     expect(result.outcome).toBe("PASS");
-    expect(mockExeca.mock.calls.map((call) => call[1]?.[0])).toEqual([
-      "orchestrator",
-      "workflow",
-    ]);
+    expect(mockExeca.mock.calls.map((call) => call[1]?.[0])).toEqual(["orchestrator", "workflow"]);
   });
 
   it("enforces hook trust policy, sanitized env, output limits, and JSON stdin payloads", async () => {
@@ -2809,7 +2749,7 @@ runners:
         }),
         extendEnv: false,
         maxBuffer: 4,
-      })
+      }),
     );
   });
 
@@ -2870,9 +2810,7 @@ runners:
     });
 
     expect(result.outcome).toBe("FAIL");
-    expect(result.hookFailures[0].evidence).toContain(
-      "command hook is not trusted"
-    );
+    expect(result.hookFailures[0].evidence).toContain("command hook is not trusted");
     expect(mockExeca).not.toHaveBeenCalled();
   });
 
@@ -2893,7 +2831,7 @@ export default async function audit(ctx) {
     }
   };
 }
-`
+`,
     );
     writeProjectFile(
       project,
@@ -2914,7 +2852,7 @@ export default async function audit(ctx) {
         },
         required: ["status", "outputs"],
         type: "object",
-      })
+      }),
     );
     const config = parsePipelineConfigParts(
       {
@@ -2968,7 +2906,7 @@ runners:
       output_formats: [text]
 `,
       },
-      project
+      project,
     );
     const events: PipelineRuntimeEvent[] = [];
 
@@ -2998,7 +2936,7 @@ runners:
           type: "hook.result",
           workflowId: "module-hooks",
         }),
-      ])
+      ]),
     );
   });
 
@@ -3062,9 +3000,7 @@ runners:
       const env = options?.env as Record<string, string>;
       expect(env.PIPELINE_HOOK_INPUT).toBeTruthy();
       expect(env.PIPELINE_HOOK_RESULT).toBeTruthy();
-      const payload = JSON.parse(
-        readFileSync(env.PIPELINE_HOOK_INPUT, "utf-8")
-      );
+      const payload = JSON.parse(readFileSync(env.PIPELINE_HOOK_INPUT, "utf-8"));
       expect(payload.node.id).toBe("a");
       writeFileSync(
         env.PIPELINE_HOOK_RESULT,
@@ -3072,7 +3008,7 @@ runners:
           outputs: { messageId: "msg_123" },
           status: "pass",
           summary: "Published node summary",
-        })
+        }),
       );
       return { exitCode: 0, stderr: "", stdout: "ignored" };
     });
@@ -3101,7 +3037,7 @@ runners:
           type: "hook.result",
           workflowId: "command-hooks",
         }),
-      ])
+      ]),
     );
   });
 
@@ -3276,7 +3212,7 @@ runners:
           type: "workflow.finish",
           workflowId: "lifecycle",
         }),
-      ])
+      ]),
     );
     const indexOf = (type: string) => events.findIndex((e) => e.type === type);
     expect(indexOf("workflow.planned")).toBeLessThan(indexOf("workflow.start"));
@@ -3284,14 +3220,10 @@ runners:
     expect(indexOf("hook.start")).toBeLessThan(indexOf("hook.finish"));
     expect(indexOf("node.start")).toBeLessThan(indexOf("agent.start"));
     expect(indexOf("agent.start")).toBeLessThan(indexOf("agent.finish"));
-    expect(indexOf("agent.finish")).toBeLessThan(
-      indexOf("node.output.recorded")
-    );
+    expect(indexOf("agent.finish")).toBeLessThan(indexOf("node.output.recorded"));
     expect(indexOf("agent.finish")).toBeLessThan(indexOf("gate.start"));
     expect(indexOf("gate.start")).toBeLessThan(indexOf("gate.finish"));
-    expect(indexOf("artifact.check.start")).toBeLessThan(
-      indexOf("artifact.check.finish")
-    );
+    expect(indexOf("artifact.check.start")).toBeLessThan(indexOf("artifact.check.finish"));
     expect(indexOf("node.finish")).toBeLessThan(indexOf("workflow.finish"));
   });
 
@@ -3320,12 +3252,10 @@ runners:
     expect(result.failureDetails).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          evidence: expect.arrayContaining([
-            expect.stringMatching(CANCEL_PATTERN),
-          ]),
+          evidence: expect.arrayContaining([expect.stringMatching(CANCEL_PATTERN)]),
           reason: expect.stringMatching(CANCEL_PATTERN),
         }),
-      ])
+      ]),
     );
     expect(result.gates).toEqual([]);
     expect(events).toEqual(
@@ -3335,7 +3265,7 @@ runners:
           type: "workflow.finish",
           workflowId: "default",
         }),
-      ])
+      ]),
     );
   });
 
@@ -3388,7 +3318,7 @@ runners:
     expect(mockExeca).toHaveBeenCalledWith(
       "agent-bin",
       expect.any(Array),
-      expect.objectContaining({ cancelSignal: controller.signal })
+      expect.objectContaining({ cancelSignal: controller.signal }),
     );
   });
 
@@ -3461,7 +3391,7 @@ runners:
       expect(mockExeca).toHaveBeenCalledWith(
         command,
         expect.any(Array),
-        expect.objectContaining({ cancelSignal: controller.signal })
+        expect.objectContaining({ cancelSignal: controller.signal }),
       );
     }
   });
@@ -3508,22 +3438,18 @@ runners:
     });
 
     mockExeca.mockImplementation(
-      async (
-        _command: string,
-        _args: string[],
-        options: { cancelSignal?: AbortSignal }
-      ) =>
+      async (_command: string, _args: string[], options: { cancelSignal?: AbortSignal }) =>
         await new Promise((_resolve, reject) => {
           options.cancelSignal?.addEventListener("abort", () => {
             reject(
               Object.assign(new Error("cancelled"), {
                 exitCode: 1,
                 stdout: "started",
-              })
+              }),
             );
           });
           controller.abort();
-        })
+        }),
     );
 
     const result = await runPipelineFromConfig({
@@ -3540,13 +3466,9 @@ runners:
     expect(mockExeca).toHaveBeenCalledWith(
       "wait-bin",
       expect.any(Array),
-      expect.objectContaining({ cancelSignal: controller.signal })
+      expect.objectContaining({ cancelSignal: controller.signal }),
     );
-    expect(mockExeca).not.toHaveBeenCalledWith(
-      "dependent-bin",
-      expect.any(Array),
-      expect.any(Object)
-    );
+    expect(mockExeca).not.toHaveBeenCalledWith("dependent-bin", expect.any(Array), expect.any(Object));
     expect(events).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -3554,7 +3476,7 @@ runners:
           type: "workflow.finish",
           workflowId: "cancel-flow",
         }),
-      ])
+      ]),
     );
   });
 

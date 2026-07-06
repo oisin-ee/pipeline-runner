@@ -22,10 +22,7 @@ export interface DependencyGraphInput {
   id: string;
 }
 
-export interface DependencyGraphBuildOptions<
-  TInput extends DependencyGraphInput,
-  TValue,
-> {
+export interface DependencyGraphBuildOptions<TInput extends DependencyGraphInput, TValue> {
   dependenciesOf: (node: TInput) => readonly string[] | void;
   valueOf: (node: TInput, index: number) => TValue;
 }
@@ -38,15 +35,10 @@ export type DependencyGraph<TNode> = Graph<undefined, TNode>;
  * containers (e.g. parallel children). Nodes without children are returned
  * as-is.
  */
-export const flattenNodes = <TNode>(
-  nodes: TNode[],
-  childrenOf: (node: TNode) => TNode[] | void
-): TNode[] =>
+export const flattenNodes = <TNode>(nodes: TNode[], childrenOf: (node: TNode) => TNode[] | void): TNode[] =>
   nodes.flatMap((node) => {
     const children = childrenOf(node);
-    return children !== undefined && children.length > 0
-      ? [node, ...flattenNodes(children, childrenOf)]
-      : [node];
+    return children !== undefined && children.length > 0 ? [node, ...flattenNodes(children, childrenOf)] : [node];
   });
 
 /**
@@ -54,9 +46,7 @@ export const flattenNodes = <TNode>(
  * dependency. The input is expected to already be flattened by the caller so
  * that the resulting index spans the whole graph.
  */
-export const dependentsByNeed = <TNode extends GraphNode>(
-  nodes: TNode[]
-): Map<string, TNode[]> => {
+export const dependentsByNeed = <TNode extends GraphNode>(nodes: TNode[]): Map<string, TNode[]> => {
   const index = new Map<string, TNode[]>();
   for (const node of nodes) {
     for (const need of node.needs ?? []) {
@@ -71,7 +61,7 @@ export const dependentsByNeed = <TNode extends GraphNode>(
 const addDependencyGraphNodes = <TInput extends DependencyGraphInput, TValue>(
   graph: DependencyGraph<TValue>,
   nodes: readonly TInput[],
-  options: DependencyGraphBuildOptions<TInput, TValue>
+  options: DependencyGraphBuildOptions<TInput, TValue>,
 ): void => {
   for (const [index, node] of nodes.entries()) {
     graph.setNode(node.id, options.valueOf(node, index));
@@ -81,17 +71,14 @@ const addDependencyGraphNodes = <TInput extends DependencyGraphInput, TValue>(
 const declaredDependencyIds = <TInput extends DependencyGraphInput, TValue>(
   node: TInput,
   nodeIds: ReadonlySet<string>,
-  options: DependencyGraphBuildOptions<TInput, TValue>
-): string[] =>
-  [...(options.dependenciesOf(node) ?? [])].filter((dependencyId) =>
-    nodeIds.has(dependencyId)
-  );
+  options: DependencyGraphBuildOptions<TInput, TValue>,
+): string[] => [...(options.dependenciesOf(node) ?? [])].filter((dependencyId) => nodeIds.has(dependencyId));
 
 const addDependencyGraphEdges = <TInput extends DependencyGraphInput, TValue>(
   graph: DependencyGraph<TValue>,
   nodes: readonly TInput[],
   nodeIds: ReadonlySet<string>,
-  options: DependencyGraphBuildOptions<TInput, TValue>
+  options: DependencyGraphBuildOptions<TInput, TValue>,
 ): void => {
   for (const node of nodes) {
     for (const dependencyId of declaredDependencyIds(node, nodeIds, options)) {
@@ -100,12 +87,9 @@ const addDependencyGraphEdges = <TInput extends DependencyGraphInput, TValue>(
   }
 };
 
-export const createDependencyGraph = <
-  TInput extends DependencyGraphInput,
-  TValue,
->(
+export const createDependencyGraph = <TInput extends DependencyGraphInput, TValue>(
   nodes: readonly TInput[],
-  options: DependencyGraphBuildOptions<TInput, TValue>
+  options: DependencyGraphBuildOptions<TInput, TValue>,
 ): DependencyGraph<TValue> => {
   const nodeIds = new Set(nodes.map((node) => node.id));
   const graph = new Graph<undefined, TValue>({ directed: true });
@@ -114,44 +98,28 @@ export const createDependencyGraph = <
   return graph;
 };
 
-export const dependencyPredecessorIds = <TNode>(
-  graph: DependencyGraph<TNode>,
-  nodeId: string
-): string[] => graph.predecessors(nodeId) ?? [];
+export const dependencyPredecessorIds = <TNode>(graph: DependencyGraph<TNode>, nodeId: string): string[] =>
+  graph.predecessors(nodeId) ?? [];
 
-export const dependencyGraphNodeIds = <TNode>(
-  graph: DependencyGraph<TNode>
-): string[] => graph.nodes();
+export const dependencyGraphNodeIds = <TNode>(graph: DependencyGraph<TNode>): string[] => graph.nodes();
 
-export const dependencyGraphHasNode = <TNode>(
-  graph: DependencyGraph<TNode>,
-  nodeId: string
-): boolean => graph.hasNode(nodeId);
+export const dependencyGraphHasNode = <TNode>(graph: DependencyGraph<TNode>, nodeId: string): boolean =>
+  graph.hasNode(nodeId);
 
-export const dependencyGraphValue = <TNode>(
-  graph: DependencyGraph<TNode>,
-  nodeId: string
-): TNode | void => {
+export const dependencyGraphValue = <TNode>(graph: DependencyGraph<TNode>, nodeId: string): TNode | void => {
   if (!dependencyGraphHasNode(graph, nodeId)) {
     return;
   }
   return graph.node(nodeId);
 };
 
-export const successorIds = <TNode>(
-  graph: DependencyGraph<TNode>,
-  nodeId: string
-): string[] => graph.successors(nodeId) ?? [];
+export const successorIds = <TNode>(graph: DependencyGraph<TNode>, nodeId: string): string[] =>
+  graph.successors(nodeId) ?? [];
 
-export const graphEdgeIds = <TNode>(
-  graph: DependencyGraph<TNode>
-): { from: string; to: string }[] =>
+export const graphEdgeIds = <TNode>(graph: DependencyGraph<TNode>): { from: string; to: string }[] =>
   graph.edges().map((edge) => ({ from: edge.v, to: edge.w }));
 
-export const descendantGraphValues = <TNode>(
-  graph: DependencyGraph<TNode>,
-  rootId: string
-): TNode[] => {
+export const descendantGraphValues = <TNode>(graph: DependencyGraph<TNode>, rootId: string): TNode[] => {
   if (!graph.hasNode(rootId)) {
     return [];
   }
@@ -162,18 +130,14 @@ export const descendantGraphValues = <TNode>(
     .filter((node): node is TNode => node !== undefined);
 };
 
-export const dependencyCycleIds = <TNode>(
-  graph: DependencyGraph<TNode>
-): string[][] => alg.findCycles(graph);
+export const dependencyCycleIds = <TNode>(graph: DependencyGraph<TNode>): string[][] => alg.findCycles(graph);
 
 export const terminalDependencyItems = <TItem>(
   items: readonly TItem[],
   keyOf: (item: TItem) => string,
-  dependenciesOf: (item: TItem) => readonly string[] | void
+  dependenciesOf: (item: TItem) => readonly string[] | void,
 ): TItem[] => {
-  const dependedOn = new Set(
-    items.flatMap((item) => dependenciesOf(item) ?? [])
-  );
+  const dependedOn = new Set(items.flatMap((item) => dependenciesOf(item) ?? []));
   return items.filter((item) => !dependedOn.has(keyOf(item)));
 };
 
@@ -185,7 +149,7 @@ export const terminalDependencyItems = <TItem>(
 export const hasReachableDependent = <TNode extends GraphNode>(
   nodeId: string,
   index: Map<string, TNode[]>,
-  matches: (node: TNode) => boolean
+  matches: (node: TNode) => boolean,
 ): boolean => {
   const visited = new Set<string>();
   const queue = [...(index.get(nodeId) ?? [])];
@@ -210,7 +174,7 @@ export const hasReachableDependent = <TNode extends GraphNode>(
 export const findNode = <TNode extends GraphNode>(
   nodes: TNode[],
   nodeId: string,
-  childrenOf: (node: TNode) => TNode[] | void
+  childrenOf: (node: TNode) => TNode[] | void,
 ): TNode | void => {
   for (const node of nodes) {
     if (node.id === nodeId) {
@@ -266,9 +230,7 @@ const recordCycle = (nodeId: string, visitState: CycleVisitState): void => {
 };
 
 const visitForCycles = (startId: string, visitState: CycleVisitState): void => {
-  const frames: { index: number; nodeId: string }[] = [
-    { index: 0, nodeId: startId },
-  ];
+  const frames: { index: number; nodeId: string }[] = [{ index: 0, nodeId: startId }];
   markVisiting(startId, visitState);
 
   while (frames.length > 0) {
@@ -314,9 +276,7 @@ export const findDependencyCycles = (nodes: GraphNode[]): string[][] => {
   for (const node of nodes) {
     adjacency.set(
       node.id,
-      (index.get(node.id) ?? [])
-        .map((dependent) => dependent.id)
-        .filter((id) => nodeIds.has(id))
+      (index.get(node.id) ?? []).map((dependent) => dependent.id).filter((id) => nodeIds.has(id)),
     );
   }
 
@@ -346,7 +306,7 @@ const completeTopologicalFrame = (
   frame: TopologicalVisitFrame,
   inStack: Set<string>,
   results: string[],
-  frames: TopologicalVisitFrame[]
+  frames: TopologicalVisitFrame[],
 ): void => {
   inStack.delete(frame.nodeId);
   results.push(frame.nodeId);
@@ -358,7 +318,7 @@ const pushTopologicalFrame = <TNode>(
   graph: DependencyGraph<TNode>,
   visited: Set<string>,
   inStack: Set<string>,
-  frames: TopologicalVisitFrame[]
+  frames: TopologicalVisitFrame[],
 ): void => {
   visited.add(nodeId);
   inStack.add(nodeId);
@@ -374,7 +334,7 @@ const visitTopologicalPredecessor = <TNode>(
   graph: DependencyGraph<TNode>,
   visited: Set<string>,
   inStack: Set<string>,
-  frames: TopologicalVisitFrame[]
+  frames: TopologicalVisitFrame[],
 ): void => {
   if (inStack.has(predecessorId)) {
     throw new Error("workflow graph contains a dependency cycle");
@@ -390,7 +350,7 @@ const visitTopologicalFrame = <TNode>(
   visited: Set<string>,
   inStack: Set<string>,
   results: string[],
-  frames: TopologicalVisitFrame[]
+  frames: TopologicalVisitFrame[],
 ): void => {
   const frame = frames.at(-1);
   if (!frame) {
@@ -410,7 +370,7 @@ const visitForTopologicalOrder = <TNode>(
   graph: DependencyGraph<TNode>,
   visited: Set<string>,
   inStack: Set<string>,
-  results: string[]
+  results: string[],
 ): void => {
   const frames: TopologicalVisitFrame[] = [];
   pushTopologicalFrame(startId, graph, visited, inStack, frames);
@@ -420,9 +380,7 @@ const visitForTopologicalOrder = <TNode>(
   }
 };
 
-export const topologicalDependencyOrder = <TNode>(
-  graph: DependencyGraph<TNode>
-): string[] => {
+export const topologicalDependencyOrder = <TNode>(graph: DependencyGraph<TNode>): string[] => {
   /*
    * Keep @dagrejs/graphlib as the graph model, but do the topological sort
    * with this iterative traversal. graphlib's recursive topsort can hit call
@@ -444,23 +402,18 @@ export const topologicalDependencyOrder = <TNode>(
   return results;
 };
 
-const compareStrings = (left: string, right: string): number =>
-  left.localeCompare(right);
+const compareStrings = (left: string, right: string): number => left.localeCompare(right);
 
 export const dependencyBatches = <TNode>(
   graph: DependencyGraph<TNode>,
   nodeIds: readonly string[] = graph.nodes(),
-  compareIds: (left: string, right: string) => number = compareStrings
+  compareIds: (left: string, right: string) => number = compareStrings,
 ): string[][] => {
   const remaining = new Set(nodeIds);
   const batches: string[][] = [];
   while (remaining.size > 0) {
     const ready = [...remaining]
-      .filter((id) =>
-        dependencyPredecessorIds(graph, id).every(
-          (dependencyId) => !remaining.has(dependencyId)
-        )
-      )
+      .filter((id) => dependencyPredecessorIds(graph, id).every((dependencyId) => !remaining.has(dependencyId)))
       .toSorted(compareIds);
     if (ready.length === 0) {
       return [];

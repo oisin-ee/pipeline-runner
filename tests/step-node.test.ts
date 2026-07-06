@@ -6,12 +6,7 @@ import type { RuntimeNodeResult } from "../src/runtime/contracts/contracts";
 import { inMemoryDurableRunStore } from "../src/runtime/durable-store/durable-store";
 import type { NextNodeEnvelope } from "../src/runtime/node-protocol/node-protocol";
 import type { WorkflowScheduleNode } from "../src/runtime/scheduler";
-import {
-  buildEnvelopeForNode,
-  recordNodeResult,
-  stepNode,
-  stepRun,
-} from "../src/runtime/step/step-node";
+import { buildEnvelopeForNode, recordNodeResult, stepNode, stepRun } from "../src/runtime/step/step-node";
 import type { StepNodeDeps } from "../src/runtime/step/step-node";
 
 const RUN_ID = "step-run-001";
@@ -31,16 +26,10 @@ const nodeMetadata = new Map([
       prompt: "Plan the work",
     },
   ],
-  [
-    "implement",
-    { criteria: [{ id: "ac2", text: "impl is done" }], prompt: "Implement" },
-  ],
+  ["implement", { criteria: [{ id: "ac2", text: "impl is done" }], prompt: "Implement" }],
 ]);
 
-const passedResult = (
-  nodeId: string,
-  output = `output of ${nodeId}`
-): RuntimeNodeResult => ({
+const passedResult = (nodeId: string, output = `output of ${nodeId}`): RuntimeNodeResult => ({
   attempts: 1,
   evidence: ["exit 0"],
   exitCode: 0,
@@ -53,9 +42,7 @@ const passedResult = (
 // result for each. Stands in for the local/Argo node executors.
 const recordingExecutor = () => {
   const seen: NextNodeEnvelope[] = [];
-  const executeNode = async (
-    envelope: NextNodeEnvelope
-  ): Promise<RuntimeNodeResult> => {
+  const executeNode = async (envelope: NextNodeEnvelope): Promise<RuntimeNodeResult> => {
     seen.push(envelope);
     return passedResult(envelope.nodeId);
   };
@@ -71,10 +58,7 @@ describe("buildEnvelopeForNode", () => {
       result: passedResult("plan", "plan output"),
     });
 
-    const envelope = buildEnvelopeForNode(
-      { nodeMetadata, nodes, runId: RUN_ID, store },
-      "implement"
-    );
+    const envelope = buildEnvelopeForNode({ nodeMetadata, nodes, runId: RUN_ID, store }, "implement");
 
     expect(envelope).toEqual({
       criteria: [{ id: "ac2", text: "impl is done" }],
@@ -87,12 +71,7 @@ describe("buildEnvelopeForNode", () => {
 
   it("returns undefined for a node id absent from the graph", () => {
     const store = inMemoryDurableRunStore();
-    expect(
-      buildEnvelopeForNode(
-        { nodeMetadata, nodes, runId: RUN_ID, store },
-        "ghost"
-      )
-    ).toBeUndefined();
+    expect(buildEnvelopeForNode({ nodeMetadata, nodes, runId: RUN_ID, store }, "ghost")).toBeUndefined();
   });
 });
 
@@ -136,9 +115,7 @@ describe("stepNode — AC1: build → execute (injected) → record", () => {
 
     expect(result).toEqual(passedResult("plan"));
     // The result is persisted under (runId, nodeId).
-    expect(Option.getOrThrow(store.get(RUN_ID, "plan")).result).toEqual(
-      passedResult("plan")
-    );
+    expect(Option.getOrThrow(store.get(RUN_ID, "plan")).result).toEqual(passedResult("plan"));
     // The executor received the envelope built for that node.
     expect(executor.seen).toHaveLength(1);
     expect(executor.seen[0]?.nodeId).toBe("plan");
@@ -165,9 +142,7 @@ describe("stepNode — AC1: build → execute (injected) → record", () => {
       store,
     });
     expect(next?.nodeId).toBe("implement");
-    expect(next?.upstreamOutputs).toEqual([
-      { nodeId: "plan", output: "output of plan" },
-    ]);
+    expect(next?.upstreamOutputs).toEqual([{ nodeId: "plan", output: "output of plan" }]);
   });
 
   it("fails when the given node id is absent from the graph", async () => {
@@ -181,9 +156,7 @@ describe("stepNode — AC1: build → execute (injected) → record", () => {
       store,
     };
 
-    await expect(Effect.runPromise(stepNode(deps, "ghost"))).rejects.toThrow(
-      MISSING_NODE_RE
-    );
+    await expect(Effect.runPromise(stepNode(deps, "ghost"))).rejects.toThrow(MISSING_NODE_RE);
     expect(executor.seen).toHaveLength(0);
   });
 });
@@ -205,8 +178,6 @@ describe("stepRun — selection + execution loop", () => {
     expect(results.map((r) => r.nodeId)).toEqual(["plan", "implement"]);
     expect(executor.seen.map((e) => e.nodeId)).toEqual(["plan", "implement"]);
     // No nodes left ready once the run is drained.
-    expect(
-      buildNextNodeEnvelope({ nodeMetadata, nodes, runId: RUN_ID, store })
-    ).toBeUndefined();
+    expect(buildNextNodeEnvelope({ nodeMetadata, nodes, runId: RUN_ID, store })).toBeUndefined();
   });
 });

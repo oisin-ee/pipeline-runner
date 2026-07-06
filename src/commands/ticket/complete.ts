@@ -12,12 +12,7 @@ import {
 } from "../../tickets/completion/complete-ticket";
 import type { TicketCompletionOutcome } from "../../tickets/completion/complete-ticket";
 import type { TicketCommandOptions } from "./shared";
-import {
-  currentWorktreePath,
-  runTicketProgramWithBacklog,
-  TicketCommandError,
-  writeLineEffect,
-} from "./shared";
+import { currentWorktreePath, runTicketProgramWithBacklog, TicketCommandError, writeLineEffect } from "./shared";
 
 interface TicketCompleteFlags {
   evidence?: string[];
@@ -29,20 +24,15 @@ interface EvidenceEntry {
   readonly text: string;
 }
 
-const collectEvidence = (value: string, previous: string[]): string[] => [
-  ...previous,
-  value,
-];
+const collectEvidence = (value: string, previous: string[]): string[] => [...previous, value];
 
-const parseEvidenceEntryEffect = (
-  raw: string
-): Effect.Effect<EvidenceEntry, TicketCommandError> => {
+const parseEvidenceEntryEffect = (raw: string): Effect.Effect<EvidenceEntry, TicketCommandError> => {
   const separator = raw.indexOf("=");
   if (separator <= 0) {
     return Effect.fail(
       new TicketCommandError({
         message: `Invalid --evidence '${raw}'; expected <criterionId>=<evidence text>`,
-      })
+      }),
     );
   }
   return Effect.succeed({
@@ -51,9 +41,7 @@ const parseEvidenceEntryEffect = (
   });
 };
 
-const buildCompletionClaim = (
-  entries: readonly EvidenceEntry[]
-): CompletionClaim => {
+const buildCompletionClaim = (entries: readonly EvidenceEntry[]): CompletionClaim => {
   const evidenceById = new Map<string, string[]>();
   for (const entry of entries) {
     const evidence = evidenceById.get(entry.id) ?? [];
@@ -71,16 +59,12 @@ const buildCompletionClaim = (
 const formatUnmet = (unmet: readonly UnmetCriterion[]): string =>
   unmet
     .map((entry) => {
-      const evidence =
-        entry.evidence.length > 0 ? entry.evidence.join("; ") : "(none)";
+      const evidence = entry.evidence.length > 0 ? entry.evidence.join("; ") : "(none)";
       return `  - [${entry.criterion}] ${entry.reason}\n      evidence: ${evidence}`;
     })
     .join("\n");
 
-const formatOutcome = (
-  outcome: TicketCompletionOutcome,
-  json = false
-): string => {
+const formatOutcome = (outcome: TicketCompletionOutcome, json = false): string => {
   if (json) {
     return JSON.stringify(outcome);
   }
@@ -95,12 +79,10 @@ const formatOutcome = (
 const completeTicketCommandEffect = (
   worktreePath: string,
   ticketId: string,
-  flags: TicketCompleteFlags
+  flags: TicketCompleteFlags,
 ): Effect.Effect<void, unknown, RepoIoService | BacklogService> =>
   Effect.gen(function* effectBody() {
-    const entries = yield* Effect.all(
-      (flags.evidence ?? []).map(parseEvidenceEntryEffect)
-    );
+    const entries = yield* Effect.all((flags.evidence ?? []).map(parseEvidenceEntryEffect));
     const store = yield* backlogTicketCompletionStoreEffect(worktreePath);
     const outcome = yield* completeTicket({
       claim: buildCompletionClaim(entries),
@@ -116,27 +98,22 @@ const completeTicketCommandEffect = (
     }
   });
 
-export const registerCompleteSubcommand = (
-  ticketCommand: Command,
-  options: TicketCommandOptions
-): void => {
+export const registerCompleteSubcommand = (ticketCommand: Command, options: TicketCommandOptions): void => {
   ticketCommand
     .command("complete")
-    .description(
-      "Adjudicate a completion claim and set a Backlog ticket to Done only if it passes"
-    )
+    .description("Adjudicate a completion claim and set a Backlog ticket to Done only if it passes")
     .argument("<ticket-id>", "Backlog ticket id to complete")
     .option(
       "--evidence <criterionId=text>",
       "per-criterion completion evidence; repeat to add more",
       collectEvidence,
-      []
+      [],
     )
     .option("--json", "print machine-readable completion outcome")
     .action(async (ticketId: string, flags: TicketCompleteFlags) => {
       await runTicketProgramWithBacklog(
         completeTicketCommandEffect(currentWorktreePath(), ticketId, flags),
-        options.backlogLayer ?? BacklogServiceLive
+        options.backlogLayer ?? BacklogServiceLive,
       );
     });
 };

@@ -4,10 +4,7 @@ import { join } from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import type {
-  PipelineRuntimeEvent,
-  PipelineRuntimeOptions,
-} from "../src/pipeline-runtime";
+import type { PipelineRuntimeEvent, PipelineRuntimeOptions } from "../src/pipeline-runtime";
 import type { MokaRunEvent } from "../src/run-control/contracts";
 import { fileRunControlStore } from "../src/run-control/run-control-store";
 import { createRun, readRun } from "./run-control-file-store-helpers";
@@ -72,8 +69,7 @@ describe("run-control runtime reporter bridge", () => {
 
   it("serializes run-state persistence against a builtin hide window so the run survives parallel mechanical-checks", async () => {
     const { createRunStoreRuntimeReporter } = await loadRuntimeReporter();
-    const { acquireRunStateLock } =
-      await import("../src/run-control/run-state-lock");
+    const { acquireRunStateLock } = await import("../src/run-control/run-state-lock");
     const runId = "run-hide-window";
     await createRun({
       effort: "normal",
@@ -165,8 +161,7 @@ describe("run-control runtime reporter bridge", () => {
   });
 
   it("documents the hazard: a direct run-state write during a hide window fails", async () => {
-    const { updateRunStatus } =
-      await import("./run-control-file-store-helpers");
+    const { updateRunStatus } = await import("./run-control-file-store-helpers");
     const runId = "run-hide-hazard";
     await createRun({
       effort: "normal",
@@ -186,7 +181,7 @@ describe("run-control runtime reporter bridge", () => {
         runId,
         status: "running",
         workspaceRoot,
-      })
+      }),
     ).rejects.toThrow("does not exist");
     renameSync(hiddenDir, runsDir);
   });
@@ -252,9 +247,7 @@ describe("run-control runtime reporter bridge", () => {
 
     await bridge.flush();
 
-    expect(
-      readJsonl(runPath(workspaceRoot, runId, "runtime-events.jsonl"))
-    ).toEqual(runtimeEvents);
+    expect(readJsonl(runPath(workspaceRoot, runId, "runtime-events.jsonl"))).toEqual(runtimeEvents);
   });
 
   it("projects workflow, node, agent, gate, and hook events into run store statuses", async () => {
@@ -423,14 +416,8 @@ describe("run-control runtime reporter bridge", () => {
     }
     await bridge.flush();
 
-    expect(
-      readJsonl(
-        runPath(workspaceRoot, runId, "nodes", "writer", "stdout.jsonl")
-      )
-    ).toEqual(outputEvents);
-    expect(
-      readJsonl(runPath(workspaceRoot, runId, "runtime-events.jsonl"))
-    ).toEqual(outputEvents);
+    expect(readJsonl(runPath(workspaceRoot, runId, "nodes", "writer", "stdout.jsonl"))).toEqual(outputEvents);
+    expect(readJsonl(runPath(workspaceRoot, runId, "runtime-events.jsonl"))).toEqual(outputEvents);
   });
 
   it("persists OpenCode session ids as per-node metadata in run status", async () => {
@@ -487,8 +474,6 @@ describe("run-control runtime reporter bridge", () => {
       },
       status: "passed",
     });
-    expect(
-      readJsonl(runPath(workspaceRoot, runId, "runtime-events.jsonl"))
-    ).toContainEqual(sessionEvent);
+    expect(readJsonl(runPath(workspaceRoot, runId, "runtime-events.jsonl"))).toContainEqual(sessionEvent);
   });
 });

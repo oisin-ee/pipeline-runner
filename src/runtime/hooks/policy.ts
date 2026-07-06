@@ -2,17 +2,10 @@ import { Option } from "effect";
 
 import type { HookEvent } from "../../config";
 import type { PlannedWorkflowNode } from "../../planning/compile";
-import type {
-  HookBinding,
-  HookFunctionSpec,
-  RuntimeContext,
-  RuntimeFailure,
-} from "../contracts";
+import type { HookBinding, HookFunctionSpec, RuntimeContext, RuntimeFailure } from "../contracts";
 import { runtimeHookFailure } from "./results";
 
-const bindingFilterMatches = (
-  filter: readonly [Option.Option<string>, Option.Option<string>]
-): boolean => {
+const bindingFilterMatches = (filter: readonly [Option.Option<string>, Option.Option<string>]): boolean => {
   const [expected, actual] = filter;
   return Option.match(expected, {
     onNone: () => true,
@@ -28,7 +21,7 @@ const hookBindingMatchesContext = (
   binding: HookBinding,
   workflowId: string,
   nodeId?: string,
-  gateId?: string
+  gateId?: string,
 ): boolean => {
   const { where } = binding;
   const filters: (readonly [Option.Option<string>, Option.Option<string>])[] = [
@@ -43,26 +36,19 @@ export const hookBindingsForContext = (
   context: RuntimeContext,
   event: HookEvent,
   node?: PlannedWorkflowNode,
-  gateId?: string
+  gateId?: string,
 ): HookBinding[] =>
   (context.config.hooks.on[event] ?? []).filter((binding) =>
-    hookBindingMatchesContext(binding, context.workflowId, node?.id, gateId)
+    hookBindingMatchesContext(binding, context.workflowId, node?.id, gateId),
   );
 
 export const moduleHookPolicyFailure = (
   binding: HookBinding,
   context: RuntimeContext,
-  node?: PlannedWorkflowNode
+  node?: PlannedWorkflowNode,
 ): Option.Option<RuntimeFailure> => {
   if (context.config.hooks.policy?.modules === "deny") {
-    return Option.some(
-      runtimeHookFailure(
-        binding,
-        `hook '${binding.id}' failed`,
-        ["module hooks are disabled"],
-        node
-      )
-    );
+    return Option.some(runtimeHookFailure(binding, `hook '${binding.id}' failed`, ["module hooks are disabled"], node));
   }
   return Option.none();
 };
@@ -70,23 +56,20 @@ export const moduleHookPolicyFailure = (
 export const commandHookFailure = (
   binding: HookBinding,
   evidence: string,
-  node?: PlannedWorkflowNode
-): RuntimeFailure =>
-  runtimeHookFailure(binding, `hook '${binding.id}' failed`, [evidence], node);
+  node?: PlannedWorkflowNode,
+): RuntimeFailure => runtimeHookFailure(binding, `hook '${binding.id}' failed`, [evidence], node);
 
 const commandHooksDisabled = (context: RuntimeContext): boolean =>
-  !context.hookPolicy.allowCommandHooks ||
-  context.config.hooks.policy?.commands === "deny";
+  !context.hookPolicy.allowCommandHooks || context.config.hooks.policy?.commands === "deny";
 
 const untrustedCommandHookDisabled = (
   hookFunction: Extract<HookFunctionSpec, { kind: "command" }>,
-  context: RuntimeContext
+  context: RuntimeContext,
 ): boolean => {
   const commandPolicy = context.config.hooks.policy?.commands;
   return (
     hookFunction.trusted !== true &&
-    (commandPolicy === "trusted-only" ||
-      !context.hookPolicy.allowUntrustedCommandHooks)
+    (commandPolicy === "trusted-only" || !context.hookPolicy.allowUntrustedCommandHooks)
   );
 };
 
@@ -94,17 +77,13 @@ export const commandHookPolicyFailure = (
   hookFunction: Extract<HookFunctionSpec, { kind: "command" }>,
   binding: HookBinding,
   context: RuntimeContext,
-  node?: PlannedWorkflowNode
+  node?: PlannedWorkflowNode,
 ): Option.Option<RuntimeFailure> => {
   if (commandHooksDisabled(context)) {
-    return Option.some(
-      commandHookFailure(binding, "command hooks are disabled", node)
-    );
+    return Option.some(commandHookFailure(binding, "command hooks are disabled", node));
   }
   if (untrustedCommandHookDisabled(hookFunction, context)) {
-    return Option.some(
-      commandHookFailure(binding, "command hook is not trusted", node)
-    );
+    return Option.some(commandHookFailure(binding, "command hook is not trusted", node));
   }
   return Option.none();
 };

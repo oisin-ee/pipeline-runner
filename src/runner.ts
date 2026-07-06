@@ -1,25 +1,12 @@
 import { Data } from "effect";
-import {
-  firstSomeOf,
-  fromNullishOr,
-  getOrUndefined,
-  match as matchOption,
-  none,
-} from "effect/Option";
+import { firstSomeOf, fromNullishOr, getOrUndefined, match as matchOption, none } from "effect/Option";
 import type { Option } from "effect/Option";
 
 import type { PipelineConfig, RunnerType } from "./config";
-import {
-  agentIdleTimeoutMsFromEnv,
-  agentTimeoutMsFromEnv,
-} from "./runner/timeouts";
+import { agentIdleTimeoutMsFromEnv, agentTimeoutMsFromEnv } from "./runner/timeouts";
 
 export type Harness = "opencode";
-export type AgentRole =
-  | "researcher"
-  | "test-writer"
-  | "code-writer"
-  | "verifier";
+export type AgentRole = "researcher" | "test-writer" | "code-writer" | "verifier";
 
 const NO_CONTEXT_FILE = null;
 
@@ -45,8 +32,7 @@ interface AgentResultOptionalFields {
   timedOut: boolean;
 }
 
-export type AgentResult = AgentResultRequiredFields &
-  Partial<AgentResultOptionalFields>;
+export type AgentResult = AgentResultRequiredFields & Partial<AgentResultOptionalFields>;
 
 /**
  * Agent-output boundary, layer 2 of 4 (PIPE-74 B3). A single incremental chunk
@@ -82,16 +68,13 @@ interface AgentRunRequestOptionalFields {
   ticketId: ContextFileInput;
 }
 
-export type AgentRunRequest = AgentRunRequestRequiredFields &
-  Partial<AgentRunRequestOptionalFields>;
+export type AgentRunRequest = AgentRunRequestRequiredFields & Partial<AgentRunRequestOptionalFields>;
 
 export interface AgentAdapter {
   run(request: AgentRunRequest): Promise<AgentResult>;
 }
 
-export type ReasoningEffort = NonNullable<
-  PipelineConfig["profiles"][string]["reasoning_effort"]
->;
+export type ReasoningEffort = NonNullable<PipelineConfig["profiles"][string]["reasoning_effort"]>;
 
 export type ProfileConfig = PipelineConfig["profiles"][string];
 export type ActorConfig = ProfileConfig;
@@ -121,8 +104,7 @@ interface RunnerLaunchPlanOptionalFields {
   variant: ReasoningEffort;
 }
 
-export type RunnerLaunchPlan = RunnerLaunchPlanRequiredFields &
-  Partial<RunnerLaunchPlanOptionalFields>;
+export type RunnerLaunchPlan = RunnerLaunchPlanRequiredFields & Partial<RunnerLaunchPlanOptionalFields>;
 
 interface RunnerLaunchInputRequiredFields {
   nodeId: string;
@@ -137,16 +119,11 @@ interface RunnerLaunchInputOptionalFields {
   reasoningEffort: ReasoningEffort;
 }
 
-export type RunnerLaunchInput = RunnerLaunchInputRequiredFields &
-  Partial<RunnerLaunchInputOptionalFields>;
+export type RunnerLaunchInput = RunnerLaunchInputRequiredFields & Partial<RunnerLaunchInputOptionalFields>;
 
-type RunnerOutputFormat = NonNullable<
-  PipelineConfig["runners"][string]["capabilities"]["output_formats"]
->[number];
+type RunnerOutputFormat = NonNullable<PipelineConfig["runners"][string]["capabilities"]["output_formats"]>[number];
 
-export class RunnerCapabilityError extends Data.TaggedError(
-  "RunnerCapabilityError"
-)<{
+export class RunnerCapabilityError extends Data.TaggedError("RunnerCapabilityError")<{
   readonly message: string;
 }> {
   constructor(message: string) {
@@ -163,10 +140,7 @@ interface NativeArgOptionFields {
 
 type NativeArgOptions = Partial<NativeArgOptionFields>;
 
-const optionField = <A, B>(
-  option: Option<A>,
-  select: (value: A) => B
-): Option<NonNullable<B>> =>
+const optionField = <A, B>(option: Option<A>, select: (value: A) => B): Option<NonNullable<B>> =>
   matchOption(option, {
     onNone: () => none(),
     onSome: (value) => fromNullishOr(select(value)),
@@ -174,13 +148,10 @@ const optionField = <A, B>(
 
 const optionalInputField = <B>(
   input: Partial<RunnerLaunchInputOptionalFields>,
-  select: (value: Partial<RunnerLaunchInputOptionalFields>) => B
+  select: (value: Partial<RunnerLaunchInputOptionalFields>) => B,
 ): Option<NonNullable<B>> => fromNullishOr(select(input));
 
-const runnerProfile = (
-  config: PipelineConfig,
-  profileId: Option<string>
-): Option<ActorConfig> =>
+const runnerProfile = (config: PipelineConfig, profileId: Option<string>): Option<ActorConfig> =>
   matchOption(profileId, {
     onNone: () => none(),
     onSome: (id) => {
@@ -203,43 +174,36 @@ const optionalStringArgs = (flag: string, value: Option<string>): string[] =>
     onSome: (definedValue) => [flag, definedValue],
   });
 
-const optionalVariantArgs = (variant: Option<ReasoningEffort>): string[] =>
-  optionalStringArgs("--variant", variant);
+const optionalVariantArgs = (variant: Option<ReasoningEffort>): string[] => optionalStringArgs("--variant", variant);
 
 const optionalIdleTimeoutField = (
-  value: Option<number>
+  value: Option<number>,
 ): Partial<Pick<RunnerLaunchPlanOptionalFields, "idleTimeoutMs">> =>
   matchOption(value, {
     onNone: () => ({}),
     onSome: (idleTimeoutMs) => ({ idleTimeoutMs }),
   });
 
-const optionalModelField = (
-  value: Option<string>
-): Partial<Pick<RunnerLaunchPlanOptionalFields, "model">> =>
+const optionalModelField = (value: Option<string>): Partial<Pick<RunnerLaunchPlanOptionalFields, "model">> =>
   matchOption(value, {
     onNone: () => ({}),
     onSome: (model) => ({ model }),
   });
 
-const optionalProfileIdField = (
-  value: Option<string>
-): Partial<Pick<RunnerLaunchPlanOptionalFields, "profileId">> =>
+const optionalProfileIdField = (value: Option<string>): Partial<Pick<RunnerLaunchPlanOptionalFields, "profileId">> =>
   matchOption(value, {
     onNone: () => ({}),
     onSome: (profileId) => ({ profileId }),
   });
 
-const optionalTimeoutField = (
-  value: Option<number>
-): Partial<Pick<RunnerLaunchPlanOptionalFields, "timeoutMs">> =>
+const optionalTimeoutField = (value: Option<number>): Partial<Pick<RunnerLaunchPlanOptionalFields, "timeoutMs">> =>
   matchOption(value, {
     onNone: () => ({}),
     onSome: (timeoutMs) => ({ timeoutMs }),
   });
 
 const optionalVariantField = (
-  value: Option<ReasoningEffort>
+  value: Option<ReasoningEffort>,
 ): Partial<Pick<RunnerLaunchPlanOptionalFields, "variant">> =>
   matchOption(value, {
     onNone: () => ({}),
@@ -247,58 +211,42 @@ const optionalVariantField = (
   });
 
 const optionalProtectedPathsField = (
-  actor: Option<ActorConfig>
+  actor: Option<ActorConfig>,
 ): Partial<Pick<RunnerLaunchPlanOptionalFields, "protectedPaths">> => {
-  const protectedPaths = optionField(
-    actor,
-    (value) => value.filesystem?.protected
-  );
+  const protectedPaths = optionField(actor, (value) => value.filesystem?.protected);
   return matchOption(protectedPaths, {
     onNone: () => ({}),
     onSome: (paths) => (paths.length > 0 ? { protectedPaths: paths } : {}),
   });
 };
 
-const optionalContextFile = (
-  input: Partial<RunnerLaunchInputOptionalFields>
-): Option<string> => optionalInputField(input, (value) => value.contextFile);
+const optionalContextFile = (input: Partial<RunnerLaunchInputOptionalFields>): Option<string> =>
+  optionalInputField(input, (value) => value.contextFile);
 
-const optionalProfileId = (
-  input: Partial<RunnerLaunchInputOptionalFields>
-): Option<string> => optionalInputField(input, (value) => value.profileId);
+const optionalProfileId = (input: Partial<RunnerLaunchInputOptionalFields>): Option<string> =>
+  optionalInputField(input, (value) => value.profileId);
 
-const optionalInputModel = (
-  input: Partial<RunnerLaunchInputOptionalFields>
-): Option<string> => optionalInputField(input, (value) => value.model);
+const optionalInputModel = (input: Partial<RunnerLaunchInputOptionalFields>): Option<string> =>
+  optionalInputField(input, (value) => value.model);
 
-const optionalInputReasoningEffort = (
-  input: Partial<RunnerLaunchInputOptionalFields>
-): Option<ReasoningEffort> =>
+const optionalInputReasoningEffort = (input: Partial<RunnerLaunchInputOptionalFields>): Option<ReasoningEffort> =>
   optionalInputField(input, (value) => value.reasoningEffort);
 
-const optionalActorModel = (actor: Option<ActorConfig>): Option<string> =>
-  optionField(actor, (value) => value.model);
+const optionalActorModel = (actor: Option<ActorConfig>): Option<string> => optionField(actor, (value) => value.model);
 
-const optionalRunnerModel = (
-  runner: Option<PipelineConfig["runners"][string]>
-): Option<string> => optionField(runner, (value) => value.model);
+const optionalRunnerModel = (runner: Option<PipelineConfig["runners"][string]>): Option<string> =>
+  optionField(runner, (value) => value.model);
 
-const optionalActorEffort = (
-  actor: Option<ActorConfig>
-): Option<ReasoningEffort> =>
+const optionalActorEffort = (actor: Option<ActorConfig>): Option<ReasoningEffort> =>
   optionField(actor, (value) => value.reasoning_effort);
 
-const optionalRunnerEffort = (
-  runner: Option<PipelineConfig["runners"][string]>
-): Option<ReasoningEffort> =>
+const optionalRunnerEffort = (runner: Option<PipelineConfig["runners"][string]>): Option<ReasoningEffort> =>
   optionField(runner, (value) => value.reasoning_effort);
 
 const optionalActorTimeout = (actor: Option<ActorConfig>): Option<number> =>
   optionField(actor, (value) => value.timeout_ms);
 
-const optionalActorOutputFormat = (
-  actor: Option<ActorConfig>
-): Option<RunnerOutputFormat> =>
+const optionalActorOutputFormat = (actor: Option<ActorConfig>): Option<RunnerOutputFormat> =>
   optionField(actor, (value) => value.output?.format);
 
 const actorOutputFormat = (actor: Option<ActorConfig>): RunnerOutputFormat =>
@@ -307,38 +255,24 @@ const actorOutputFormat = (actor: Option<ActorConfig>): RunnerOutputFormat =>
     onSome: (format) => format,
   });
 
-const optionalRunner = (
-  runner: PipelineConfig["runners"][string]
-): Option<PipelineConfig["runners"][string]> => fromNullishOr(runner);
+const optionalRunner = (runner: PipelineConfig["runners"][string]): Option<PipelineConfig["runners"][string]> =>
+  fromNullishOr(runner);
 
 const resolveOpencodeModel = (
   runner: Option<PipelineConfig["runners"][string]>,
   actor: Option<ActorConfig>,
-  selectedModel: Option<string>
-): Option<string> =>
-  firstSomeOf([
-    selectedModel,
-    optionalActorModel(actor),
-    optionalRunnerModel(runner),
-  ]);
+  selectedModel: Option<string>,
+): Option<string> => firstSomeOf([selectedModel, optionalActorModel(actor), optionalRunnerModel(runner)]);
 
 const optionalModelArgs = (
   runner: Option<PipelineConfig["runners"][string]>,
   actor: Option<ActorConfig>,
-  selectedModel: Option<string>
-): string[] =>
-  optionalStringArgs(
-    "--model",
-    resolveOpencodeModel(runner, actor, selectedModel)
-  );
+  selectedModel: Option<string>,
+): string[] => optionalStringArgs("--model", resolveOpencodeModel(runner, actor, selectedModel));
 
-const isVariantModel = (model: string): boolean =>
-  model.startsWith("openai/") || model.startsWith("broker/");
+const isVariantModel = (model: string): boolean => model.startsWith("openai/") || model.startsWith("broker/");
 
-const resolveVariant = (
-  effort: Option<ReasoningEffort>,
-  model: Option<string>
-): Option<ReasoningEffort> =>
+const resolveVariant = (effort: Option<ReasoningEffort>, model: Option<string>): Option<ReasoningEffort> =>
   matchOption(model, {
     onNone: () => none(),
     onSome: (value) => (isVariantModel(value) ? effort : none()),
@@ -347,17 +281,13 @@ const resolveVariant = (
 const resolveLaunchModel = (
   input: RunnerLaunchInput,
   actor: Option<ActorConfig>,
-  runner: PipelineConfig["runners"][string]
+  runner: PipelineConfig["runners"][string],
 ): {
   model: Option<string>;
   variant: Option<ReasoningEffort>;
 } => {
   const runnerOption = optionalRunner(runner);
-  const model = firstSomeOf([
-    optionalInputModel(input),
-    optionalActorModel(actor),
-    optionalRunnerModel(runnerOption),
-  ]);
+  const model = firstSomeOf([optionalInputModel(input), optionalActorModel(actor), optionalRunnerModel(runnerOption)]);
   const effort = firstSomeOf([
     optionalInputReasoningEffort(input),
     optionalActorEffort(actor),
@@ -370,7 +300,7 @@ const runnerLaunchBase = (
   input: RunnerLaunchInput,
   actor: Option<ActorConfig>,
   runner: PipelineConfig["runners"][string],
-  runnerId: string
+  runnerId: string,
 ) => {
   const { model, variant } = resolveLaunchModel(input, actor, runner);
   return {
@@ -384,9 +314,7 @@ const runnerLaunchBase = (
     ...optionalModelField(model),
     ...optionalProfileIdField(optionalProfileId(input)),
     ...optionalProtectedPathsField(actor),
-    ...optionalTimeoutField(
-      firstSomeOf([optionalActorTimeout(actor), agentTimeoutMsFromEnv()])
-    ),
+    ...optionalTimeoutField(firstSomeOf([optionalActorTimeout(actor), agentTimeoutMsFromEnv()])),
     ...optionalVariantField(variant),
   };
 };
@@ -397,7 +325,7 @@ export const harnessArgv = (
   prompt: string,
   worktreePath: string,
   contextFile: Option<string>,
-  options: NativeArgOptions = {}
+  options: NativeArgOptions = {},
 ): string[] => {
   const actor = fromNullishOr(options.actor);
   const runner = fromNullishOr(options.runner);
@@ -434,10 +362,7 @@ export const harnessArgv = (
   ];
 };
 
-const declaredRunner = (
-  config: PipelineConfig,
-  runnerId: string
-): PipelineConfig["runners"][string] => {
+const declaredRunner = (config: PipelineConfig, runnerId: string): PipelineConfig["runners"][string] => {
   if (!Object.hasOwn(config.runners, runnerId)) {
     throw new RunnerCapabilityError(`runner '${runnerId}' is not declared`);
   }
@@ -446,7 +371,7 @@ const declaredRunner = (
 
 const runnerSupportsOutputFormat = (
   runner: PipelineConfig["runners"][string],
-  outputFormat: RunnerOutputFormat
+  outputFormat: RunnerOutputFormat,
 ): boolean =>
   matchOption(fromNullishOr(runner.capabilities.output_formats), {
     onNone: () => true,
@@ -456,36 +381,29 @@ const runnerSupportsOutputFormat = (
 function resolveOutputFormat(
   actor: Option<ActorConfig>,
   runner: PipelineConfig["runners"][string],
-  runnerId: string
+  runnerId: string,
 ): string {
   const outputFormat = actorOutputFormat(actor);
   if (!runnerSupportsOutputFormat(runner, outputFormat)) {
-    throw new RunnerCapabilityError(
-      `runner '${runnerId}' does not support output format '${outputFormat}'`
-    );
+    throw new RunnerCapabilityError(`runner '${runnerId}' does not support output format '${outputFormat}'`);
   }
   return outputFormat;
 }
 
 const renderArgv = (args: string[], prompt: string, cwd: string): string[] =>
-  args.map((arg) =>
-    arg.replaceAll("{{prompt}}", prompt).replaceAll("{{cwd}}", cwd)
-  );
+  args.map((arg) => arg.replaceAll("{{prompt}}", prompt).replaceAll("{{cwd}}", cwd));
 
 const commandRunnerArgs = (
   runner: PipelineConfig["runners"][string],
   runnerId: string,
-  input: RunnerLaunchInput
+  input: RunnerLaunchInput,
 ): string[] => {
   const command = fromNullishOr(runner.command);
   return matchOption(command, {
     onNone: () => {
-      throw new RunnerCapabilityError(
-        `command runner '${runnerId}' must declare command`
-      );
+      throw new RunnerCapabilityError(`command runner '${runnerId}' must declare command`);
     },
-    onSome: () =>
-      renderArgv(runner.args ?? [], input.prompt, input.worktreePath),
+    onSome: () => renderArgv(runner.args ?? [], input.prompt, input.worktreePath),
   });
 };
 
@@ -493,7 +411,7 @@ const createActorLaunchPlan = (
   config: PipelineConfig,
   input: RunnerLaunchInput,
   actor: Option<ActorConfig>,
-  runnerId: string
+  runnerId: string,
 ): RunnerLaunchPlan => {
   const runner = declaredRunner(config, runnerId);
   const command = runner.command ?? runner.type;
@@ -509,51 +427,38 @@ const createActorLaunchPlan = (
 
   return {
     ...base,
-    args: harnessArgv(
-      input.prompt,
-      input.worktreePath,
-      optionalContextFile(input),
-      {
-        ...matchOption(actor, {
-          onNone: () => ({}),
-          onSome: (value) => ({ actor: value }),
-        }),
-        ...matchOption(optionalInputModel(input), {
-          onNone: () => ({}),
-          onSome: (model) => ({ model }),
-        }),
-        runner,
-        ...matchOption(fromNullishOr(base.variant), {
-          onNone: () => ({}),
-          onSome: (variant) => ({ variant }),
-        }),
-      }
-    ),
+    args: harnessArgv(input.prompt, input.worktreePath, optionalContextFile(input), {
+      ...matchOption(actor, {
+        onNone: () => ({}),
+        onSome: (value) => ({ actor: value }),
+      }),
+      ...matchOption(optionalInputModel(input), {
+        onNone: () => ({}),
+        onSome: (model) => ({ model }),
+      }),
+      runner,
+      ...matchOption(fromNullishOr(base.variant), {
+        onNone: () => ({}),
+        onSome: (variant) => ({ variant }),
+      }),
+    }),
     command,
   };
 };
 
-export const createRunnerLaunchPlan = (
-  config: PipelineConfig,
-  input: RunnerLaunchInput
-): RunnerLaunchPlan => {
+export const createRunnerLaunchPlan = (config: PipelineConfig, input: RunnerLaunchInput): RunnerLaunchPlan => {
   const profile = runnerProfile(config, optionalProfileId(input));
   return createActorLaunchPlan(config, input, profile, runnerIdFor(profile));
 };
 
 export const createOrchestratorLaunchPlan = (
   config: PipelineConfig,
-  input: Omit<RunnerLaunchInput, "profileId">
+  input: Omit<RunnerLaunchInput, "profileId">,
 ): RunnerLaunchPlan => {
   if (config.orchestrator === undefined) {
     throw new RunnerCapabilityError("orchestrator profile is not configured");
   }
   const profileId = config.orchestrator.profile;
   const profile = fromNullishOr(config.profiles[profileId]);
-  return createActorLaunchPlan(
-    config,
-    { ...input, profileId },
-    profile,
-    runnerIdFor(profile)
-  );
+  return createActorLaunchPlan(config, { ...input, profileId }, profile, runnerIdFor(profile));
 };
