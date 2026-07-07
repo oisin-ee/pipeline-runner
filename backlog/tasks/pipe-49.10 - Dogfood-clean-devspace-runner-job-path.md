@@ -1,10 +1,10 @@
 ---
 id: PIPE-49.10
 title: Dogfood clean devspace runner-job path
-status: To Do
+status: Done
 assignee: []
-created_date: "2026-06-05 12:27"
-updated_date: "2026-07-04 19:43"
+created_date: '2026-06-05 12:27'
+updated_date: '2026-07-07 05:54'
 labels:
   - runner-job
   - dogfood
@@ -73,3 +73,12 @@ REMAINING for a true e2e dogfood:
 Note: real published-package cluster dogfood is tracked as still-open in project memory (PIPE-94 tail). Kept To Do.
 
 <!-- SECTION:NOTES:END -->
+
+## Comments
+
+<!-- COMMENTS:BEGIN -->
+created: 2026-07-07 05:54
+---
+Closed — dead-layer cull. Entire scope is dogfooding the runner-job payload path via --payload-file (mounted per-run ConfigMap) + events.authTokenFile, i.e. the per-run ConfigMap delivery mechanism. See engine backlog doc-1 (Engine Vision and Architecture), 'What gets deleted': per-run ConfigMaps (PIPE-100 lineage). Successor: ENG-18 (Coordinator spawns k8s Jobs wrapping yeet — RunSpec fetched from coordinator API, zero per-run ConfigMaps).
+---
+<!-- COMMENTS:END -->
