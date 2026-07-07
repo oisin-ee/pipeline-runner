@@ -1,10 +1,10 @@
 ---
 id: PIPE-51
 title: "Epic: repo-aware MCP gateway without duplicate workspaces"
-status: To Do
+status: Done
 assignee: []
 created_date: "2026-06-08 15:54"
-updated_date: "2026-07-04 19:45"
+updated_date: "2026-07-07 09:47"
 labels:
   - epic
   - mcp
@@ -61,3 +61,13 @@ Epic ACs #1 (singleton pipeline-gateway host config), #2 (repo-aware backends bi
 Keep epic To Do until 51.8 lands. Note: several ticket file/symbol references are stale after the moka refactor + config split + gateway.ts split (5732c6e) — corrected per-subtask. gateway.ts → src/mcp/gateway-{config,reconcile,doctor,runtime}.ts; config.ts → src/config/_; runner-job/_ removed.
 
 <!-- SECTION:NOTES:END -->
+
+## Comments
+
+<!-- COMMENTS:BEGIN -->
+
+## created: 2026-07-07 09:47
+
+## Migrated to ENG-34.
+
+<!-- COMMENTS:END -->

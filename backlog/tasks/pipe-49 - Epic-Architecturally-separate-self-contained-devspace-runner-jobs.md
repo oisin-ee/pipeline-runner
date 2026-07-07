@@ -1,10 +1,10 @@
 ---
 id: PIPE-49
 title: "Epic: Architecturally separate self-contained devspace runner jobs"
-status: To Do
+status: Done
 assignee: []
 created_date: "2026-06-05 12:26"
-updated_date: "2026-07-04 19:40"
+updated_date: "2026-07-07 09:47"
 labels:
   - epic
   - runner-job
@@ -67,3 +67,13 @@ Actions taken: subtasks PIPE-49.1 through PIPE-49.6 ARCHIVED (each targets a del
 RECOMMENDATION: archive/close this whole epic. Remaining subtasks .7-.12 (out of this grooming pass's scope) are premised on the same dead runner-job/devspace architecture — .8 'schedules inside runner jobs', .9 'devspace smoke command', .10 'dogfood clean devspace runner-job', .11 'document Console->runner-job contract' are moot; .7 (OpenCode gateway remote auth) and .12 (PR at end) have moka analogues that may already be shipped and should be re-verified/re-filed against the moka/Argo surface, not this epic. Triage .7-.12, then archive the epic.
 
 <!-- SECTION:NOTES:END -->
+
+## Comments
+
+<!-- COMMENTS:BEGIN -->
+
+## created: 2026-07-07 09:47
+
+## Migrated to ENG-33.
+
+<!-- COMMENTS:END -->

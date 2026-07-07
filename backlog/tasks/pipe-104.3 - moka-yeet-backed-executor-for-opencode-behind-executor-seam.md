@@ -1,10 +1,10 @@
 ---
 id: PIPE-104.3
 title: "moka: yeet-backed executor for opencode behind executor seam"
-status: To Do
+status: Done
 assignee: []
 created_date: "2026-07-04 10:56"
-updated_date: "2026-07-04 19:41"
+updated_date: "2026-07-07 09:47"
 labels: []
 dependencies:
   - PIPE-104.2
@@ -37,6 +37,16 @@ Workflow: feature-implementation. What to build: an executor conforming to moka'
 Groomed 2026-07-04. Un-started, valid, blocked on 104.2. SEAM PATH CORRECTION: the executor seam is src/runtime/contracts/contracts.ts:371-373 (not `contracts.ts:370`). Signature confirmed: `(plan: RunnerLaunchPlan, options: RunnerExecutionOptions) => AgentResult | Promise<AgentResult>`. Existing opencode-SDK executor to sit beside = src/runtime/opencode-session-executor.ts. Subprocess/execa reference = src/runner/subprocess.ts. yeet run flags confirmed in ~/dev/yeet/README.md (`yeet run <harness> <prompt> --format ...`, resume/chat/serve). No yeet executor module exists yet. Keep To Do.
 
 <!-- SECTION:NOTES:END -->
+
+## Comments
+
+<!-- COMMENTS:BEGIN -->
+
+## created: 2026-07-07 09:47
+
+## Migrated to ENG-18.1 (as a child of ENG-18, not a standalone ticket -- see PIPE-104's dedupe closure comment).
+
+<!-- COMMENTS:END -->
 
 ## Definition of Done
 

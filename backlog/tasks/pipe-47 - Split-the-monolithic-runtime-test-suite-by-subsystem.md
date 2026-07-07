@@ -1,10 +1,10 @@
 ---
 id: PIPE-47
 title: Split the monolithic runtime test suite by subsystem
-status: To Do
+status: Done
 assignee: []
 created_date: "2026-06-04 14:41"
-updated_date: "2026-07-04 19:44"
+updated_date: "2026-07-07 09:47"
 labels:
   - tech-debt
   - maintainability
@@ -54,3 +54,13 @@ ALREADY PARTIALLY DONE: 39 colocated \*.test.ts files now live under src/runtime
 REMAINING WORK: split the 3,570-line tests/pipeline-runtime.test.ts into subsystem-focused files (scheduling, node attempts, retries, gates, hooks, worktrees, drain-merge, cancellation, observability, nested workflows), reconciling with the already-colocated src/runtime tests to avoid duplication — extract shared fixtures only where they remove real duplication. AC #4's 1,000-line ceiling still applies. Verify the full suite + runtime dogfood paths after.
 
 <!-- SECTION:NOTES:END -->
+
+## Comments
+
+<!-- COMMENTS:BEGIN -->
+
+## created: 2026-07-07 09:47
+
+## Migrated to ENG-38.
+
+<!-- COMMENTS:END -->

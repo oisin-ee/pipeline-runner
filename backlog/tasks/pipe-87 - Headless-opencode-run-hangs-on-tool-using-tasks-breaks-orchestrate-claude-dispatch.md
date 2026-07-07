@@ -3,10 +3,10 @@ id: PIPE-87
 title: >-
   Headless `opencode run` hangs on tool-using tasks — breaks orchestrate's
   Claude-Code dispatch
-status: To Do
+status: Done
 assignee: []
 created_date: "2026-06-17 14:55"
-updated_date: "2026-07-04 19:44"
+updated_date: "2026-07-07 09:47"
 labels:
   - moka
   - orchestrate
@@ -80,6 +80,16 @@ Reference correction — the ticket points at `.claude/skills/orchestrate/SKILL.
 Relations: PIPE-73 (Replace agent-node subprocess scraping with opencode serve/SDK) is still To Do — the runtime RUNNER path already uses the SDK (src/runtime/opencode-session-executor.ts) but the Claude-Code install-commands DISPATCH path still shells out to headless `opencode run`, so PIPE-73 landing on the dispatch path could retire this hang entirely. PIPE-104 (newest epic: yeet-backed opencode executor behind the executor seam) may supersede the whole headless-opencode dispatch — confirm scope before investing here; if PIPE-104 replaces the Claude-Code dispatch subprocess, PIPE-87 may become moot.
 
 <!-- SECTION:NOTES:END -->
+
+## Comments
+
+<!-- COMMENTS:BEGIN -->
+
+## created: 2026-07-07 09:47
+
+## Migrated to ENG-36.
+
+<!-- COMMENTS:END -->
 
 ## Handoff Prompt
 

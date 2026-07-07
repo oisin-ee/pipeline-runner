@@ -1,10 +1,10 @@
 ---
 id: PIPE-49.9
 title: Add devspace smoke command contract
-status: To Do
+status: Done
 assignee: []
 created_date: "2026-06-05 12:27"
-updated_date: "2026-07-04 19:43"
+updated_date: "2026-07-07 09:47"
 labels:
   - runner-job
   - devspace
@@ -68,3 +68,13 @@ REMAINING -- smoke is DECLARED but NOT EXECUTED:
 Next step: add a runSmokeCommands step post-PASS in src/runner-command/run.ts that reads environment.smoke, emits runner.command.phase events with command evidence, and gates PR delivery on smoke success.
 
 <!-- SECTION:NOTES:END -->
+
+## Comments
+
+<!-- COMMENTS:BEGIN -->
+
+## created: 2026-07-07 09:47
+
+## Migrated to ENG-33.1.
+
+<!-- COMMENTS:END -->

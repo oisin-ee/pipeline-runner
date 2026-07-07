@@ -1,10 +1,10 @@
 ---
 id: PIPE-52.12
 title: Dogfood OpenCode-first goal loop through real pipeline usage
-status: To Do
+status: Done
 assignee: []
 created_date: "2026-06-08 19:02"
-updated_date: "2026-07-04 19:42"
+updated_date: "2026-07-07 09:47"
 labels:
   - verification
   - dogfood
@@ -70,3 +70,13 @@ AC COMMAND DRIFT — the ACs predate the toolchain + CLI rename; correct before 
 - AC#5: runner-job path overlaps proven dogfoods (PIPE-50.5, 91.9, 94.9 all Done) — reuse that evidence rather than re-probing.
 No fresh dogfood evidence recorded on this ticket yet.
 <!-- SECTION:NOTES:END -->
+
+## Comments
+
+<!-- COMMENTS:BEGIN -->
+
+## created: 2026-07-07 09:47
+
+## Migrated to ENG-35.1.
+
+<!-- COMMENTS:END -->

@@ -1,10 +1,10 @@
 ---
 id: PIPE-104.2
 title: "Generate TS types from yeet JSON Schema, importable in oisin-pipeline"
-status: To Do
+status: Done
 assignee: []
 created_date: "2026-07-04 10:55"
-updated_date: "2026-07-04 19:41"
+updated_date: "2026-07-07 09:47"
 labels: []
 dependencies:
   - PIPE-104.1
@@ -36,6 +36,16 @@ Workflow: feature-implementation. What to build: a codegen step that turns yeet'
 Groomed 2026-07-04. Un-started, valid, correctly blocked on 104.1. No generated yeet TS types module and no schema-gen script in oisin-pipeline. NOTE: package manager here is `nub` + vitest + ultracite (not npm/bun) — the regen script should be a `nub run` package script (bin name is `moka`). Keep To Do.
 
 <!-- SECTION:NOTES:END -->
+
+## Comments
+
+<!-- COMMENTS:BEGIN -->
+
+## created: 2026-07-07 09:47
+
+## Superseded by ENG-9 (shipped in engine): TS types generated from yeet's JSON Schema, published for consumption. Closed as ENG-duplicate during ENG-6 migration, not migrated.
+
+<!-- COMMENTS:END -->
 
 ## Definition of Done
 

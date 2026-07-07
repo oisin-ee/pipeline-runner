@@ -1,10 +1,10 @@
 ---
 id: PIPE-91.22
 title: Update docs and prove no .pipeline runtime state
-status: To Do
+status: Done
 assignee: []
 created_date: "2026-06-28 09:05"
-updated_date: "2026-07-04 19:42"
+updated_date: "2026-07-07 09:47"
 labels: []
 dependencies:
   - PIPE-91.19
@@ -62,6 +62,16 @@ AC#2 NOT YET RECORDED — proof test EXISTS: tests/next-node-submit-result-pg.te
 REMAINING to close: run the completion-claim gate (typecheck, ultracite check, the pg-gated runtime-state tests) against a reachable DB and record output here, then check AC#2. Last open child of PIPE-91; deliverables (docs + proof test) are landed. Kept To Do pending that recorded run.
 
 <!-- SECTION:NOTES:END -->
+
+## Comments
+
+<!-- COMMENTS:BEGIN -->
+
+## created: 2026-07-07 09:47
+
+## Migrated to ENG-37.1.
+
+<!-- COMMENTS:END -->
 
 ## Definition of Done
 

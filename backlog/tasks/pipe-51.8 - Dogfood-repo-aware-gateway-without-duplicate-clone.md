@@ -1,10 +1,10 @@
 ---
 id: PIPE-51.8
 title: Dogfood repo-aware gateway without duplicate clone
-status: To Do
+status: Done
 assignee: []
 created_date: "2026-06-08 15:54"
-updated_date: "2026-07-04 19:45"
+updated_date: "2026-07-07 09:47"
 labels:
   - mcp
   - gateway
@@ -68,3 +68,13 @@ Remaining (the live layer this ticket exists to prove):
 Update references: drop src/runner-job/_; the runner path now lives under src/remote/argo/_ and src/run-control/\*.
 
 <!-- SECTION:NOTES:END -->
+
+## Comments
+
+<!-- COMMENTS:BEGIN -->
+
+## created: 2026-07-07 09:47
+
+## Migrated to ENG-34.1.
+
+<!-- COMMENTS:END -->

@@ -1,10 +1,10 @@
 ---
 id: PIPE-104.1
 title: "yeet: versioned JSON Schema for RunSpec + Event via schemars"
-status: To Do
+status: Done
 assignee: []
 created_date: "2026-07-04 10:55"
-updated_date: "2026-07-04 19:41"
+updated_date: "2026-07-07 09:47"
 labels: []
 dependencies: []
 parent_task_id: PIPE-104
@@ -35,6 +35,16 @@ Workflow: feature-implementation. What to build: yeet emits a versioned, machine
 Groomed 2026-07-04. Un-started, valid. Verified in ~/dev/yeet: Cargo.toml has no `schemars` dep; no `JsonSchema` derive on RunSpec/Event; no `yeet schema` subcommand in src/cli.rs. RunSpec = src/spec.rs, Event = src/event.rs (paths in ticket correct). Both ACs unmet. Keep To Do.
 
 <!-- SECTION:NOTES:END -->
+
+## Comments
+
+<!-- COMMENTS:BEGIN -->
+
+## created: 2026-07-07 09:47
+
+## Superseded by ENG-9 (shipped in engine): schemars JSON Schema for RunSpec+Event, published as generated TS types. Closed as ENG-duplicate during ENG-6 migration, not migrated.
+
+<!-- COMMENTS:END -->
 
 ## Definition of Done
 

@@ -1,10 +1,10 @@
 ---
 id: PIPE-104
 title: yeet as moka spawn runner — Phase 0+1 opencode parity
-status: To Do
+status: Done
 assignee: []
 created_date: "2026-07-04 10:55"
-updated_date: "2026-07-04 19:41"
+updated_date: "2026-07-07 09:47"
 labels:
   - epic
 dependencies: []
@@ -40,3 +40,13 @@ yeet confirmed at ~/dev/yeet (Rust, edition 2024). RunSpec+Event wire types live
 No work started: (1) yeet Cargo.toml has NO schemars dep, no JsonSchema derive, no `yeet schema` subcommand; (2) zero `yeet` references in oisin-pipeline src/ or package.json, no yeet-executor module, no schema-gen script. All 4 subtasks un-started. Epic stays To Do until all children Done + parity gate green.
 
 <!-- SECTION:NOTES:END -->
+
+## Comments
+
+<!-- COMMENTS:BEGIN -->
+
+## created: 2026-07-07 09:47
+
+## Epic fully resolved via dedupe against the ENG replatform graph (ENG-6 migration, 2026-07-07): PIPE-104.1/104.2 shipped as ENG-9; PIPE-104.4 subsumed by ENG-20; PIPE-104.3 (the one distinct surviving slice, yeet-backed executor behind the coordinator's executor seam) migrated as ENG-18.1, a child of ENG-18. No orphan scope remains under this epic. Closed with pointers, not migrated as a standalone ENG epic.
+
+<!-- COMMENTS:END -->

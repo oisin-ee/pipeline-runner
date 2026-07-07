@@ -1,10 +1,10 @@
 ---
 id: PIPE-52
 title: "Epic: OpenCode-first goal-loop pipeline runtime and ecosystem surfacing"
-status: To Do
+status: Done
 assignee: []
 created_date: "2026-06-08 19:00"
-updated_date: "2026-07-04 19:41"
+updated_date: "2026-07-07 09:47"
 labels:
   - epic
   - opencode
@@ -54,3 +54,13 @@ Drain child tasks in dependency order. First decide architecture and extension p
 Groomed 2026-07-04. VERDICT: GROOM — keep To Do. 11 of 12 subtasks Done (52.1–52.11 all Done in Backlog); only 52.12 (dogfood integration gate) remains To Do. Epic cannot close until 52.12 lands. Goal-loop system confirmed live in code (src/runtime/goal-loop/, src/runtime/goal-state/, src/runtime/services/goal-loop-service.ts) — not obsolete despite PIPE-68 export-pruning tickets. Remaining work = run 52.12's real-usage verification.
 
 <!-- SECTION:NOTES:END -->
+
+## Comments
+
+<!-- COMMENTS:BEGIN -->
+
+## created: 2026-07-07 09:47
+
+## Migrated to ENG-35.
+
+<!-- COMMENTS:END -->

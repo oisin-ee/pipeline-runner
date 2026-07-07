@@ -1,10 +1,10 @@
 ---
 id: PIPE-91
 title: "Epic: moka Layer B — durable substrate + node-stepping CLI"
-status: To Do
+status: Done
 assignee: []
 created_date: "2026-06-26 17:20"
-updated_date: "2026-07-04 19:42"
+updated_date: "2026-07-07 09:47"
 labels:
   - epic
 dependencies: []
@@ -60,6 +60,16 @@ Grooming verification 2026-07-04. Layer B substrate + node-stepping is LANDED. 2
 Epic ACs are substantively met by code (README has no .pipeline/runs guidance; DB is source of truth; proof test tests/next-node-submit-result-pg.test.ts:317 asserts empty git status --porcelain). But DoD#1 ('all open child tickets Done') is NOT met: PIPE-91.22 remains To Do. 91.22's docs+proof-test deliverables are landed and verified by inspection, but its AC#2 needs a _recorded_ pg-gated test run (DoD#2 fresh gate evidence) that has not been captured. Epic kept To Do; closes when 91.22 records that run. No stale paths/symbols found in the epic body — all references still accurate.
 
 <!-- SECTION:NOTES:END -->
+
+## Comments
+
+<!-- COMMENTS:BEGIN -->
+
+## created: 2026-07-07 09:47
+
+## Migrated to ENG-37.
+
+<!-- COMMENTS:END -->
 
 ## Definition of Done
 
