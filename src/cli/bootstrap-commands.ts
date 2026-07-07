@@ -13,7 +13,7 @@ import {
 } from "../pipeline-init";
 import { runDoctor as runDoctorChecks } from "./doctor";
 import type { DoctorFlags } from "./doctor";
-import { formatDoctorResult } from "./format";
+import { formatDoctorResult, writeTerminalLog } from "./format";
 
 interface InitFlags {
   check?: boolean;
@@ -27,9 +27,7 @@ interface CodexAuthSyncLocalFlags {
   root?: string;
 }
 
-const writeOutput = (message: string): void => {
-  globalThis.console.log(message);
-};
+const writeOutput = writeTerminalLog;
 
 const formatDoctorCommandResult = (
   result: Awaited<ReturnType<typeof runDoctorChecks>>,

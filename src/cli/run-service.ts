@@ -2,7 +2,6 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 import { Effect } from "effect";
-import * as Console from "effect/Console";
 
 import { loadPipelineConfig } from "../config";
 import type { PipelineConfig } from "../config";
@@ -25,7 +24,14 @@ import {
   generateRuntimeRunId,
   resolveWorkflowSelection,
 } from "../runtime/context";
-import { createTerminalRuntimeReporter, formatRuntimeFailure } from "./format";
+import {
+  createTerminalRuntimeReporter,
+  formatRuntimeFailure,
+  formatRuntimeResult,
+  writeTerminalError,
+  writeTerminalLog,
+} from "./format";
+import type { TerminalMessageWriter } from "./format";
 import type { LocalRuntimeExecution } from "./run-resolver";
 
 export interface ExecuteOptions {
@@ -203,15 +209,18 @@ const formatSupervisedRunFollowUp = (runId: string): string =>
     `Logs: moka logs ${runId}`,
   ].join("\n");
 
-const writeSupervisedFollowUpEffect = (
-  inputs: RunInputs
-): Effect.Effect<void> => {
-  if (!(inputs.supervised === true && inputs.runId !== undefined)) {
-    return Effect.void;
+const formatDetachedRunFollowUp = (runId: string): string =>
+  [
+    `Run id: ${runId}`,
+    `Status: moka status ${runId}`,
+    `Logs: moka logs ${runId}`,
+    `Stop: moka stop ${runId}`,
+  ].join("\n");
+
+const printSupervisedFollowUp = (inputs: RunInputs): void => {
+  if (inputs.supervised === true) {
+    writeTerminalLog(formatSupervisedRunFollowUp(requireRunId(inputs.runId)));
   }
-  return Console.error(formatSupervisedRunFollowUp(inputs.runId)).pipe(
-    Effect.provideService(Console.Console, globalThis.console)
-  );
 };
 
 const createLocalRunStoreRuntimeReporter = async (
@@ -233,7 +242,6 @@ const createLocalRunStoreRuntimeReporter = async (
           ? { schedule: inputs.scheduleArtifact }
           : {}),
       });
-      yield* writeSupervisedFollowUpEffect(inputs);
     })
   );
 
@@ -304,6 +312,11 @@ const runtimeErrorWithFollowUp = (
   );
 };
 
+const terminalProgressWriter = (inputs: RunInputs): TerminalMessageWriter =>
+  inputs.pipelineRunner !== undefined && inputs.worktreePath === process.cwd()
+    ? writeTerminalLog
+    : writeTerminalError;
+
 const runPipelineSafely = async (
   inputs: RunInputs & { config: PipelineConfig },
   runner: typeof runPipelineFromConfig,
@@ -330,15 +343,17 @@ const runAndPrintPipelineWithStore = async (
   store: RunControlStore
 ): Promise<void> => {
   const runner = inputs.pipelineRunner ?? runPipelineFromConfig;
-  const terminalReporter = createTerminalRuntimeReporter((message) => {
-    globalThis.console.error(message);
-  });
+  const terminalReporter = createTerminalRuntimeReporter(
+    terminalProgressWriter(inputs)
+  );
   const runStoreReporter = await createRunStoreReporter(
     inputs,
     terminalReporter,
     store
   );
+  printSupervisedFollowUp(inputs);
   const result = await runPipelineSafely(inputs, runner, runStoreReporter);
+  writeTerminalLog(formatRuntimeResult(result));
 
   if (result.outcome !== "PASS") {
     throw new Error(formatRuntimeFailureWithFollowUp(result, inputs));
@@ -420,6 +435,7 @@ const runConfiguredPipeline = async (rawInputs: RunInputs): Promise<void> => {
     });
 
     const scheduleYaml = result.yaml;
+    writeTerminalLog("Schedule generated in memory");
     const compiled = compileScheduleArtifact(
       config,
       parseScheduleArtifact(scheduleYaml, "schedule.yaml"),
@@ -587,4 +603,6 @@ export const runDetachedResolvedTask = async (
     task,
     worktreePath,
   });
+
+  writeTerminalLog(formatDetachedRunFollowUp(runId));
 };

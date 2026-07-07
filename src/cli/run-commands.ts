@@ -1,6 +1,7 @@
 import { Option } from "commander";
 import type { Command } from "commander";
 
+import { writeTerminalLog } from "./format";
 import { dispatchMokaRunCommand } from "./run-command";
 import type { RunCommand } from "./run-command";
 import {
@@ -49,7 +50,7 @@ export const printMokaSubmitResult = (
   ]
     .filter((part) => part !== "")
     .join(" ");
-  globalThis.console.log(message);
+  writeTerminalLog(message);
 };
 
 const createResolvedRunCommand =

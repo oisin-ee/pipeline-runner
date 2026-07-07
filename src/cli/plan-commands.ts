@@ -16,6 +16,7 @@ import {
   createRunnerLaunchPlan,
 } from "../runner";
 import { resolveWorkflowSelection } from "../runtime/context";
+import { writeTerminalError, writeTerminalLog } from "./format";
 
 interface ValidateFlags {
   entrypoint?: string;
@@ -87,7 +88,7 @@ const lintWarnings = (
 
 const emitLintWarnings = (warnings: ConfigLintWarning[]): void => {
   for (const warning of warnings) {
-    globalThis.console.error(formatConfigLintWarning(warning));
+    writeTerminalError(formatConfigLintWarning(warning));
   }
 };
 
@@ -116,7 +117,7 @@ const runValidateCommand = (flags: ValidateFlags): void => {
   const warnings = lintWarnings(context, flags);
 
   emitLintWarnings(warnings);
-  globalThis.console.log(formatValidationResult(selected.plan));
+  writeTerminalLog(formatValidationResult(selected.plan));
   assertStrictLintPass(flags, warnings);
 };
 
@@ -267,7 +268,7 @@ const formatCompiledWorkflowPlan = (
 const runExplainPlanCommand = (flags: ValidateFlags): void => {
   const context = loadPlanConfigContext();
   const selected = selectWorkflowPlan(context, flags);
-  globalThis.console.log(
+  writeTerminalLog(
     formatCompiledWorkflowPlan(selected.config, context.cwd, selected.plan)
   );
 };

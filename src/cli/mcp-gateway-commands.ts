@@ -14,7 +14,7 @@ import type {
   GatewayHostScope,
   GatewayHostSelection,
 } from "../mcp/host-config";
-import { formatDoctorResult } from "./format";
+import { formatDoctorResult, writeTerminalLog } from "./format";
 
 interface GatewayConfigureHostFlags {
   host?: GatewayHostSelection;
@@ -25,9 +25,7 @@ interface GatewayLocalStartFlags {
   detach?: boolean;
 }
 
-const writeOutput = (message: string): void => {
-  globalThis.console.log(message);
-};
+const writeOutput = writeTerminalLog;
 
 const parseGatewayHostScope = (value: string): GatewayHostScope => {
   if (value === "project" || value === "global") {
