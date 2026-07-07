@@ -13,6 +13,7 @@ import { afterEach, beforeEach, describe, expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
+import type { execa, execaSync } from "execa";
 import { vi } from "vitest";
 
 import { parsePipelineConfigParts } from "../src/config";
@@ -39,9 +40,18 @@ type ExecaMock = (
 
 const mockExeca = vi.hoisted(() => vi.fn<ExecaMock>());
 
-vi.mock("execa", () => ({
-  execa: mockExeca,
-}));
+interface ExecaModule {
+  readonly execa: typeof execa;
+  readonly execaSync: typeof execaSync;
+}
+
+vi.mock("execa", async (importOriginal) => {
+  const actual = await importOriginal<ExecaModule>();
+  return {
+    ...actual,
+    execa: mockExeca,
+  };
+});
 
 vi.mock("../src/moka-global-config", () => ({
   loadMokaDbUrl: vi.fn(() => {}),

@@ -1,3 +1,5 @@
+import * as Console from "effect/Console";
+import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 
 import type {
@@ -38,6 +40,22 @@ type RuntimeProgressMapping = RuntimeEventMapping<
   TerminalRuntimeRendererState,
   string
 >;
+
+export type TerminalMessageWriter = (message: string) => void;
+
+const runTerminalConsoleEffect = (effect: Effect.Effect<void>): void => {
+  Effect.runSyncExit(
+    effect.pipe(Effect.provideService(Console.Console, globalThis.console))
+  );
+};
+
+export const writeTerminalLog: TerminalMessageWriter = (message) => {
+  runTerminalConsoleEffect(Console.log(message));
+};
+
+export const writeTerminalError: TerminalMessageWriter = (message) => {
+  runTerminalConsoleEffect(Console.error(message));
+};
 
 const runtimeProgressMapping = <Type extends RuntimeEventType>(
   type: Type,
@@ -222,13 +240,13 @@ export const formatRuntimeProgressMessage = (
 };
 
 export const createTerminalRuntimeReporter = (
-  write?: (message: string) => void
+  write: TerminalMessageWriter = writeTerminalError
 ): ((event: PipelineRuntimeEvent) => void) => {
   const state = terminalRuntimeRendererState();
   return (event) => {
     const message = formatRuntimeProgressMessage(event, state);
     if (message !== "") {
-      write?.(message);
+      write(message);
     }
   };
 };
