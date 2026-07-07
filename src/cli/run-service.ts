@@ -2,12 +2,17 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 import { Effect } from "effect";
+import * as Console from "effect/Console";
 
 import { loadPipelineConfig } from "../config";
 import type { PipelineConfig } from "../config";
 import { runPipelineFromConfig } from "../pipeline-runtime";
 import { compileWorkflowPlan } from "../planning/compile";
-import { compileScheduleArtifact, generateScheduleArtifactInMemory, parseScheduleArtifact } from "../planning/generate";
+import {
+  compileScheduleArtifact,
+  generateScheduleArtifactInMemory,
+  parseScheduleArtifact,
+} from "../planning/generate";
 import { flattenNodes } from "../planning/graph";
 import type { RunEffort, RunMode, RunTarget } from "../run-control/contracts";
 import { startDetachedRunController } from "../run-control/detach";
@@ -16,8 +21,11 @@ import { withRunControlStoreScoped } from "../run-control/run-control-store";
 import type { RunControlStore } from "../run-control/run-control-store";
 import { createRunStoreRuntimeReporter } from "../run-control/runtime-reporter";
 import { createRunControlSupervisor } from "../run-control/supervisor";
-import { generateRuntimeRunId, resolveWorkflowSelection } from "../runtime/context";
-import { createTerminalRuntimeReporter, formatRuntimeFailure, formatRuntimeResult } from "./format";
+import {
+  generateRuntimeRunId,
+  resolveWorkflowSelection,
+} from "../runtime/context";
+import { createTerminalRuntimeReporter, formatRuntimeFailure } from "./format";
 import type { LocalRuntimeExecution } from "./run-resolver";
 
 export interface ExecuteOptions {
@@ -84,7 +92,10 @@ const withRunId = (inputs: RunInputs): RunInputs => ({
   runId: inputs.runId ?? generateRuntimeRunId(),
 });
 
-const runWithFlushedReporter = async <T>(flush: () => Promise<void>, run: () => Promise<T>): Promise<T> => {
+const runWithFlushedReporter = async <T>(
+  flush: () => Promise<void>,
+  run: () => Promise<T>
+): Promise<T> => {
   try {
     return await run();
   } finally {
@@ -105,18 +116,28 @@ const DEFAULT_RUN_CONTROL_OPTIONS: RequiredRunControlOptions = {
   target: "local",
 };
 
-const resolvedRunControlOptions = (input: RunControlOptions = {}): RequiredRunControlOptions => ({
+const resolvedRunControlOptions = (
+  input: RunControlOptions = {}
+): RequiredRunControlOptions => ({
   ...DEFAULT_RUN_CONTROL_OPTIONS,
   ...input,
 });
 
-const plannedRunStoreNodeIds = (inputs: RunInputs & { config: PipelineConfig }): string[] => {
+const plannedRunStoreNodeIds = (
+  inputs: RunInputs & { config: PipelineConfig }
+): string[] => {
   if (inputs.pipelineRunner !== undefined) {
     return [];
   }
-  const workflowId = resolveWorkflowSelection(inputs.config, inputs.workflow, inputs.entrypoint);
+  const workflowId = resolveWorkflowSelection(
+    inputs.config,
+    inputs.workflow,
+    inputs.entrypoint
+  );
   const plan = compileWorkflowPlan(inputs.config, workflowId);
-  return flattenNodes(plan.topologicalOrder, (node) => node.children).map((node) => node.id);
+  return flattenNodes(plan.topologicalOrder, (node) => node.children).map(
+    (node) => node.id
+  );
 };
 
 const detachedRunRecord = (input: {
@@ -138,7 +159,8 @@ const detachedRunRecord = (input: {
     worktreePath: input.worktreePath,
   }),
   runId: input.runId,
-  ...(input.prepared.scheduleArtifact !== undefined && input.prepared.scheduleArtifact !== ""
+  ...(input.prepared.scheduleArtifact !== undefined &&
+  input.prepared.scheduleArtifact !== ""
     ? { schedule: input.prepared.scheduleArtifact }
     : {}),
 });
@@ -156,7 +178,8 @@ const persistDetachedRunController = async (input: {
         yield* store.createRun(detachedRunRecord(input));
         const launch = yield* Effect.tryPromise({
           catch: (error) => error,
-          try: async () => await startDetachedRunController(detachedRunControllerInput(input)),
+          try: async () =>
+            await startDetachedRunController(detachedRunControllerInput(input)),
         });
         yield* store.updateRunController({
           controller: {
@@ -168,26 +191,50 @@ const persistDetachedRunController = async (input: {
           },
           runId: input.runId,
         });
-      }),
-    ),
+      })
+    )
+  );
+};
+
+const formatSupervisedRunFollowUp = (runId: string): string =>
+  [
+    `Run id: ${runId}`,
+    `Status: moka status ${runId}`,
+    `Logs: moka logs ${runId}`,
+  ].join("\n");
+
+const writeSupervisedFollowUpEffect = (
+  inputs: RunInputs
+): Effect.Effect<void> => {
+  if (!(inputs.supervised === true && inputs.runId !== undefined)) {
+    return Effect.void;
+  }
+  return Console.error(formatSupervisedRunFollowUp(inputs.runId)).pipe(
+    Effect.provideService(Console.Console, globalThis.console)
   );
 };
 
 const createLocalRunStoreRuntimeReporter = async (
   inputs: RunInputs & { config: PipelineConfig },
-  reporter: NonNullable<Parameters<typeof createRunStoreRuntimeReporter>[0]["reporter"]>,
-  store: RunControlStore,
+  reporter: NonNullable<
+    Parameters<typeof createRunStoreRuntimeReporter>[0]["reporter"]
+  >,
+  store: RunControlStore
 ) => {
   const runId = requireRunId(inputs.runId);
   await Effect.runPromise(
-    store.createRun({
-      ...resolvedRunControlOptions(inputs.runControl),
-      nodeIds: plannedRunStoreNodeIds(inputs),
-      runId,
-      ...(inputs.scheduleArtifact !== undefined && inputs.scheduleArtifact !== ""
-        ? { schedule: inputs.scheduleArtifact }
-        : {}),
-    }),
+    Effect.gen(function* effectBody() {
+      yield* store.createRun({
+        ...resolvedRunControlOptions(inputs.runControl),
+        nodeIds: plannedRunStoreNodeIds(inputs),
+        runId,
+        ...(inputs.scheduleArtifact !== undefined &&
+        inputs.scheduleArtifact !== ""
+          ? { schedule: inputs.scheduleArtifact }
+          : {}),
+      });
+      yield* writeSupervisedFollowUpEffect(inputs);
+    })
   );
 
   return createRunStoreRuntimeReporter({
@@ -198,10 +245,12 @@ const createLocalRunStoreRuntimeReporter = async (
   });
 };
 
-const createRunStoreReporter = (
+const createRunStoreReporter = async (
   inputs: RunInputs & { config: PipelineConfig },
-  reporter: NonNullable<Parameters<typeof createRunStoreRuntimeReporter>[0]["reporter"]>,
-  store: RunControlStore,
+  reporter: NonNullable<
+    Parameters<typeof createRunStoreRuntimeReporter>[0]["reporter"]
+  >,
+  store: RunControlStore
 ) => {
   if (inputs.runStoreMode === "reuse") {
     const runId = requireRunId(inputs.runId);
@@ -226,26 +275,12 @@ const createRunStoreReporter = (
     });
   }
 
-  return createLocalRunStoreRuntimeReporter(inputs, reporter, store);
+  return await createLocalRunStoreRuntimeReporter(inputs, reporter, store);
 };
-
-const formatSupervisedRunFollowUp = (runId: string): string =>
-  [`Run id: ${runId}`, `Status: moka status ${runId}`, `Logs: moka logs ${runId}`].join("\n");
-
-const printSupervisedFollowUp = (inputs: RunInputs): void => {
-  if (inputs.supervised === true) {
-    console.log(formatSupervisedRunFollowUp(requireRunId(inputs.runId)));
-  }
-};
-
-const formatDetachedRunFollowUp = (runId: string): string =>
-  [`Run id: ${runId}`, `Status: moka status ${runId}`, `Logs: moka logs ${runId}`, `Stop: moka stop ${runId}`].join(
-    "\n",
-  );
 
 const formatRuntimeFailureWithFollowUp = (
   result: Parameters<typeof formatRuntimeFailure>[0],
-  inputs: RunInputs,
+  inputs: RunInputs
 ): string => {
   const message = formatRuntimeFailure(result);
   if (!(inputs.supervised === true && inputs.runId !== undefined)) {
@@ -255,19 +290,24 @@ const formatRuntimeFailureWithFollowUp = (
   return [message, "", formatSupervisedRunFollowUp(inputs.runId)].join("\n");
 };
 
-const runtimeErrorWithFollowUp = (error: unknown, inputs: RunInputs): unknown => {
+const runtimeErrorWithFollowUp = (
+  error: unknown,
+  inputs: RunInputs
+): unknown => {
   if (!(inputs.supervised === true && inputs.runId !== undefined)) {
     return error;
   }
 
   const message = error instanceof Error ? error.message : String(error);
-  return new Error([message, "", formatSupervisedRunFollowUp(inputs.runId)].join("\n"));
+  return new Error(
+    [message, "", formatSupervisedRunFollowUp(inputs.runId)].join("\n")
+  );
 };
 
 const runPipelineSafely = async (
   inputs: RunInputs & { config: PipelineConfig },
   runner: typeof runPipelineFromConfig,
-  runStoreReporter: Awaited<ReturnType<typeof createRunStoreReporter>>,
+  runStoreReporter: Awaited<ReturnType<typeof createRunStoreReporter>>
 ): Promise<Awaited<ReturnType<typeof runPipelineFromConfig>>> =>
   await runWithFlushedReporter(
     runStoreReporter.flush,
@@ -280,27 +320,34 @@ const runPipelineSafely = async (
         task: inputs.task,
         workflowId: inputs.workflow,
         worktreePath: inputs.worktreePath,
-      }),
-  ).catch((error) => {
+      })
+  ).catch((error: unknown) => {
     throw runtimeErrorWithFollowUp(error, inputs);
   });
 
 const runAndPrintPipelineWithStore = async (
   inputs: RunInputs & { config: PipelineConfig },
-  store: RunControlStore,
+  store: RunControlStore
 ): Promise<void> => {
   const runner = inputs.pipelineRunner ?? runPipelineFromConfig;
-  const terminalReporter = createTerminalRuntimeReporter();
-  const runStoreReporter = await createRunStoreReporter(inputs, terminalReporter, store);
-  printSupervisedFollowUp(inputs);
+  const terminalReporter = createTerminalRuntimeReporter((message) => {
+    globalThis.console.error(message);
+  });
+  const runStoreReporter = await createRunStoreReporter(
+    inputs,
+    terminalReporter,
+    store
+  );
   const result = await runPipelineSafely(inputs, runner, runStoreReporter);
-  console.log(formatRuntimeResult(result));
+
   if (result.outcome !== "PASS") {
     throw new Error(formatRuntimeFailureWithFollowUp(result, inputs));
   }
 };
 
-const runAndPrintPipeline = async (inputs: RunInputs & { config: PipelineConfig }): Promise<void> => {
+const runAndPrintPipeline = async (
+  inputs: RunInputs & { config: PipelineConfig }
+): Promise<void> => {
   await Effect.runPromise(
     withRunControlStoreScoped(inputs.worktreePath, (store) =>
       Effect.tryPromise({
@@ -308,12 +355,15 @@ const runAndPrintPipeline = async (inputs: RunInputs & { config: PipelineConfig 
         try: async () => {
           await runAndPrintPipelineWithStore(inputs, store);
         },
-      }),
-    ),
+      })
+    )
   );
 };
 
-const scheduledEntrypointById = (config: PipelineConfig, id: string): string => {
+const scheduledEntrypointById = (
+  config: PipelineConfig,
+  id: string
+): string => {
   if (!Object.hasOwn(config.entrypoints, id)) {
     return "";
   }
@@ -321,8 +371,14 @@ const scheduledEntrypointById = (config: PipelineConfig, id: string): string => 
   return "schedule" in entrypoint ? id : "";
 };
 
-const scheduledEntrypointId = (config: PipelineConfig, workflowId?: string, entrypointId?: string): string =>
-  workflowId !== undefined && workflowId !== "" ? "" : scheduledEntrypointById(config, entrypointId ?? "execute");
+const scheduledEntrypointId = (
+  config: PipelineConfig,
+  workflowId?: string,
+  entrypointId?: string
+): string =>
+  workflowId !== undefined && workflowId !== ""
+    ? ""
+    : scheduledEntrypointById(config, entrypointId ?? "execute");
 
 const runConfiguredPipeline = async (rawInputs: RunInputs): Promise<void> => {
   const inputs = withRunId(rawInputs);
@@ -334,7 +390,7 @@ const runConfiguredPipeline = async (rawInputs: RunInputs): Promise<void> => {
     const compiled = compileScheduleArtifact(
       config,
       parseScheduleArtifact(scheduleYaml, inputs.schedule),
-      inputs.worktreePath,
+      inputs.worktreePath
     );
     await runAndPrintPipeline({
       ...inputs,
@@ -345,7 +401,11 @@ const runConfiguredPipeline = async (rawInputs: RunInputs): Promise<void> => {
     return;
   }
 
-  const scheduledEntrypoint = scheduledEntrypointId(config, inputs.workflow, inputs.entrypoint);
+  const scheduledEntrypoint = scheduledEntrypointId(
+    config,
+    inputs.workflow,
+    inputs.entrypoint
+  );
   if (scheduledEntrypoint !== "") {
     if (inputs.pipelineRunner !== undefined) {
       await runAndPrintPipeline({ ...inputs, config });
@@ -358,12 +418,12 @@ const runConfiguredPipeline = async (rawInputs: RunInputs): Promise<void> => {
       task: inputs.task,
       worktreePath: inputs.worktreePath,
     });
-    console.log("Schedule generated in memory");
+
     const scheduleYaml = result.yaml;
     const compiled = compileScheduleArtifact(
       config,
       parseScheduleArtifact(scheduleYaml, "schedule.yaml"),
-      inputs.worktreePath,
+      inputs.worktreePath
     );
     await runAndPrintPipeline({
       ...inputs,
@@ -381,33 +441,34 @@ const runConfiguredPipeline = async (rawInputs: RunInputs): Promise<void> => {
  * Config-driven `execute` entrypoint. Package-owned defaults are the source of
  * truth; repo-local pipeline files are ignored by runtime loading.
  */
-export const execute = async (description: string, options: ExecuteOptions = {}): Promise<void> => {
-  try {
-    if (!description.trim()) {
-      throw new Error("Task description is required");
-    }
-
-    const worktreePath = process.env.PIPELINE_TARGET_PATH ?? process.cwd();
-    return runConfiguredPipeline({
-      entrypoint: options.entrypoint,
-      pipelineRunner: options.pipelineRunner,
-      runControl: options.runControl,
-      runId: options.runId,
-      runStoreMode: options.runStoreMode,
-      schedule: options.schedule,
-      supervised: options.supervised,
-      supervisor: options.supervisor,
-      task: description,
-      workflow: options.workflow,
-      worktreePath,
-    });
-  } catch (error) {
-    await Promise.reject(error);
-    return;
+export const execute = async (
+  description: string,
+  options: ExecuteOptions = {}
+): Promise<void> => {
+  if (!description.trim()) {
+    throw new Error("Task description is required");
   }
+
+  const worktreePath = process.env.PIPELINE_TARGET_PATH ?? process.cwd();
+  await runConfiguredPipeline({
+    entrypoint: options.entrypoint,
+    pipelineRunner: options.pipelineRunner,
+    runControl: options.runControl,
+    runId: options.runId,
+    runStoreMode: options.runStoreMode,
+    schedule: options.schedule,
+    supervised: options.supervised,
+    supervisor: options.supervisor,
+    task: description,
+    workflow: options.workflow,
+    worktreePath,
+  });
 };
 
-export const quick = async (description: string, options: Omit<ExecuteOptions, "entrypoint"> = {}): Promise<void> => {
+export const quick = async (
+  description: string,
+  options: Omit<ExecuteOptions, "entrypoint"> = {}
+): Promise<void> => {
   await execute(description, {
     ...options,
     entrypoint: "quick",
@@ -418,7 +479,7 @@ export const quick = async (description: string, options: Omit<ExecuteOptions, "
 export const runLocalResolvedTask = async (
   task: string,
   execution: LocalRuntimeExecution,
-  runControl: RunControlOptions,
+  runControl: RunControlOptions
 ): Promise<void> => {
   await execute(task, {
     entrypoint: execution.entrypoint,
@@ -445,14 +506,19 @@ interface PreparedDetachedRun {
   workflow?: string;
 }
 
-const prepareDetachedRun = async (input: PrepareDetachedRunInput): Promise<PreparedDetachedRun> => {
-  if (input.execution.schedule !== undefined && input.execution.schedule !== "") {
+const prepareDetachedRun = async (
+  input: PrepareDetachedRunInput
+): Promise<PreparedDetachedRun> => {
+  if (
+    input.execution.schedule !== undefined &&
+    input.execution.schedule !== ""
+  ) {
     const schedule = resolve(input.execution.schedule);
     const scheduleYaml = readFileSync(schedule, "utf-8");
     const compiled = compileScheduleArtifact(
       input.config,
       parseScheduleArtifact(scheduleYaml, schedule),
-      input.worktreePath,
+      input.worktreePath
     );
     return {
       config: compiled.config,
@@ -462,7 +528,11 @@ const prepareDetachedRun = async (input: PrepareDetachedRunInput): Promise<Prepa
     };
   }
 
-  const scheduledEntrypoint = scheduledEntrypointId(input.config, input.execution.workflow, input.execution.entrypoint);
+  const scheduledEntrypoint = scheduledEntrypointId(
+    input.config,
+    input.execution.workflow,
+    input.execution.entrypoint
+  );
   if (scheduledEntrypoint === "") {
     return {
       config: input.config,
@@ -478,12 +548,12 @@ const prepareDetachedRun = async (input: PrepareDetachedRunInput): Promise<Prepa
     task: input.task,
     worktreePath: input.worktreePath,
   });
-  console.log("Schedule generated in memory");
+
   const scheduleYaml = result.yaml;
   const compiled = compileScheduleArtifact(
     input.config,
     parseScheduleArtifact(scheduleYaml, "schedule.yaml"),
-    input.worktreePath,
+    input.worktreePath
   );
   return {
     config: compiled.config,
@@ -495,7 +565,7 @@ const prepareDetachedRun = async (input: PrepareDetachedRunInput): Promise<Prepa
 export const runDetachedResolvedTask = async (
   task: string,
   execution: LocalRuntimeExecution,
-  runControl: RunControlOptions,
+  runControl: RunControlOptions
 ): Promise<void> => {
   const worktreePath = process.env.PIPELINE_TARGET_PATH ?? process.cwd();
   const runId = generateRuntimeRunId();
@@ -517,5 +587,4 @@ export const runDetachedResolvedTask = async (
     task,
     worktreePath,
   });
-  console.log(formatDetachedRunFollowUp(runId));
 };

@@ -10,7 +10,10 @@ import { registerStartSubcommand } from "./ticket/start";
 
 export type { TicketCommandOptions } from "./ticket/shared";
 
-type SubcommandRegistrar = (ticketCommand: Command, options: TicketCommandOptions) => void;
+type SubcommandRegistrar = (
+  ticketCommand: Command,
+  options: TicketCommandOptions
+) => void;
 
 const SUBCOMMAND_REGISTRARS: readonly SubcommandRegistrar[] = [
   registerGraphCheckSubcommand,
@@ -21,7 +24,10 @@ const SUBCOMMAND_REGISTRARS: readonly SubcommandRegistrar[] = [
   registerCompleteSubcommand,
 ];
 
-export const registerTicketCommand = (program: Command, options: TicketCommandOptions = {}): void => {
+export const registerTicketCommand = (
+  program: Command,
+  options: TicketCommandOptions = {}
+): void => {
   const ticketCommand = program
     .command("ticket")
     .description("Scope, inspect, and select Backlog tickets for moka runs");

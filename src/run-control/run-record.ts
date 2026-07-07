@@ -1,5 +1,8 @@
 import type { PipelineConfig } from "../config";
-import { compileScheduleArtifact, parseScheduleArtifact } from "../planning/generate";
+import {
+  compileScheduleArtifact,
+  parseScheduleArtifact,
+} from "../planning/generate";
 import { flattenNodes } from "../planning/graph";
 import type { CreateRunRequest } from "./run-control-store";
 
@@ -35,13 +38,18 @@ export interface RemoteRunRecordOptions {
  * this builder, whichever wins first persists a complete node list — the upsert
  * is lossless regardless of order.
  */
-export const buildRemoteRunCreateRequest = (options: RemoteRunRecordOptions): CreateRunRequest => {
+export const buildRemoteRunCreateRequest = (
+  options: RemoteRunRecordOptions
+): CreateRunRequest => {
   const { plan } = compileScheduleArtifact(
     options.config,
     parseScheduleArtifact(options.scheduleYaml, "schedule.yaml"),
-    options.worktreePath,
+    options.worktreePath
   );
-  const nodeIds = flattenNodes(plan.topologicalOrder, (node) => node.children).map((node) => node.id);
+  const nodeIds = flattenNodes(
+    plan.topologicalOrder,
+    (node) => node.children
+  ).map((node) => node.id);
   return {
     effort: "normal",
     mode: "write",

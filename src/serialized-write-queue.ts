@@ -10,6 +10,10 @@ interface WriteFailure {
   sequence: number;
 }
 
+const runWrite = async (write: SerializedWrite): Promise<void> => {
+  await write();
+};
+
 /**
  * A tiny in-process FIFO for write-through persistence. It keeps scheduling
  * writes after a failure; flush reports the first failure from the drained
@@ -28,13 +32,23 @@ export const createSerializedWriteQueue = (): SerializedWriteQueue => {
     }
   };
 
+  const runQueuedWrite = async (
+    previousTail: Promise<void>,
+    write: SerializedWrite,
+    sequence: number
+  ): Promise<void> => {
+    await previousTail;
+    const [result] = await Promise.allSettled([runWrite(write)]);
+    if (result.status === "rejected") {
+      failures.push({ error: result.reason, sequence });
+    }
+  };
+
   return {
     enqueue(write) {
       const sequence = nextSequence;
       nextSequence += 1;
-      tail = tail.then(write).catch((error: unknown) => {
-        failures.push({ error, sequence });
-      });
+      tail = runQueuedWrite(tail, write, sequence);
     },
 
     async flush() {
@@ -42,7 +56,9 @@ export const createSerializedWriteQueue = (): SerializedWriteQueue => {
       const drain = tail;
       await drain;
 
-      const failure = failures.find((entry) => entry.sequence <= drainThroughSequence);
+      const failure = failures.find(
+        (entry) => entry.sequence <= drainThroughSequence
+      );
       removeFailuresThrough(drainThroughSequence);
       if (failure) {
         throw failure.error;

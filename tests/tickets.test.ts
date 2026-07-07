@@ -11,10 +11,12 @@ describe("parseTicketAndDescription", () => {
   });
 
   it("extracts lowercase Backlog ticket ids", () => {
-    expect(parseTicketAndDescription("jalgpall-2 Adopt pg-boss queue")).toEqual({
-      description: "Adopt pg-boss queue",
-      ticketId: "jalgpall-2",
-    });
+    expect(parseTicketAndDescription("jalgpall-2 Adopt pg-boss queue")).toEqual(
+      {
+        description: "Adopt pg-boss queue",
+        ticketId: "jalgpall-2",
+      }
+    );
   });
 
   it("handles ticket-only input", () => {
@@ -41,22 +43,23 @@ describe("parseTicketAndDescription", () => {
 
 describe("extractTicketIds", () => {
   it("extracts every unique ticket reference from free-form task text", () => {
-    expect(extractTicketIds("Execute PIPE-50 and PIPE-51, then re-check PIPE-50.1")).toEqual([
-      "PIPE-50",
-      "PIPE-51",
-      "PIPE-50.1",
-    ]);
+    expect(
+      extractTicketIds("Execute PIPE-50 and PIPE-51, then re-check PIPE-50.1")
+    ).toEqual(["PIPE-50", "PIPE-51", "PIPE-50.1"]);
   });
 
   it("extracts lowercase and alphanumeric Backlog ticket references", () => {
-    expect(extractTicketIds("Schedule jalgpall-2 with jalgpall-2mk and jalgpall-e82.8")).toEqual([
-      "jalgpall-2",
-      "jalgpall-2mk",
-      "jalgpall-e82.8",
-    ]);
+    expect(
+      extractTicketIds(
+        "Schedule jalgpall-2 with jalgpall-2mk and jalgpall-e82.8"
+      )
+    ).toEqual(["jalgpall-2", "jalgpall-2mk", "jalgpall-e82.8"]);
   });
 
   it("deduplicates repeated ticket references in first-seen order", () => {
-    expect(extractTicketIds("PIPE-50 jalgpall-2 PIPE-50")).toEqual(["PIPE-50", "jalgpall-2"]);
+    expect(extractTicketIds("PIPE-50 jalgpall-2 PIPE-50")).toEqual([
+      "PIPE-50",
+      "jalgpall-2",
+    ]);
   });
 });

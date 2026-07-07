@@ -17,7 +17,7 @@ const copierAnswers = Schema.StructWithRest(
     _commit: Schema.optional(Schema.String),
     _src_path: Schema.optional(Schema.String),
   }),
-  [Schema.Record(Schema.String, Schema.Unknown)],
+  [Schema.Record(Schema.String, Schema.Unknown)]
 );
 
 export interface CopierStampReceipt {
@@ -35,5 +35,7 @@ export const parseCopierAnswers = (source: string): CopierStampReceipt => {
   };
 };
 
-export const isStampOf = (receipt: CopierStampReceipt, templateMatch: string): boolean =>
-  receipt.srcPath?.includes(templateMatch) ?? false;
+export const isStampOf = (
+  receipt: CopierStampReceipt,
+  templateMatch: string
+): boolean => receipt.srcPath?.includes(templateMatch) ?? false;

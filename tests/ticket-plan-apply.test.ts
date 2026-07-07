@@ -11,7 +11,9 @@ interface BacklogCall {
 
 const PLAN: TicketPlan = {
   epic: {
-    acceptance_criteria: [{ evidence: "Apply test creates epic first.", text: "Epic is created." }],
+    acceptance_criteria: [
+      { evidence: "Apply test creates epic first.", text: "Epic is created." },
+    ],
     description: "Create the epic parent.",
     key: "epic",
     likely_files: [],
@@ -71,7 +73,8 @@ const backlogLayer = (outputs: readonly string[], calls: BacklogCall[]) => {
 
 describe("apply ticket plan", () => {
   it("creates an epic parent before children and resolves local dependency keys", async () => {
-    const { applyTicketPlanEffect } = await import("../src/tickets/apply-ticket-plan");
+    const { applyTicketPlanEffect } =
+      await import("../src/tickets/apply-ticket-plan");
     const calls: BacklogCall[] = [];
 
     const result = await Effect.runPromise(
@@ -83,9 +86,9 @@ describe("apply ticket plan", () => {
             "Task PIPE-100.1 - Create schema child",
             "Task PIPE-100.2 - Create render child",
           ],
-          calls,
-        ),
-      ),
+          calls
+        )
+      )
     );
 
     expect(result).toEqual({
@@ -152,14 +155,21 @@ describe("apply ticket plan", () => {
   });
 
   it("uses an existing parent when provided and does not create a new epic", async () => {
-    const { applyTicketPlanEffect } = await import("../src/tickets/apply-ticket-plan");
+    const { applyTicketPlanEffect } =
+      await import("../src/tickets/apply-ticket-plan");
     const calls: BacklogCall[] = [];
 
     const result = await Effect.runPromise(
       Effect.provide(
         applyTicketPlanEffect(PLAN, "/repo", { parentId: "PIPE-84" }),
-        backlogLayer(["Task PIPE-84.10 - Create schema child", "Task PIPE-84.11 - Create render child"], calls),
-      ),
+        backlogLayer(
+          [
+            "Task PIPE-84.10 - Create schema child",
+            "Task PIPE-84.11 - Create render child",
+          ],
+          calls
+        )
+      )
     );
 
     expect(result.parentId).toBe("PIPE-84");
@@ -171,17 +181,21 @@ describe("apply ticket plan", () => {
   });
 
   it("reports created ids, failed command context, and blocker when id parsing fails", async () => {
-    const { applyTicketPlanEffect } = await import("../src/tickets/apply-ticket-plan");
+    const { applyTicketPlanEffect } =
+      await import("../src/tickets/apply-ticket-plan");
     const calls: BacklogCall[] = [];
 
     const exit = await Effect.runPromiseExit(
       Effect.provide(
         applyTicketPlanEffect(PLAN, "/repo", {}),
         backlogLayer(
-          ["Task PIPE-100 - Epic: Apply ticket plan", "Backlog created something but omitted the task id"],
-          calls,
-        ),
-      ),
+          [
+            "Task PIPE-100 - Epic: Apply ticket plan",
+            "Backlog created something but omitted the task id",
+          ],
+          calls
+        )
+      )
     );
 
     expect(Exit.isFailure(exit)).toBe(true);

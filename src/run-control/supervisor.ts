@@ -1,7 +1,10 @@
 // fallow-ignore-file unused-export complexity
 import { Effect, Option } from "effect";
 
-import type { PipelineRuntimeEvent, PipelineRuntimeOptions } from "../pipeline-runtime";
+import type {
+  PipelineRuntimeEvent,
+  PipelineRuntimeOptions,
+} from "../pipeline-runtime";
 import { createSerializedWriteQueue } from "../serialized-write-queue";
 import {
   DEFAULT_RUN_CONTROL_HEARTBEAT_INTERVAL_MS,
@@ -66,7 +69,9 @@ const CLEAR_NODE_ACTIVITY: readonly EventPredicate[] = [
   (event) => event.type === "node.finish",
   (event) => event.type === "agent.finish" && event.exitCode !== 0,
   (event) =>
-    (event.type === "artifact.check.finish" || event.type === "hook.finish") && event.required && !event.passed,
+    (event.type === "artifact.check.finish" || event.type === "hook.finish") &&
+    event.required &&
+    !event.passed,
   (event) => event.type === "gate.finish" && !event.passed,
 ];
 
@@ -74,13 +79,16 @@ const MARK_NODE_RUNNING: readonly EventPredicate[] = [
   isRunningNodeEvent,
   (event) => event.type === "agent.finish" && event.exitCode === 0,
   (event) =>
-    (event.type === "artifact.check.finish" || event.type === "hook.finish") && (event.passed || !event.required),
+    (event.type === "artifact.check.finish" || event.type === "hook.finish") &&
+    (event.passed || !event.required),
   (event) => event.type === "gate.finish" && event.passed,
 ];
 
 const timestamp = (now: () => Date): string => now().toISOString();
 
-const nodeIdFromEvent = (event: PipelineRuntimeEvent): Option.Option<string> => {
+const nodeIdFromEvent = (
+  event: PipelineRuntimeEvent
+): Option.Option<string> => {
   if (!("nodeId" in event)) {
     return Option.none();
   }
@@ -108,11 +116,15 @@ const scheduleStaleTimerEffect = (input: {
     }, input.delayMs);
   });
 
-const createRunControlSupervisorRuntime = (input: CreateRunControlSupervisorInput): RunControlSupervisor => {
+const createRunControlSupervisorRuntime = (
+  input: CreateRunControlSupervisorInput
+): RunControlSupervisor => {
   const now = input.now ?? (() => new Date());
   const staleDetection = parseRunControlStaleDetection({
-    heartbeatIntervalMs: input.heartbeatIntervalMs ?? DEFAULT_RUN_CONTROL_HEARTBEAT_INTERVAL_MS,
-    nodeStaleAfterMs: input.nodeStaleAfterMs ?? DEFAULT_RUN_CONTROL_NODE_STALE_AFTER_MS,
+    heartbeatIntervalMs:
+      input.heartbeatIntervalMs ?? DEFAULT_RUN_CONTROL_HEARTBEAT_INTERVAL_MS,
+    nodeStaleAfterMs:
+      input.nodeStaleAfterMs ?? DEFAULT_RUN_CONTROL_NODE_STALE_AFTER_MS,
   });
   const { store } = input;
   const bridge = createRunStoreRuntimeReporter({
@@ -136,10 +148,14 @@ const createRunControlSupervisorRuntime = (input: CreateRunControlSupervisorInpu
       },
     });
 
-  const enqueueControlWriteEffect = (write: Effect.Effect<void, unknown>): Effect.Effect<void> =>
+  const enqueueControlWriteEffect = (
+    write: Effect.Effect<void, unknown>
+  ): Effect.Effect<void> =>
     Effect.sync(() => {
       controlWrites.enqueue(async () => {
-        await Effect.runPromise(bridge.flushEffect().pipe(Effect.andThen(write)));
+        await Effect.runPromise(
+          bridge.flushEffect().pipe(Effect.andThen(write))
+        );
       });
     });
 
@@ -157,7 +173,7 @@ const createRunControlSupervisorRuntime = (input: CreateRunControlSupervisorInpu
             type: "run.heartbeat",
           },
           runId: input.runId,
-        }),
+        })
       );
     });
 
@@ -168,7 +184,9 @@ const createRunControlSupervisorRuntime = (input: CreateRunControlSupervisorInpu
   const markNodeStalledEffect = (nodeId: string): Effect.Effect<void> =>
     Effect.gen(function* effectBody() {
       const activity = nodeActivity.get(nodeId);
-      if (!(activity && runActive && !stopped && activity.status === "running")) {
+      if (
+        !(activity && runActive && !stopped && activity.status === "running")
+      ) {
         return;
       }
 
@@ -195,7 +213,7 @@ const createRunControlSupervisorRuntime = (input: CreateRunControlSupervisorInpu
           nodeId,
           runId: input.runId,
           status: "stalled",
-        }),
+        })
       );
     });
 
@@ -229,7 +247,7 @@ const createRunControlSupervisorRuntime = (input: CreateRunControlSupervisorInpu
             nodeId,
             runId: input.runId,
             status: "running",
-          }),
+          })
         );
       }
     });
@@ -248,7 +266,9 @@ const createRunControlSupervisorRuntime = (input: CreateRunControlSupervisorInpu
       concurrency: 1,
     }).pipe(Effect.asVoid);
 
-  const observeRuntimeEventEffect = (event: PipelineRuntimeEvent): Effect.Effect<void> =>
+  const observeRuntimeEventEffect = (
+    event: PipelineRuntimeEvent
+  ): Effect.Effect<void> =>
     Effect.gen(function* observeRuntimeEventProgram() {
       if (event.type === "workflow.start") {
         runActive = true;
@@ -278,7 +298,9 @@ const createRunControlSupervisorRuntime = (input: CreateRunControlSupervisorInpu
       if (Option.isSome(heartbeatTimer) || stopped) {
         return;
       }
-      heartbeatTimer = Option.some(setInterval(enqueueHeartbeat, staleDetection.heartbeatIntervalMs));
+      heartbeatTimer = Option.some(
+        setInterval(enqueueHeartbeat, staleDetection.heartbeatIntervalMs)
+      );
     });
 
   const stopEffect = (): Effect.Effect<void, unknown> =>
@@ -320,8 +342,11 @@ const createRunControlSupervisorRuntime = (input: CreateRunControlSupervisorInpu
 };
 
 export const createRunControlSupervisorEffect = (
-  input: CreateRunControlSupervisorInput,
-): Effect.Effect<RunControlSupervisor> => Effect.sync(() => createRunControlSupervisorRuntime(input));
+  input: CreateRunControlSupervisorInput
+): Effect.Effect<RunControlSupervisor> =>
+  Effect.sync(() => createRunControlSupervisorRuntime(input));
 
-export const createRunControlSupervisor = (input: CreateRunControlSupervisorInput): RunControlSupervisor =>
+export const createRunControlSupervisor = (
+  input: CreateRunControlSupervisorInput
+): RunControlSupervisor =>
   Effect.runSync(createRunControlSupervisorEffect(input));

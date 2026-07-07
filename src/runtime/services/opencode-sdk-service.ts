@@ -1,4 +1,8 @@
-import type { AssistantMessage, Event, OpencodeClient } from "@opencode-ai/sdk/v2";
+import type {
+  AssistantMessage,
+  Event,
+  OpencodeClient,
+} from "@opencode-ai/sdk/v2";
 import { createOpencode, createOpencodeClient } from "@opencode-ai/sdk/v2";
 import { Context, Effect, Layer } from "effect";
 
@@ -44,8 +48,10 @@ export interface OpencodePromptSessionData {
   parts: OpencodePromptPart[];
 }
 
-export type OpencodeCreateSessionResult = OpencodeResultTuple<OpencodeCreateSessionData>;
-export type OpencodePromptSessionResult = OpencodeResultTuple<OpencodePromptSessionData>;
+export type OpencodeCreateSessionResult =
+  OpencodeResultTuple<OpencodeCreateSessionData>;
+export type OpencodePromptSessionResult =
+  OpencodeResultTuple<OpencodePromptSessionData>;
 
 /**
  * The runtime only drives session create/prompt and event subscription. Depend
@@ -68,21 +74,32 @@ export interface OpencodeRuntimeClient {
 export class OpencodeSdkService extends Context.Service<
   OpencodeSdkService,
   {
-    readonly createClient: (opts: { baseUrl: string; directory: string }) => Effect.Effect<OpencodeClient, unknown>;
+    readonly createClient: (opts: {
+      baseUrl: string;
+      directory: string;
+    }) => Effect.Effect<OpencodeClient, unknown>;
     readonly createSession: (
       client: OpencodeRuntimeClient,
-      args: CreateSessionArgs,
+      args: CreateSessionArgs
     ) => Effect.Effect<OpencodeCreateSessionResult, unknown>;
     readonly promptSession: (
       client: OpencodeRuntimeClient,
-      args: PromptSessionArgs,
+      args: PromptSessionArgs
     ) => Effect.Effect<OpencodePromptSessionResult, unknown>;
-    readonly abortSession: (client: OpencodeRuntimeClient, args: AbortSessionArgs) => Effect.Effect<unknown, unknown>;
+    readonly abortSession: (
+      client: OpencodeRuntimeClient,
+      args: AbortSessionArgs
+    ) => Effect.Effect<unknown, unknown>;
     readonly spawnServer: (
       args: SpawnArgs,
-      spawn?: OpencodeServerSpawn,
-    ) => Effect.Effect<{ client: OpencodeClient; server: ServerProcess }, unknown>;
-    readonly subscribeEvents: (client: OpencodeRuntimeClient) => Effect.Effect<EventSubscription, unknown>;
+      spawn?: OpencodeServerSpawn
+    ) => Effect.Effect<
+      { client: OpencodeClient; server: ServerProcess },
+      unknown
+    >;
+    readonly subscribeEvents: (
+      client: OpencodeRuntimeClient
+    ) => Effect.Effect<EventSubscription, unknown>;
   }
 >()("OpencodeSdkService") {}
 
@@ -90,7 +107,8 @@ export const OpencodeSdkServiceLive = Layer.succeed(OpencodeSdkService, {
   abortSession: (client, args) =>
     Effect.tryPromise({
       catch: (error) => error,
-      try: async () => await (client.session.abort?.(args) ?? Promise.resolve()),
+      try: async () =>
+        await (client.session.abort?.(args) ?? Promise.resolve()),
     }),
   createClient: (opts) => Effect.try(() => createOpencodeClient(opts)),
   createSession: (client, args) =>

@@ -31,7 +31,7 @@ const STANDARD_OUTPUT_SCHEMAS = {
         id: Schema.String,
         verdict: VERDICT_SCHEMA,
         violations: Schema.optional(STRING_ARRAY_SCHEMA),
-      }),
+      })
     ),
     evidence: STRING_ARRAY_SCHEMA,
     verdict: VERDICT_SCHEMA,
@@ -67,7 +67,7 @@ const STANDARD_OUTPUT_SCHEMAS = {
         message: Schema.String,
         rule: Schema.optional(Schema.String),
         severity: Schema.Literals(["info", "warn", "error", "critical"]),
-      }),
+      })
     ),
     summary: Schema.optional(Schema.String),
     verdict: VERDICT_SCHEMA,
@@ -81,23 +81,32 @@ const STANDARD_OUTPUT_SCHEMAS = {
 };
 
 const standardOutputSchemaNames = R.keys(STANDARD_OUTPUT_SCHEMAS).toSorted();
-export type StandardOutputSchemaName = (typeof standardOutputSchemaNames)[number];
+export type StandardOutputSchemaName =
+  (typeof standardOutputSchemaNames)[number];
 const NO_STANDARD_OUTPUT_SCHEMA = null;
-const encodeUnknownJson = Schema.encodeUnknownSync(Schema.fromJsonString(Schema.Unknown));
+const encodeUnknownJson = Schema.encodeUnknownSync(
+  Schema.fromJsonString(Schema.Unknown)
+);
 
-export const standardOutputSchemaJson = (name: StandardOutputSchemaName): string => {
+export const standardOutputSchemaJson = (
+  name: StandardOutputSchemaName
+): string => {
   const schema = STANDARD_OUTPUT_SCHEMAS[name];
   return encodeUnknownJson(effectSchemaDocumentDraft07(schema));
 };
 
-const standardOutputSchemaPath = (name: StandardOutputSchemaName): string => `.pipeline/schemas/${name}.schema.json`;
+const standardOutputSchemaPath = (name: StandardOutputSchemaName): string =>
+  `.pipeline/schemas/${name}.schema.json`;
 
 export const standardOutputSchemaNameFromPath = (
-  schemaPath: string,
+  schemaPath: string
 ): StandardOutputSchemaName | typeof NO_STANDARD_OUTPUT_SCHEMA => {
   const normalized = schemaPath.replaceAll("\\", "/");
   return Option.getOrElse(
-    Arr.findFirst(standardOutputSchemaNames, (name) => normalized === standardOutputSchemaPath(name)),
-    () => NO_STANDARD_OUTPUT_SCHEMA,
+    Arr.findFirst(
+      standardOutputSchemaNames,
+      (name) => normalized === standardOutputSchemaPath(name)
+    ),
+    () => NO_STANDARD_OUTPUT_SCHEMA
   );
 };

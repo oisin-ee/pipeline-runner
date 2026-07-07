@@ -43,11 +43,18 @@ export const nodeRetryPolicy = (node: PlannedWorkflowNode): NodeRetryPolicy => {
   };
 };
 
-export const retryDelayMs = (policy: NodeRetryPolicy, attempt: number): number =>
+export const retryDelayMs = (
+  policy: NodeRetryPolicy,
+  attempt: number
+): number =>
   policy.backoffMs * Math.max(1, policy.multiplier) ** Math.max(0, attempt - 1);
 
-export const decideNodeRetry = (input: NodeRetryDecisionInput): NodeRetryDecision => {
-  const scheduled = input.policy.retryOn.includes(input.retryReason) && input.attempt < input.policy.maxAttempts;
+export const decideNodeRetry = (
+  input: NodeRetryDecisionInput
+): NodeRetryDecision => {
+  const scheduled =
+    input.policy.retryOn.includes(input.retryReason) &&
+    input.attempt < input.policy.maxAttempts;
 
   return {
     attempt: input.attempt,

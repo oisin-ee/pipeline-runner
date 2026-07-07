@@ -22,14 +22,16 @@ const CommandExecutorStub = Layer.succeed(CommandExecutor, {
 });
 
 describe("CommandExecutor service (Layer injection)", () => {
-  it.effect("resolves execute from the provided Layer, not a real process", () =>
-    Effect.gen(function* effectBody() {
-      const executor = yield* CommandExecutor;
-      const context: CommandExecutionContext = { worktreePath: "/repo" };
-      const result = yield* executor.execute(["noop"], context);
-      expect(result.exitCode).toBe(0);
-      expect(result.output).toBe("ok");
-      expect(result.evidence).toEqual(["stub command"]);
-    }).pipe(Effect.provide(CommandExecutorStub)),
+  it.effect(
+    "resolves execute from the provided Layer, not a real process",
+    () =>
+      Effect.gen(function* effectBody() {
+        const executor = yield* CommandExecutor;
+        const context: CommandExecutionContext = { worktreePath: "/repo" };
+        const result = yield* executor.execute(["noop"], context);
+        expect(result.exitCode).toBe(0);
+        expect(result.output).toBe("ok");
+        expect(result.evidence).toEqual(["stub command"]);
+      }).pipe(Effect.provide(CommandExecutorStub))
   );
 });

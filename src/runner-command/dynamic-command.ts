@@ -1,6 +1,7 @@
 import type { Scope } from "effect";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
+import { match } from "effect/Result";
 import * as Schema from "effect/Schema";
 
 import type { PipelineConfig } from "../config";
@@ -12,7 +13,8 @@ import { parseRunnerCommandPayload } from "../runner-command-contract";
 import type { RunnerCommandPayload } from "../runner-command-contract";
 import { resolveDurableStore } from "../runtime/durable-store/acquisition";
 import type { DurableRunStore } from "../runtime/durable-store/durable-store";
-import { FileSystemService, FileSystemServiceLive } from "../runtime/services/file-system-service";
+import type { FileSystemService } from "../runtime/services/file-system-service";
+import { FileSystemServiceLive } from "../runtime/services/file-system-service";
 import {
   isOutputStream,
   RunnerCommandIoService,
@@ -61,13 +63,19 @@ export const runScopedDynamicRunnerCommand = async <
   schema: S,
   rawOptions: Partial<S["Encoded"]>,
   runEffect: (
-    options: S["Type"] & { stderr: OutputStream },
-  ) => Effect.Effect<number, never, FileSystemService | RunnerCommandIoService | Scope.Scope>,
+    options: S["Type"] & { stderr: OutputStream }
+  ) => Effect.Effect<
+    number,
+    never,
+    FileSystemService | RunnerCommandIoService | Scope.Scope
+  >
 ): Promise<number> => {
   const parsed = parseResultWithSchema(schema, rawOptions, {
     onExcessProperty: "error",
   });
-  const stderr = isOutputStream(rawOptions.stderr) ? rawOptions.stderr : process.stderr;
+  const stderr = isOutputStream(rawOptions.stderr)
+    ? rawOptions.stderr
+    : process.stderr;
   if (!parsed.ok) {
     stderr.write(`${parsed.error.message}\n`);
     return DYNAMIC_COMMAND_EXIT.validation;
@@ -75,26 +83,48 @@ export const runScopedDynamicRunnerCommand = async <
   const options = { ...parsed.value, stderr };
   return await Effect.runPromise(
     Effect.provide(
-      Effect.provide(Effect.scoped(runEffect(options)), RunnerCommandIoServiceLive),
-      FileSystemServiceLive,
-    ),
+      Effect.provide(
+        Effect.scoped(runEffect(options)),
+        RunnerCommandIoServiceLive
+      ),
+      FileSystemServiceLive
+    )
   );
 };
 
-export const dynamicRunnerCommandErrorExit = (error: unknown, stderr: Option.Option<OutputStream>): number => {
+const dynamicRunnerCommandErrorExit = (
+  error: unknown,
+  stderr: Option.Option<OutputStream>
+): number => {
   const message = error instanceof Error ? error.message : String(error);
   Option.match(stderr, {
-    onNone: () => {},
+    onNone: () => {
+      /* empty */
+    },
     onSome: (stream) => {
       stream.write(`${message}\n`);
     },
   });
-  return error instanceof Schema.SchemaError ? DYNAMIC_COMMAND_EXIT.validation : DYNAMIC_COMMAND_EXIT.startup;
+  return error instanceof Schema.SchemaError
+    ? DYNAMIC_COMMAND_EXIT.validation
+    : DYNAMIC_COMMAND_EXIT.startup;
 };
+
+export const dynamicRunnerCommandExitEffect = <R>(
+  program: Effect.Effect<number, unknown, R>,
+  stderr: Option.Option<OutputStream>
+): Effect.Effect<number, never, R> =>
+  Effect.gen(function* effectBody() {
+    const result = yield* Effect.result(program);
+    return match(result, {
+      onFailure: (error) => dynamicRunnerCommandErrorExit(error, stderr),
+      onSuccess: (exitCode) => exitCode,
+    });
+  });
 
 const dynamicRunnerPersistenceEffect = (
   options: DynamicRunnerCommandOptions,
-  context: { runId: string; worktreePath: string },
+  context: { runId: string; worktreePath: string }
 ): Effect.Effect<DynamicRunnerPersistence, unknown, Scope.Scope> => {
   if (options.resolvePersistence !== undefined) {
     return options.resolvePersistence(context);
@@ -102,14 +132,21 @@ const dynamicRunnerPersistenceEffect = (
   const dbUrl = loadMokaDbUrl();
   return Effect.gen(function* effectBody() {
     const durableStore = yield* resolveDurableStore(dbUrl, context.runId);
-    const runControlStore = yield* resolveRunControlStore(dbUrl, context.worktreePath);
+    const runControlStore = yield* resolveRunControlStore(
+      dbUrl,
+      context.worktreePath
+    );
     return { durableStore, runControlStore };
   });
 };
 
 export const dynamicRunnerContextEffect = (
-  options: DynamicRunnerCommandOptions,
-): Effect.Effect<DynamicRunnerContext, unknown, RunnerCommandIoService | Scope.Scope> =>
+  options: DynamicRunnerCommandOptions
+): Effect.Effect<
+  DynamicRunnerContext,
+  unknown,
+  RunnerCommandIoService | Scope.Scope
+> =>
   Effect.gen(function* effectBody() {
     const io = yield* RunnerCommandIoService;
     const payloadRaw = yield* io.readText(options.payloadFile);

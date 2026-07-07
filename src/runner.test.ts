@@ -23,7 +23,9 @@ describe("reasoning effort → opencode model variant", () => {
     const plan = createOrchestratorLaunchPlan(config, baseInput);
     expect(plan.model).toBe("broker/gpt-5.5");
     expect(plan.variant).toBe("xhigh");
-    expect(getOrUndefined(argPair(plan.args, "--model"))).toBe("broker/gpt-5.5");
+    expect(getOrUndefined(argPair(plan.args, "--model"))).toBe(
+      "broker/gpt-5.5"
+    );
     expect(getOrUndefined(argPair(plan.args, "--variant"))).toBe("xhigh");
   });
 

@@ -107,7 +107,7 @@ describe("drain-merge builtin", () => {
             worktreePath: "/tmp/right",
           }),
         },
-      }),
+      })
     );
     const result = await executeDrainMergeBuiltin(context, node);
 

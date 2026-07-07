@@ -30,13 +30,20 @@ export interface RunnerEventSink {
   fail: () => Promise<void>;
   flush: () => Promise<void>;
   recordCancellation: (workflowId: string) => void;
-  recordFinalResult: (outcome: "CANCELLED" | "FAIL" | "PASS", workflowId: string) => void;
-  recordRunnerCommandPhase: (phase: string, message: string, output?: Record<string, unknown>) => void;
+  recordFinalResult: (
+    outcome: "CANCELLED" | "FAIL" | "PASS",
+    workflowId: string
+  ) => void;
+  recordRunnerCommandPhase: (
+    phase: string,
+    message: string,
+    output?: Record<string, unknown>
+  ) => void;
   recordRuntimeEvent: (event: PipelineRuntimeEvent) => void;
   recordSchemaValidationFailure: (
     message: string,
     issues: { message: string; path: string }[],
-    workflowId: string,
+    workflowId: string
   ) => void;
 }
 
@@ -49,18 +56,25 @@ export const RUNNER_EVENT_SINK_RETRY_POLICY = {
   retryDelayMs: DEFAULT_RETRY_DELAY_MS,
 } as const;
 
-const hasQueuedEvents = (queue: RunnerEventRecord[]): boolean => queue.length > 0;
+const hasQueuedEvents = (queue: RunnerEventRecord[]): boolean =>
+  queue.length > 0;
 
-const positiveOrDefault = (value: Option.Option<number>, fallback: number): number =>
+const positiveOrDefault = (
+  value: Option.Option<number>,
+  fallback: number
+): number =>
   Math.max(
     1,
-    Option.getOrElse(value, () => fallback),
+    Option.getOrElse(value, () => fallback)
   );
 
-const nonNegativeOrDefault = (value: Option.Option<number>, fallback: number): number =>
+const nonNegativeOrDefault = (
+  value: Option.Option<number>,
+  fallback: number
+): number =>
   Math.max(
     0,
-    Option.getOrElse(value, () => fallback),
+    Option.getOrElse(value, () => fallback)
   );
 
 const resolveFetch = (fetchImpl: Option.Option<FetchLike>): FetchLike => {
@@ -82,7 +96,7 @@ const assertAuthToken = (authToken: string): void => {
 const postBatchRequest = (
   options: RunnerEventSinkOptions,
   fetchImpl: FetchLike,
-  events: RunnerEventRecord[],
+  events: RunnerEventRecord[]
 ): RunnerEventSinkPostBatchRequest => ({
   authHeader: options.authHeader,
   authToken: options.authToken,
@@ -90,11 +104,11 @@ const postBatchRequest = (
   fetch: fetchImpl,
   maxRetries: nonNegativeOrDefault(
     Option.fromUndefinedOr(options.maxRetries),
-    RUNNER_EVENT_SINK_RETRY_POLICY.maxRetries,
+    RUNNER_EVENT_SINK_RETRY_POLICY.maxRetries
   ),
   retryDelayMs: nonNegativeOrDefault(
     Option.fromUndefinedOr(options.retryDelayMs),
-    RUNNER_EVENT_SINK_RETRY_POLICY.retryDelayMs,
+    RUNNER_EVENT_SINK_RETRY_POLICY.retryDelayMs
   ),
   url: options.url,
 });
@@ -109,8 +123,23 @@ const timestamp = (now: RunnerEventSinkOptions["now"]): string =>
  * failure handling.
  */
 
-export const createRunnerEventSink = (options: RunnerEventSinkOptions): RunnerEventSink => {
-  const batchSize = positiveOrDefault(Option.fromUndefinedOr(options.batchSize), DEFAULT_BATCH_SIZE);
+const settleFlushPromise = async (
+  promise: Promise<void>,
+  onRejected: () => void
+): Promise<void> => {
+  const [result] = await Promise.allSettled([promise]);
+  if (result.status === "rejected") {
+    onRejected();
+  }
+};
+
+export const createRunnerEventSink = (
+  options: RunnerEventSinkOptions
+): RunnerEventSink => {
+  const batchSize = positiveOrDefault(
+    Option.fromUndefinedOr(options.batchSize),
+    DEFAULT_BATCH_SIZE
+  );
   const fetchImpl = resolveFetch(Option.fromUndefinedOr(options.fetch));
   assertAuthToken(options.authToken);
   const queue: RunnerEventRecord[] = [];
@@ -121,7 +150,10 @@ export const createRunnerEventSink = (options: RunnerEventSinkOptions): RunnerEv
   let nextSequence = 1;
   let scheduledFlush = false;
 
-  const nextEnvelope = (): Pick<RunnerEventRecord, "at" | "runId" | "sequence"> => {
+  const nextEnvelope = (): Pick<
+    RunnerEventRecord,
+    "at" | "runId" | "sequence"
+  > => {
     const sequence = nextSequence;
     nextSequence += 1;
     return {
@@ -131,8 +163,12 @@ export const createRunnerEventSink = (options: RunnerEventSinkOptions): RunnerEv
     };
   };
 
-  const flushQueueEffect = (): Effect.Effect<void, Error, RunnerEventSinkHttpService> =>
-    Effect.gen(function* flushQueueEffect() {
+  const flushQueueEffect = (): Effect.Effect<
+    void,
+    Error,
+    RunnerEventSinkHttpService
+  > =>
+    Effect.gen(function* flushQueueBody() {
       const service = yield* RunnerEventSinkHttpService;
       while (hasQueuedEvents(queue)) {
         const batch = queue.slice(0, batchSize);
@@ -141,16 +177,33 @@ export const createRunnerEventSink = (options: RunnerEventSinkOptions): RunnerEv
       }
     });
 
+  const ignorePreviousFlushFailure = async (): Promise<void> => {
+    await settleFlushPromise(flushChain, () => {
+      // Prior flush caller already observes this failure; later flushes still need to drain queued events.
+    });
+  };
+
   const runFlush = async (): Promise<void> => {
-    await Effect.runPromise(Effect.provide(flushQueueEffect(), RunnerEventSinkHttpServiceLive));
+    await Effect.runPromise(
+      Effect.provide(flushQueueEffect(), RunnerEventSinkHttpServiceLive)
+    );
   };
 
   const runSerializedFlush = async (): Promise<void> => {
-    const nextFlush = flushChain.then(runFlush, runFlush);
-    flushChain = nextFlush.catch(() => {
-      /* empty */
+    const nextFlush = (async () => {
+      await ignorePreviousFlushFailure();
+      await runFlush();
+    })();
+    flushChain = settleFlushPromise(nextFlush, () => {
+      // Keep serialization chain reusable after the caller-visible flush failure.
     });
     await nextFlush;
+  };
+
+  const runScheduledFlush = async (): Promise<void> => {
+    await settleFlushPromise(runSerializedFlush(), () => {
+      // Background flush keeps failed records queued; explicit flush/fail surfaces the failure.
+    });
   };
 
   const scheduleFlush = (): void => {
@@ -161,9 +214,7 @@ export const createRunnerEventSink = (options: RunnerEventSinkOptions): RunnerEv
     scheduledFlush = true;
     queueMicrotask(() => {
       scheduledFlush = false;
-      runSerializedFlush().catch(() => {
-        /* empty */
-      });
+      void runScheduledFlush();
     });
   };
 
@@ -190,7 +241,8 @@ export const createRunnerEventSink = (options: RunnerEventSinkOptions): RunnerEv
         ...nextEnvelope(),
         log: {
           level: "warn",
-          message: "Runner received a termination signal and cancelled the run.",
+          message:
+            "Runner received a termination signal and cancelled the run.",
         },
         type: "run.cancelled",
       });

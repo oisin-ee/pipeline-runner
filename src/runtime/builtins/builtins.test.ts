@@ -64,7 +64,9 @@ runners:
 
 describe("runtime builtins", () => {
   it("fails unsupported builtins with evidence", async () => {
-    await expect(executeBuiltin("missing", contextForBuiltins())).resolves.toEqual({
+    await expect(
+      executeBuiltin("missing", contextForBuiltins())
+    ).resolves.toEqual({
       evidence: ["unsupported builtin 'missing'"],
       exitCode: 1,
       output: "",
@@ -94,7 +96,9 @@ describe("runtime builtins", () => {
 
     // The builtin dispatches — it does not return "unsupported builtin".
     // It fails because /tmp is not a git repo, but the dispatch path ran.
-    expect(result.evidence[0]).not.toBe("unsupported builtin 'open-pull-request'");
+    expect(result.evidence[0]).not.toBe(
+      "unsupported builtin 'open-pull-request'"
+    );
     expect(result.exitCode).toBe(1);
   });
 });

@@ -1,6 +1,11 @@
 import { Option } from "effect";
 
-import type { AcceptanceCriterion, CompletionClaim, CriterionEvidence, UnmetCriterion } from "../../contracts";
+import type {
+  AcceptanceCriterion,
+  CompletionClaim,
+  CriterionEvidence,
+  UnmetCriterion,
+} from "../../contracts";
 
 /**
  * One completeness rule for a single criterion evidence entry.
@@ -40,8 +45,13 @@ const COMPLETENESS_RULES: readonly CompletenessRule[] = [
   },
 ];
 
-const criterionUnmet = (criterion: AcceptanceCriterion, claim: CompletionClaim): Option.Option<UnmetCriterion> => {
-  const entry = Option.fromUndefinedOr(claim.criteria.find((e) => e.criterion === criterion.id));
+const criterionUnmet = (
+  criterion: AcceptanceCriterion,
+  claim: CompletionClaim
+): Option.Option<UnmetCriterion> => {
+  const entry = Option.fromUndefinedOr(
+    claim.criteria.find((e) => e.criterion === criterion.id)
+  );
   const rule = COMPLETENESS_RULES.find((r) => r.test(entry));
   if (rule === undefined) {
     return Option.none();
@@ -69,7 +79,7 @@ const criterionUnmet = (criterion: AcceptanceCriterion, claim: CompletionClaim):
  */
 export const structuredClaimUnmet = (
   criteria: readonly AcceptanceCriterion[],
-  claim: CompletionClaim,
+  claim: CompletionClaim
 ): UnmetCriterion[] =>
   criteria.flatMap((criterion) => {
     const unmet = criterionUnmet(criterion, claim);

@@ -35,7 +35,7 @@ describe("changed file snapshots", () => {
     });
   });
 
-  it("detects already-dirty tracked files that change during a node", async () => {
+  it("detects already-dirty tracked files that change during a node", () => {
     const dir = tempProject();
     git(dir, ["init"]);
     git(dir, ["config", "user.email", "test@example.com"]);
@@ -49,6 +49,8 @@ describe("changed file snapshots", () => {
     writeFileSync(join(dir, "app.ts"), "export const value = 3;\n");
     const after = snapshotChangedFiles(dir);
 
-    expect(diffChangedFiles(before, after, dir).files).toEqual(new Set(["app.ts"]));
+    expect(diffChangedFiles(before, after, dir).files).toEqual(
+      new Set(["app.ts"])
+    );
   });
 });

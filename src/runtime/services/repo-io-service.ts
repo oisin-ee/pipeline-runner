@@ -23,7 +23,8 @@ export class RepoIoService extends Context.Service<
   }
 >()("RepoIoService") {}
 
-const direntCompare = (a: Dirent, b: Dirent): number => a.name.localeCompare(b.name);
+const direntCompare = (a: Dirent, b: Dirent): number =>
+  a.name.localeCompare(b.name);
 
 export const RepoIoServiceLive = Layer.succeed(RepoIoService, {
   createParser: () =>
@@ -57,12 +58,16 @@ export const RepoIoServiceLive = Layer.succeed(RepoIoService, {
     }),
 });
 
-export const runRepoIoSync = <A, E>(program: Effect.Effect<A, E, RepoIoService>): A => {
+export const runRepoIoSync = <A, E>(
+  program: Effect.Effect<A, E, RepoIoService>
+): A => {
   const exit = Effect.runSyncExit(Effect.provide(program, RepoIoServiceLive));
   if (exit._tag === "Success") {
     return exit.value;
   }
-  const originalError = Option.getOrUndefined(Cause.findErrorOption(exit.cause));
+  const originalError = Option.getOrUndefined(
+    Cause.findErrorOption(exit.cause)
+  );
   if (originalError !== undefined) {
     throw originalError;
   }

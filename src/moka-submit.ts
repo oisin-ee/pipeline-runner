@@ -26,7 +26,10 @@ import {
 } from "./schema-boundary";
 import { workflowSubmitResultSchema } from "./workflow-submit-contract";
 
-const imagePullPolicySchema = withDefault(Schema.Literals(["Always", "IfNotPresent", "Never"]), "Always");
+const imagePullPolicySchema = withDefault(
+  Schema.Literals(["Always", "IfNotPresent", "Never"]),
+  "Always"
+);
 
 const mokaSubmitTaskInput = Schema.Union([requiredString, runnerTaskSchema]);
 
@@ -65,18 +68,25 @@ const mokaSubmitModuleHookSchema = struct({
   module: requiredString,
 });
 
-const mokaSubmitDirectHook = Schema.Union([mokaSubmitCommandHookSchema, mokaSubmitModuleHookSchema]);
+const mokaSubmitDirectHook = Schema.Union([
+  mokaSubmitCommandHookSchema,
+  mokaSubmitModuleHookSchema,
+]);
 
 const directHookEventKeys = HashSet.fromIterable(MOKA_SUBMIT_HOOK_EVENTS);
 const unsupportedDirectHookEventKey = Schema.String.check(
   Schema.makeFilter(
-    (value) => (HashSet.has(directHookEventKeys, value) ? `Unsupported direct hook event ${value}` : true),
+    (value) =>
+      HashSet.has(directHookEventKeys, value)
+        ? `Unsupported direct hook event ${value}`
+        : true,
     {
-      description: "Rejects keys that collide with supported direct hook events.",
+      description:
+        "Rejects keys that collide with supported direct hook events.",
       identifier: "UnsupportedDirectHookEventKey",
       title: "Unsupported direct hook event key",
-    },
-  ),
+    }
+  )
 );
 
 export const mokaSubmitDirectHooks = Schema.StructWithRest(
@@ -91,7 +101,7 @@ export const mokaSubmitDirectHooks = Schema.StructWithRest(
     "workflow.start": Schema.optional(mokaSubmitDirectHook),
     "workflow.success": Schema.optional(mokaSubmitDirectHook),
   }),
-  [Schema.Record(unsupportedDirectHookEventKey, Schema.Never)],
+  [Schema.Record(unsupportedDirectHookEventKey, Schema.Never)]
 );
 export type mokaSubmitDirectHooks = typeof mokaSubmitDirectHooks.Type;
 
@@ -133,7 +143,10 @@ const mokaCommandSubmitOptionsSchema = struct({
   type: Schema.Literal("command"),
 });
 
-const mokaSubmitOptionsUnion = Schema.Union([mokaGraphSubmitOptionsSchema, mokaCommandSubmitOptionsSchema]);
+const mokaSubmitOptionsUnion = Schema.Union([
+  mokaGraphSubmitOptionsSchema,
+  mokaCommandSubmitOptionsSchema,
+]);
 
 type MokaSubmitOptionsUnion = typeof mokaSubmitOptionsUnion.Type;
 
@@ -156,8 +169,8 @@ export const mokaSubmitOptionsSchema = mokaSubmitOptionsUnion.check(
       description: "Submit options must choose one event sink source.",
       identifier: "MokaSubmitOptionsEventSink",
       title: "Moka submit options event sink",
-    },
-  ),
+    }
+  )
 );
 
 type ImagePullPolicy = "Always" | "IfNotPresent" | "Never";
@@ -207,7 +220,9 @@ interface MokaSubmitModuleHookInput extends MokaSubmitHookBaseInput {
   module: string;
 }
 
-type MokaSubmitDirectHookInput = MokaSubmitCommandHookInput | MokaSubmitModuleHookInput;
+type MokaSubmitDirectHookInput =
+  | MokaSubmitCommandHookInput
+  | MokaSubmitModuleHookInput;
 
 interface MokaSubmitBaseOptionsInput {
   activeDeadlineSeconds?: number;
@@ -226,7 +241,9 @@ interface MokaSubmitBaseOptionsInput {
   gitCredentialsSecretName?: string;
   githubAuthSecretName?: string;
   hookPolicy?: typeof mokaSubmitHookPolicySchema.Type;
-  hooks?: Partial<Record<(typeof MOKA_SUBMIT_HOOK_EVENTS)[number], MokaSubmitDirectHookInput>>;
+  hooks?: Partial<
+    Record<(typeof MOKA_SUBMIT_HOOK_EVENTS)[number], MokaSubmitDirectHookInput>
+  >;
   image?: string;
   imagePullPolicy?: ImagePullPolicy;
   imagePullSecretName?: string;
@@ -257,11 +274,14 @@ interface MokaCommandSubmitOptionsInput extends MokaSubmitBaseOptionsInput {
   type: "command";
 }
 
-export type MokaSubmitOptionsInput = MokaCommandSubmitOptionsInput | MokaGraphSubmitOptionsInput;
+export type MokaSubmitOptionsInput =
+  | MokaCommandSubmitOptionsInput
+  | MokaGraphSubmitOptionsInput;
 export type MokaSubmitOptionsOutput = typeof mokaSubmitOptionsSchema.Type;
 export type MokaSubmitDirectHooksInput = MokaSubmitBaseOptionsInput["hooks"];
 export type MokaSubmitDirectHooksOutput = typeof mokaSubmitDirectHooks.Type;
-export type MokaSubmitHookPolicyInput = (typeof mokaSubmitHookPolicySchema)["~type.make.in"];
+export type MokaSubmitHookPolicyInput =
+  (typeof mokaSubmitHookPolicySchema)["~type.make.in"];
 export type MokaSubmitHookPolicyOutput = typeof mokaSubmitHookPolicySchema.Type;
 export type MokaSubmitInput = MokaSubmitOptionsInput & {
   config: PipelineConfig;
@@ -275,14 +295,16 @@ export type ParsedMokaSubmitOptions = MokaSubmitOptionsOutput & {
   config: PipelineConfig;
   worktreePath?: string;
 };
-export type ParsedMokaGraphOptions = typeof mokaGraphSubmitOptionsSchema.Type & {
-  config: PipelineConfig;
-  worktreePath?: string;
-};
-export type ParsedMokaCommandOptions = typeof mokaCommandSubmitOptionsSchema.Type & {
-  config: PipelineConfig;
-  worktreePath?: string;
-};
+export type ParsedMokaGraphOptions =
+  typeof mokaGraphSubmitOptionsSchema.Type & {
+    config: PipelineConfig;
+    worktreePath?: string;
+  };
+export type ParsedMokaCommandOptions =
+  typeof mokaCommandSubmitOptionsSchema.Type & {
+    config: PipelineConfig;
+    worktreePath?: string;
+  };
 export type ParsedMokaBaseOptions = typeof mokaSubmitBaseOptionsSchema.Type;
 export type ParsedMokaWithRun = ParsedMokaBaseOptions & {
   run?: typeof runnerRunIdentitySchema.Type;
@@ -292,7 +314,7 @@ export type MokaSubmitDirectHook = typeof mokaSubmitDirectHook.Type;
 
 export const submitMoka = async (
   rawOptions: MokaSubmitInput,
-  dependencies: SubmitMokaDependencies = {},
+  dependencies: SubmitMokaDependencies = {}
 ): Promise<MokaSubmitOutput> => {
   const { config, worktreePath, ...schemaOptions } = rawOptions;
   const options = parseStrictWithSchema(mokaSubmitOptionsSchema, schemaOptions);

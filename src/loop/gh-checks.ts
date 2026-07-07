@@ -1,8 +1,14 @@
+import * as Arr from "effect/Array";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 
-import { mutableArray, parseResultWithSchema, positiveInteger, struct } from "../schema-boundary";
+import {
+  mutableArray,
+  parseResultWithSchema,
+  positiveInteger,
+  struct,
+} from "../schema-boundary";
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -12,7 +18,9 @@ import { mutableArray, parseResultWithSchema, positiveInteger, struct } from "..
 export type CheckClassification = "fixable" | "indeterminate" | "infra-down";
 
 /** Resolved PR identity — discriminated union avoids nullable fields. */
-export type PrResolution = { found: false } | { found: true; headRefName: string; number: number; url: string };
+export type PrResolution =
+  | { found: false }
+  | { found: true; headRefName: string; number: number; url: string };
 
 // ---------------------------------------------------------------------------
 // DI boundary — injected gh runner (tests stub this, prod uses execa/gh)
@@ -36,7 +44,10 @@ export interface GhRunner {
    * its combined stdout text. Mutating commands route through here. Secret
    * values (the admin token) travel via `options.secretEnv`, never `args`.
    */
-  text: (args: string[], options?: GhTextOptions) => Effect.Effect<string, Error>;
+  text: (
+    args: string[],
+    options?: GhTextOptions
+  ) => Effect.Effect<string, Error>;
 }
 
 const prListItemSchema = struct({
@@ -82,9 +93,10 @@ const CONCLUSION_CLASS_TABLE: Readonly<Record<string, CheckClassification>> = {
 };
 
 /** Commit-status states that are a positive infra signal. */
-const COMMIT_STATUS_CLASS_TABLE: Readonly<Record<string, CheckClassification>> = {
-  error: "infra-down",
-};
+const COMMIT_STATUS_CLASS_TABLE: Readonly<Record<string, CheckClassification>> =
+  {
+    error: "infra-down",
+  };
 
 /**
  * Priority order: fixable > infra-down > indeterminate.
@@ -96,11 +108,17 @@ const CLASS_PRIORITY: Readonly<Record<CheckClassification, number>> = {
   "infra-down": 1,
 };
 
-const higherPriority = (a: CheckClassification, b: CheckClassification): CheckClassification =>
-  CLASS_PRIORITY[a] >= CLASS_PRIORITY[b] ? a : b;
+const DEFAULT_CHECK_CLASSIFICATION: CheckClassification = "indeterminate";
+
+const higherPriority = (
+  a: CheckClassification,
+  b: CheckClassification
+): CheckClassification => (CLASS_PRIORITY[a] >= CLASS_PRIORITY[b] ? a : b);
 
 /** Map one required check-run to its classification signal. */
-const checkRunSignal = (run: typeof checkRunSchema.Type): Option.Option<CheckClassification> => {
+const checkRunSignal = (
+  run: typeof checkRunSchema.Type
+): Option.Option<CheckClassification> => {
   if (!run.required || run.conclusion === null) {
     return Option.none();
   }
@@ -108,17 +126,23 @@ const checkRunSignal = (run: typeof checkRunSchema.Type): Option.Option<CheckCla
 };
 
 /** Map one required commit status to its classification signal. */
-const commitStatusSignal = (status: typeof commitStatusSchema.Type): Option.Option<CheckClassification> => {
+const commitStatusSignal = (
+  status: typeof commitStatusSchema.Type
+): Option.Option<CheckClassification> => {
   if (!status.required) {
     return Option.none();
   }
   return Option.fromNullishOr(COMMIT_STATUS_CLASS_TABLE[status.state]);
 };
 
-const parsePrList = (raw: unknown): Effect.Effect<typeof prListSchema.Type, Error> => {
+const parsePrList = (
+  raw: unknown
+): Effect.Effect<typeof prListSchema.Type, Error> => {
   const result = parseResultWithSchema(prListSchema, raw);
   if (!result.ok) {
-    return Effect.fail(new Error(`gh pr list response parse failed: ${result.error.message}`));
+    return Effect.fail(
+      new Error(`gh pr list response parse failed: ${result.error.message}`)
+    );
   }
   return Effect.succeed(result.value);
 };
@@ -142,25 +166,41 @@ const toPrResolution = (items: typeof prListSchema.Type): PrResolution =>
  * Locate the open PR whose head branch is `moka/run/<runId>`.
  * Returns a typed not-found result (never throws on absence).
  */
-export const resolvePrForRun = (runId: string, gh: GhRunner): Effect.Effect<PrResolution, Error> => {
+export const resolvePrForRun = (
+  runId: string,
+  gh: GhRunner
+): Effect.Effect<PrResolution, Error> => {
   const headBranch = `moka/run/${runId}`;
-  const args = ["pr", "list", "--head", headBranch, "--json", "number,headRefName,url"];
+  const args = [
+    "pr",
+    "list",
+    "--head",
+    headBranch,
+    "--json",
+    "number,headRefName,url",
+  ];
 
   return gh.json(args).pipe(
     Effect.flatMap((raw) => parsePrList(raw)),
-    Effect.map((items) => toPrResolution(items)),
+    Effect.map((items) => toPrResolution(items))
   );
 };
 
-const parseChecksResponse = (raw: unknown): Effect.Effect<typeof checksResponseSchema.Type, Error> => {
+const parseChecksResponse = (
+  raw: unknown
+): Effect.Effect<typeof checksResponseSchema.Type, Error> => {
   const result = parseResultWithSchema(checksResponseSchema, raw);
   if (!result.ok) {
-    return Effect.fail(new Error(`gh pr checks response parse failed: ${result.error.message}`));
+    return Effect.fail(
+      new Error(`gh pr checks response parse failed: ${result.error.message}`)
+    );
   }
   return Effect.succeed(result.value);
 };
 
-const classifyChecks = (checks: typeof checksResponseSchema.Type): CheckClassification => {
+const classifyChecks = (
+  checks: typeof checksResponseSchema.Type
+): CheckClassification => {
   // Collect signals from both check-runs and commit statuses, filter nulls,
   // then reduce by priority (fixable > infra-down > indeterminate).
   const signals: CheckClassification[] = [
@@ -170,10 +210,10 @@ const classifyChecks = (checks: typeof checksResponseSchema.Type): CheckClassifi
     Option.match(signal, {
       onNone: () => [],
       onSome: (value) => [value],
-    }),
+    })
   );
 
-  return signals.reduce<CheckClassification>(higherPriority, "indeterminate");
+  return Arr.reduce(signals, DEFAULT_CHECK_CLASSIFICATION, higherPriority);
 };
 
 // ---------------------------------------------------------------------------
@@ -192,12 +232,18 @@ const classifyChecks = (checks: typeof checksResponseSchema.Type): CheckClassifi
  */
 export const classifyRequiredChecks = (
   pr: Extract<PrResolution, { found: true }>,
-  gh: GhRunner,
+  gh: GhRunner
 ): Effect.Effect<CheckClassification, Error> => {
-  const args = ["pr", "checks", String(pr.number), "--json", "name,conclusion,status,required,startedAt"];
+  const args = [
+    "pr",
+    "checks",
+    String(pr.number),
+    "--json",
+    "name,conclusion,status,required,startedAt",
+  ];
 
   return gh.json(args).pipe(
     Effect.flatMap((raw) => parseChecksResponse(raw)),
-    Effect.map((checks) => classifyChecks(checks)),
+    Effect.map((checks) => classifyChecks(checks))
   );
 };

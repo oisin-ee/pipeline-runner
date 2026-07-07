@@ -1,10 +1,16 @@
 import { inspect } from "node:util";
 
-import { Effect, Option } from "effect";
+import { Effect, Option, pipe } from "effect";
 import { describe, expect, it } from "vitest";
 
 import type { CheckClassification, GhRunner, PrResolution } from "./gh-checks";
-import { adminMerge, enableAutoMerge, mergeForClassification, secretToken, selectMergeAction } from "./merge";
+import {
+  adminMerge,
+  enableAutoMerge,
+  mergeForClassification,
+  secretToken,
+  selectMergeAction,
+} from "./merge";
 import type { SecretFileReader } from "./merge";
 
 // ---------------------------------------------------------------------------
@@ -18,7 +24,8 @@ interface RecordingGh extends GhRunner {
 }
 
 const recordingGh = (
-  text: (args: string[]) => Effect.Effect<string, Error> = () => Effect.succeed(""),
+  text: (args: string[]) => Effect.Effect<string, Error> = () =>
+    Effect.succeed("")
 ): RecordingGh => {
   const jsonCalls: string[][] = [];
   const textCalls: string[][] = [];
@@ -47,7 +54,11 @@ const PR: Extract<PrResolution, { found: true }> = {
 };
 
 const tokenReader = (rawToken: Option.Option<string>): SecretFileReader => ({
-  readBypassToken: () => Option.map(rawToken, (value) => secretToken(value)),
+  readBypassToken: () =>
+    pipe(
+      rawToken,
+      Option.map((value) => secretToken(value))
+    ),
 });
 
 /** Secret reader that records whether the token was read — proves gating. */
@@ -82,7 +93,11 @@ describe("enableAutoMerge", () => {
   });
 
   it("surfaces a non-mergeable PR as a typed blocked conflict (not pending)", async () => {
-    const gh = recordingGh(() => Effect.fail(new Error("Pull request #99 is not mergeable: merge conflict")));
+    const gh = recordingGh(() =>
+      Effect.fail(
+        new Error("Pull request #99 is not mergeable: merge conflict")
+      )
+    );
 
     const outcome = await Effect.runPromise(enableAutoMerge(PR, gh));
 
@@ -108,23 +123,26 @@ describe("selectMergeAction (dispatch table is the single gating owner)", () => 
 describe("mergeForClassification gating", () => {
   // Both non-infra classifications must short-circuit before reading the token.
   const noMergeClasses: CheckClassification[] = ["fixable", "indeterminate"];
-  it.each(noMergeClasses)("performs NO merge and never reads the token for %s", async (classification) => {
-    const gh = recordingGh();
-    const secrets = recordingTokenReader();
+  it.each(noMergeClasses)(
+    "performs NO merge and never reads the token for %s",
+    async (classification) => {
+      const gh = recordingGh();
+      const secrets = recordingTokenReader();
 
-    const outcome = await Effect.runPromise(
-      mergeForClassification({
-        classification,
-        gh,
-        pr: PR,
-        secrets: secrets.reader,
-      }),
-    );
+      const outcome = await Effect.runPromise(
+        mergeForClassification({
+          classification,
+          gh,
+          pr: PR,
+          secrets: secrets.reader,
+        })
+      );
 
-    expect(Option.isNone(outcome)).toBe(true);
-    expect(gh.textCalls).toEqual([]);
-    expect(secrets.wasRead()).toBe(false);
-  });
+      expect(Option.isNone(outcome)).toBe(true);
+      expect(gh.textCalls).toEqual([]);
+      expect(secrets.wasRead()).toBe(false);
+    }
+  );
 
   it("admin-merges ONLY on infra-down and reports merged", async () => {
     const gh = recordingGh();
@@ -136,7 +154,7 @@ describe("mergeForClassification gating", () => {
         gh,
         pr: PR,
         secrets,
-      }),
+      })
     );
 
     expect(outcome).toEqual(Option.some({ _tag: "merged", pr: 99 }));
@@ -198,7 +216,7 @@ describe("blocked outcomes (AC3 abuse/error paths)", () => {
         gh,
         pr: PR,
         secrets,
-      }),
+      })
     );
 
     expect(Option.isSome(outcome)).toBe(true);
@@ -210,7 +228,9 @@ describe("blocked outcomes (AC3 abuse/error paths)", () => {
   });
 
   it("surfaces an admin-merge conflict as a typed blocked result", async () => {
-    const gh = recordingGh(() => Effect.fail(new Error("merge conflict between head and base")));
+    const gh = recordingGh(() =>
+      Effect.fail(new Error("merge conflict between head and base"))
+    );
     const secrets = tokenReader(Option.some("super-secret"));
 
     const outcome = await Effect.runPromise(
@@ -219,7 +239,7 @@ describe("blocked outcomes (AC3 abuse/error paths)", () => {
         gh,
         pr: PR,
         secrets,
-      }),
+      })
     );
 
     expect(Option.isSome(outcome)).toBe(true);
@@ -230,7 +250,9 @@ describe("blocked outcomes (AC3 abuse/error paths)", () => {
   });
 
   it("classifies a non-conflict gh failure as not-mergeable (still blocked, not thrown)", async () => {
-    const gh = recordingGh(() => Effect.fail(new Error("GraphQL: protected branch update failed")));
+    const gh = recordingGh(() =>
+      Effect.fail(new Error("GraphQL: protected branch update failed"))
+    );
     const secrets = tokenReader(Option.some("super-secret"));
 
     const result = await Effect.runPromise(
@@ -240,13 +262,17 @@ describe("blocked outcomes (AC3 abuse/error paths)", () => {
           gh,
           pr: PR,
           secrets,
-        }),
-      ),
+        })
+      )
     );
 
     // Surfaced as a value, not a thrown failure.
     expect(result._tag).toBe("Success");
-    if (result._tag === "Success" && Option.isSome(result.success) && result.success.value._tag === "blocked") {
+    if (
+      result._tag === "Success" &&
+      Option.isSome(result.success) &&
+      result.success.value._tag === "blocked"
+    ) {
       expect(result.success.value.reason).toBe("not-mergeable");
     }
   });

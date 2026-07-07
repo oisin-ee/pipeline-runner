@@ -3,7 +3,10 @@ import { describe, expect, it } from "vitest";
 import { brokerV1Url, resolveBrokerCredentials } from "./broker";
 import type { BrokerCredentials } from "./broker";
 import { applyCodexBrokerProvider } from "./codex-config";
-import { applyOpencodeBrokerProvider, renderOpencodeBrokerAuthJson } from "./opencode-config";
+import {
+  applyOpencodeBrokerProvider,
+  renderOpencodeBrokerAuthJson,
+} from "./opencode-config";
 
 const CREDS: BrokerCredentials = {
   apiKey: "sk-maa-test",
@@ -28,7 +31,7 @@ describe("resolveBrokerCredentials", () => {
       resolveBrokerCredentials({
         BROKER_API_KEY: "k",
         BROKER_URL: "https://x.test/",
-      }),
+      })
     ).toEqual({ apiKey: "k", baseUrl: "https://x.test" });
   });
 });
@@ -49,7 +52,10 @@ describe("renderOpencodeBrokerAuthJson", () => {
 
 describe("applyCodexBrokerProvider", () => {
   it("injects the broker provider, preserving existing config", () => {
-    const out = applyCodexBrokerProvider(['model = "gpt-5.5"', "", "[features]", "hooks = true"].join("\n"), CREDS);
+    const out = applyCodexBrokerProvider(
+      ['model = "gpt-5.5"', "", "[features]", "hooks = true"].join("\n"),
+      CREDS
+    );
     expect(out).toContain('model = "gpt-5.5"');
     expect(out).toContain("[features]");
     expect(out).toContain('model_provider = "broker"');
@@ -95,7 +101,7 @@ describe("applyOpencodeBrokerProvider", () => {
         plugin: ["keep-me", ["oc-codex-multi-auth@6.3.2", {}]],
         provider: { openai: { options: { textVerbosity: "medium" } } },
       }),
-      CREDS,
+      CREDS
     );
     if ("error" in result) {
       throw new Error(result.error);

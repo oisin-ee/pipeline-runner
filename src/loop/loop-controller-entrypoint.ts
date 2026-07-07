@@ -4,7 +4,10 @@ import { Effect } from "effect";
 
 import type { PipelineConfig } from "../config";
 import { loadPipelineConfig } from "../config";
-import { parseRunnerCommandPayload, resolveRunnerEventSinkAuthToken } from "../runner-command-contract";
+import {
+  parseRunnerCommandPayload,
+  resolveRunnerEventSinkAuthToken,
+} from "../runner-command-contract";
 import { runLoopController } from "./controller";
 import { buildControllerDeps } from "./controller-deps";
 import type { LoopControllerContext } from "./controller-deps";
@@ -40,7 +43,9 @@ const DEFAULT_MAX_REMEDIATION_ATTEMPTS = 2;
 const requireEnv = (env: NodeJS.ProcessEnv, name: string): string => {
   const value = env[name];
   if (value === undefined || value.trim() === "") {
-    throw new Error(`moka loop-controller requires the ${name} environment variable`);
+    throw new Error(
+      `moka loop-controller requires the ${name} environment variable`
+    );
   }
   return value;
 };
@@ -69,7 +74,8 @@ const buildContext = (input: {
     gitCredentialsSecretName: input.secrets.gitCredentialsSecretName,
     githubAuthSecretName: input.secrets.githubAuthSecretName,
     maxMergePolls: input.flags.maxMergePolls ?? DEFAULT_MAX_MERGE_POLLS,
-    maxRemediationAttempts: input.flags.maxRemediationAttempts ?? DEFAULT_MAX_REMEDIATION_ATTEMPTS,
+    maxRemediationAttempts:
+      input.flags.maxRemediationAttempts ?? DEFAULT_MAX_REMEDIATION_ATTEMPTS,
     namespace: requireEnv(process.env, "PIPELINE_NAMESPACE"),
     project: payload.run.project,
     rootId: input.flags.rootId,
@@ -89,8 +95,12 @@ const requireSecretEnv = (env: NodeJS.ProcessEnv): ControllerSecretEnv => ({
   serviceAccountName: env.PIPELINE_SERVICE_ACCOUNT,
 });
 
-export const runLoopControllerEntrypoint = async (options: LoopControllerEntrypointOptions): Promise<void> => {
-  const payload = parseRunnerCommandPayload(readFileSync(options.payloadFile, "utf-8"));
+export const runLoopControllerEntrypoint = async (
+  options: LoopControllerEntrypointOptions
+): Promise<void> => {
+  const payload = parseRunnerCommandPayload(
+    readFileSync(options.payloadFile, "utf-8")
+  );
   const config = loadPipelineConfig(options.worktreePath, {
     allowMissingLintFileReferences: true,
   });
@@ -101,5 +111,7 @@ export const runLoopControllerEntrypoint = async (options: LoopControllerEntrypo
     secrets: requireSecretEnv(process.env),
     worktreePath: options.worktreePath,
   });
-  await Effect.runPromise(runLoopController(buildControllerDeps(context)).pipe(Effect.asVoid));
+  await Effect.runPromise(
+    runLoopController(buildControllerDeps(context)).pipe(Effect.asVoid)
+  );
 };

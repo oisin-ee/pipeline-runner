@@ -10,8 +10,15 @@ import {
   formatRuntimeProgressMessage,
   formatRuntimeResult,
 } from "../src/cli/format";
-import { addMokaSubmitOptions, buildMokaSubmitInputFromCli, parseImagePullPolicy } from "../src/cli/submit-options";
+import {
+  addMokaSubmitOptions,
+  buildMokaSubmitInputFromCli,
+  parseImagePullPolicy,
+} from "../src/cli/submit-options";
 import { loadPackagePipelineConfig } from "../src/config";
+import type { PipelineRuntimeResult } from "../src/pipeline-runtime";
+import type { PlannedWorkflowNode } from "../src/planning/compile";
+import { createDependencyGraph } from "../src/planning/graph";
 
 const ROOT = process.cwd();
 const CLI_APP_SERVICE_FILES = [
@@ -23,6 +30,19 @@ const CLI_APP_SERVICE_FILES = [
   "src/cli/run-service.ts",
 ];
 const PROGRAM_MAX_LINES = 520;
+
+const emptyWorkflowPlan = (
+  workflowId: string
+): PipelineRuntimeResult["plan"] => ({
+  execution: { failFast: false },
+  graph: createDependencyGraph<PlannedWorkflowNode, PlannedWorkflowNode>([], {
+    dependenciesOf: (node) => node.needs,
+    valueOf: (node) => node,
+  }),
+  parallelBatches: [],
+  topologicalOrder: [],
+  workflowId,
+});
 
 const GLOBAL_CONFIG = {
   momokaya: {
@@ -48,7 +68,9 @@ const GLOBAL_CONFIG = {
 
 describe("PIPE-45.9 CLI app service boundaries", () => {
   it("keeps src/cli/program.ts thin and moves app services to owned modules", () => {
-    const missingOwners = CLI_APP_SERVICE_FILES.filter((path) => !existsSync(join(ROOT, path)));
+    const missingOwners = CLI_APP_SERVICE_FILES.filter(
+      (path) => !existsSync(join(ROOT, path))
+    );
     const programText = readFileSync(join(ROOT, "src/cli/program.ts"), "utf-8");
     const programLines = programText.split("\n").length;
 
@@ -211,7 +233,7 @@ describe("PIPE-65 CLI formatting behavior", () => {
         nodeIds: ["research", "verify"],
         type: "workflow.start",
         workflowId: "root",
-      }),
+      })
     ).toBe("Pipeline starting: root (research -> verify)");
 
     expect(
@@ -221,15 +243,76 @@ describe("PIPE-65 CLI formatting behavior", () => {
         profile: "pipeline-researcher",
         runnerId: "opencode",
         type: "node.start",
-      }),
-    ).toBe("Node starting: research runner=opencode profile=pipeline-researcher attempt=2");
+      })
+    ).toBe(
+      "Node starting: research runner=opencode profile=pipeline-researcher attempt=2"
+    );
+  });
+
+  it("renders failure, node, and gate evidence in stable terminal text", () => {
+    const result: PipelineRuntimeResult = {
+      agentInvocations: [],
+      failureDetails: [
+        {
+          evidence: ["command exited 1"],
+          gate: "node",
+          nodeId: "build",
+          reason: "command failed",
+        },
+      ],
+      gates: [
+        {
+          evidence: ["artifact missing"],
+          gateId: "acceptance",
+          kind: "acceptance",
+          nodeId: "build",
+          passed: false,
+          reason: "missing artifact",
+        },
+      ],
+      hookFailures: [],
+      nodeStates: {},
+      nodes: [
+        {
+          attempts: 2,
+          evidence: ["stderr captured"],
+          exitCode: 1,
+          nodeId: "build",
+          output: "compile failed",
+          status: "failed",
+        },
+      ],
+      outcome: "FAIL",
+      plan: emptyWorkflowPlan("root"),
+      structuredOutputs: [],
+    };
+
+    expect(formatRuntimeFailure(result)).toBe(
+      [
+        "Pipeline failed.",
+        "- build: command failed",
+        "  Evidence:",
+        "    command exited 1",
+        "  Node: status=failed attempts=2 exit=1",
+        "  Node evidence:",
+        "    stderr captured",
+        "  Node output:",
+        "    compile failed",
+        "Gates:",
+        "  - build/acceptance: FAIL (missing artifact)",
+        "  Gate evidence:",
+        "    artifact missing",
+      ].join("\n")
+    );
   });
 });
 
 describe("PIPE-65 moka submit option normalization", () => {
   it("keeps submit command options registered on the existing CLI surface", () => {
     const command = addMokaSubmitOptions(new Command("submit"));
-    const optionNames = new Set(command.options.map((option) => option.long).filter(Boolean));
+    const optionNames = new Set(
+      command.options.map((option) => option.long).filter(Boolean)
+    );
 
     expect(optionNames).toEqual(
       new Set([
@@ -256,7 +339,7 @@ describe("PIPE-65 moka submit option normalization", () => {
         "--image",
         "--image-pull-policy",
         "--image-pull-secret",
-      ]),
+      ])
     );
   });
 

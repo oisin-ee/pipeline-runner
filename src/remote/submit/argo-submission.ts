@@ -1,7 +1,15 @@
-import { submitDynamicRunnerArgoWorkflow, submitRunnerArgoWorkflow } from "../../argo-submit";
+import * as Option from "effect/Option";
+
+import {
+  submitDynamicRunnerArgoWorkflow,
+  submitRunnerArgoWorkflow,
+} from "../../argo-submit";
 import type { PipelineConfig } from "../../config";
 import type { BrokerAuthOption } from "../../credentials/broker";
-import type { MokaSubmitOutput, ParsedMokaBaseOptions } from "../../moka-submit";
+import type {
+  MokaSubmitOutput,
+  ParsedMokaBaseOptions,
+} from "../../moka-submit";
 import { buildRunnerCommandPayload } from "../../runner-command-contract";
 import { parseStrictWithSchema } from "../../schema-boundary";
 import { workflowSubmitResultSchema } from "../../workflow-submit-contract";
@@ -42,19 +50,26 @@ interface MokaWorkflowSubmitOptions {
   workflowId: string;
 }
 
-export type MokaWorkflowSubmit = (options: MokaWorkflowSubmitOptions) => Promise<MokaSubmitOutput>;
+export type MokaWorkflowSubmit = (
+  options: MokaWorkflowSubmitOptions
+) => Promise<MokaSubmitOutput>;
 
 const requireStaticScheduleYaml = (plan: CompiledMokaSubmitPlan): string => {
   if (plan.scheduleYaml !== undefined && plan.scheduleYaml.length > 0) {
     return plan.scheduleYaml;
   }
-  throw new Error(`Static workflow submit requires scheduleYaml for run ${plan.runId}`);
+  throw new Error(
+    `Static workflow submit requires scheduleYaml for run ${plan.runId}`
+  );
 };
 
 const runnerPayloadJson = (input: {
   context: MokaSubmissionContext;
   options: ParsedMokaBaseOptions;
-  plan: Pick<CompiledMokaSubmitPlan, "runId" | "submission" | "task" | "workflowId">;
+  plan: Pick<
+    CompiledMokaSubmitPlan,
+    "runId" | "submission" | "task" | "workflowId"
+  >;
 }): string =>
   JSON.stringify(
     buildRunnerCommandPayload({
@@ -74,19 +89,26 @@ const runnerPayloadJson = (input: {
       submission: input.plan.submission,
       task: input.plan.task,
       workflow: { id: input.plan.workflowId },
-    }),
+    })
   );
 
-const requireSubmitOption = (value: string | void, name: string): string => {
-  if (value === undefined || value.length === 0) {
-    throw new Error(`${name} is required for moka submit`);
-  }
-  return value;
-};
+const requireSubmitOption = (
+  value: Option.Option<string>,
+  name: string
+): string =>
+  value.pipe(
+    Option.filter((text) => text.length > 0),
+    Option.getOrThrowWith(
+      () => new Error(`${name} is required for moka submit`)
+    )
+  );
 
 const workflowSubmitOptions = (
-  options: ParsedMokaBaseOptions,
-): Omit<MokaWorkflowSubmitOptions, "config" | "payloadJson" | "scheduleYaml" | "workflowId"> => ({
+  options: ParsedMokaBaseOptions
+): Omit<
+  MokaWorkflowSubmitOptions,
+  "config" | "payloadJson" | "scheduleYaml" | "workflowId"
+> => ({
   activeDeadlineSeconds: options.activeDeadlineSeconds,
   brokerAuth: options.brokerAuth,
   dbAuth: options.dbAuth,
@@ -102,7 +124,10 @@ const workflowSubmitOptions = (
   kubeconfigPath: options.kubeconfigPath,
   mcpGatewayAuth: options.mcpGatewayAuth,
   name: options.name,
-  namespace: requireSubmitOption(options.namespace, "namespace"),
+  namespace: requireSubmitOption(
+    Option.fromUndefinedOr(options.namespace),
+    "namespace"
+  ),
   npmRegistryAuthSecretName: options.npmRegistryAuthSecretName,
   podGC: options.podGC,
   serviceAccountName: options.serviceAccountName,

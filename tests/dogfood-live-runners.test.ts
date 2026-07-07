@@ -54,9 +54,11 @@ afterAll(() => {
   }
 });
 
-const isLiveHarness = (value: string): value is LiveHarness => LIVE_HARNESSES.some((harness) => harness === value);
+const isLiveHarness = (value: string): value is LiveHarness =>
+  LIVE_HARNESSES.some((harness) => harness === value);
 
-const isOutputFormat = (value: string): value is OutputFormat => OUTPUT_FORMATS.some((format) => format === value);
+const isOutputFormat = (value: string): value is OutputFormat =>
+  OUTPUT_FORMATS.some((format) => format === value);
 
 const selectedHarnesses = (): LiveHarness[] => {
   const raw = process.env.PIPELINE_LIVE_RUNNER_HARNESSES;
@@ -69,7 +71,9 @@ const selectedHarnesses = (): LiveHarness[] => {
     .filter((item) => item.length > 0)
     .map((item) => {
       if (!isLiveHarness(item)) {
-        throw new Error(`Unsupported PIPELINE_LIVE_RUNNER_HARNESSES value '${item}'`);
+        throw new Error(
+          `Unsupported PIPELINE_LIVE_RUNNER_HARNESSES value '${item}'`
+        );
       }
       return item;
     });
@@ -89,10 +93,12 @@ const selectedFormats = (): Set<OutputFormat> => {
       .filter((item) => item.length > 0)
       .map((item) => {
         if (!isOutputFormat(item)) {
-          throw new Error(`Unsupported PIPELINE_LIVE_RUNNER_FORMATS value '${item}'`);
+          throw new Error(
+            `Unsupported PIPELINE_LIVE_RUNNER_FORMATS value '${item}'`
+          );
         }
         return item;
-      }),
+      })
   );
 };
 const SELECTED_FORMATS = selectedFormats();
@@ -101,46 +107,89 @@ const MATRIX = SELECTED_HARNESSES.flatMap((harness) =>
   HARNESS_SPECS[harness].outputFormats
     .filter((format) => SELECTED_FORMATS.has(format))
     .map((format, index) => ({
-      filesystem: HARNESS_SPECS[harness].filesystemModes[index % HARNESS_SPECS[harness].filesystemModes.length],
+      filesystem:
+        HARNESS_SPECS[harness].filesystemModes[
+          index % HARNESS_SPECS[harness].filesystemModes.length
+        ],
       format,
       harness,
       profileId: `${harness}-${format.replace("_", "-")}`,
-    })),
+    }))
 );
 
-const arrayEquals = (left: readonly string[], right: readonly string[]): boolean =>
-  left.length === right.length && right.every((item, index) => left[index] === item);
+const arrayEquals = (
+  left: readonly string[],
+  right: readonly string[]
+): boolean =>
+  left.length === right.length &&
+  right.every((item, index) => left[index] === item);
 
-const assertSmoke = (condition: boolean, message: string, diagnostic: string): void => {
+const assertSmoke = (
+  condition: boolean,
+  message: string,
+  diagnostic: string
+): void => {
   if (!condition) {
     throw new Error(`${message}\n${diagnostic}`);
   }
 };
 
-const assertLaunchPlanContainsGrants = (config: PipelineConfig, profileId: string, diagnostic: string): void => {
+const assertLaunchPlanContainsGrants = (
+  config: PipelineConfig,
+  profileId: string,
+  diagnostic: string
+): void => {
   const profile = config.profiles[profileId];
-  const plan = config.workflows.live.nodes[0];
-  assertSmoke(plan.kind === "agent" && plan.profile === profileId, "profile id did not match", diagnostic);
-  assertSmoke(arrayEquals(profile.rules ?? [], ["live-rule"]), "rule grant was not attached", diagnostic);
-  assertSmoke(FILESYSTEM_MODE_RE.test(profile.filesystem?.mode ?? ""), "filesystem grant was not attached", diagnostic);
-  assertSmoke(profile.network?.mode === "inherit", "network grant was not attached", diagnostic);
-  assertSmoke((profile.tools?.length ?? 0) > 0, "tool grants were not attached", diagnostic);
+  const [plan] = config.workflows.live.nodes;
+  assertSmoke(
+    plan.kind === "agent" && plan.profile === profileId,
+    "profile id did not match",
+    diagnostic
+  );
+  assertSmoke(
+    arrayEquals(profile.rules ?? [], ["live-rule"]),
+    "rule grant was not attached",
+    diagnostic
+  );
+  assertSmoke(
+    FILESYSTEM_MODE_RE.test(profile.filesystem?.mode ?? ""),
+    "filesystem grant was not attached",
+    diagnostic
+  );
+  assertSmoke(
+    profile.network?.mode === "inherit",
+    "network grant was not attached",
+    diagnostic
+  );
+  assertSmoke(
+    (profile.tools?.length ?? 0) > 0,
+    "tool grants were not attached",
+    diagnostic
+  );
   if (profile.runner === "opencode") {
     assertSmoke(
       arrayEquals(profile.skills ?? [], ["live-skill"]),
       `${profile.runner} skill grant was not attached`,
-      diagnostic,
+      diagnostic
     );
   }
   if (profile.runner === "opencode") {
-    assertSmoke(arrayEquals(profile.mcp_servers ?? [], ["pipeline-gateway"]), "MCP grant was not attached", diagnostic);
+    assertSmoke(
+      arrayEquals(profile.mcp_servers ?? [], ["pipeline-gateway"]),
+      "MCP grant was not attached",
+      diagnostic
+    );
   }
 };
 
 const redactLongPrompt = (args: string[]): string[] =>
-  args.map((arg) => (arg.length > 500 ? `${arg.slice(0, 500)}...<truncated>` : arg));
+  args.map((arg) =>
+    arg.length > 500 ? `${arg.slice(0, 500)}...<truncated>` : arg
+  );
 
-const runtimeDiagnostic = (result: Awaited<ReturnType<typeof runPipelineFromConfig>>): string =>
+const runtimeDiagnostic = (
+  result: Awaited<ReturnType<typeof runPipelineFromConfig>>
+): string =>
   JSON.stringify(
     {
       failureDetails: result.failureDetails,
@@ -163,10 +212,14 @@ const runtimeDiagnostic = (result: Awaited<ReturnType<typeof runPipelineFromConf
       outcome: result.outcome,
     },
     null,
-    2,
+    2
   );
 
-const writeProjectFile = (root: string, path: string, content: string): void => {
+const writeProjectFile = (
+  root: string,
+  path: string,
+  content: string
+): void => {
   const fullPath = join(root, path);
   mkdirSync(dirname(fullPath), { recursive: true });
   writeFileSync(fullPath, content);
@@ -190,18 +243,18 @@ const makeProject = (): string => {
         type: "object",
       },
       null,
-      2,
-    ),
+      2
+    )
   );
   writeProjectFile(
     project,
     ".pipeline/rules/live.md",
-    "Return the requested JSON object exactly; no Markdown fences.\n",
+    "Return the requested JSON object exactly; no Markdown fences.\n"
   );
   writeProjectFile(
     project,
     ".agents/skills/live/SKILL.md",
-    "# Live Smoke Skill\n\nReturn the requested JSON object exactly.\n",
+    "# Live Smoke Skill\n\nReturn the requested JSON object exactly.\n"
   );
   return project;
 };
@@ -233,7 +286,7 @@ const writeLiveOpencodeAgent = (project: string, profileId: string): void => {
       "---",
       "Return the requested JSON object exactly; no Markdown fences.",
       "",
-    ].join("\n"),
+    ].join("\n")
   );
 };
 
@@ -244,7 +297,7 @@ const liveRunnerConfig = (
     format: OutputFormat;
     harness: LiveHarness;
     profileId: string;
-  },
+  }
 ): PipelineConfig => {
   const { filesystem, format, harness, profileId } = spec;
   const harnessSpec = HARNESS_SPECS[harness];
@@ -299,7 +352,7 @@ profiles:
           `Return only this JSON object and no Markdown: {"verdict":"PASS","evidence":["${profileId} live smoke"]}.`,
           "Do not inspect files.",
           "Do not run tools.",
-        ].join(" "),
+        ].join(" ")
       )}
     ${harnessSpec.rules ? "rules: [live-rule]" : ""}
     ${harnessSpec.skills ? "skills: [live-skill]" : ""}
@@ -330,7 +383,7 @@ runners:
       output_formats: [text, json, jsonl, json_schema]
 `,
     },
-    project,
+    project
   );
 };
 
@@ -358,23 +411,28 @@ describeLive("live runner smoke matrix", () => {
       expect(result.outcome, diagnostic).toBe("PASS");
       expect(result.nodes, diagnostic).toHaveLength(1);
 
-      const node = result.nodes[0];
+      const [node] = result.nodes;
       expect(node.status, diagnostic).toBe("passed");
       expect(node.output, diagnostic).toContain("PASS");
 
-      const parsed = parseWithSchema(LIVE_SMOKE_OUTPUT_SCHEMA, JSON.parse(node.output));
+      const parsed = parseWithSchema(
+        LIVE_SMOKE_OUTPUT_SCHEMA,
+        JSON.parse(node.output)
+      );
       expect(parsed.verdict, diagnostic).toBe("PASS");
       expect(parsed.evidence, diagnostic).toContain(`${profileId} live smoke`);
 
-      const nodeGates = result.gates.filter((gate) => gate.nodeId === node.nodeId);
+      const nodeGates = result.gates.filter(
+        (gate) => gate.nodeId === node.nodeId
+      );
       expect(
         nodeGates.some((gate) => gate.kind === "verdict" && gate.passed),
-        diagnostic,
+        diagnostic
       ).toBe(true);
       if (format === "json_schema") {
         expect(
           nodeGates.some((gate) => gate.kind === "json_schema" && gate.passed),
-          diagnostic,
+          diagnostic
         ).toBe(true);
       }
 
@@ -386,6 +444,6 @@ describeLive("live runner smoke matrix", () => {
       expect(plan?.outputFormat, diagnostic).toBe(format);
       assertLaunchPlanContainsGrants(config, profileId, diagnostic);
     },
-    240_000,
+    240_000
   );
 });

@@ -1,6 +1,7 @@
 import { join } from "node:path";
 
 import { Effect, Option } from "effect";
+import * as Schema from "effect/Schema";
 
 import {
   parseMokaNodeStatus,
@@ -29,7 +30,12 @@ import {
   replayEvents,
   statusFromManifest,
 } from "./store-manifest";
-import { nonEmptyStringEffect, normalizeWorkspaceRelative, RUNS_DIRECTORY, runPaths } from "./store-paths";
+import {
+  nonEmptyStringEffect,
+  normalizeWorkspaceRelative,
+  RUNS_DIRECTORY,
+  runPaths,
+} from "./store-paths";
 import type {
   CreateRunInput,
   NodeArtifactReference,
@@ -45,7 +51,40 @@ import type {
 } from "./store-types";
 import { ensurePipelineWorkspaceIgnore } from "./workspace";
 
-export const writeNodeArtifactEffect = (input: WriteNodeArtifactInput): Effect.Effect<NodeArtifactReference, unknown> =>
+class RunControlStoreError extends Schema.TaggedErrorClass<RunControlStoreError>()(
+  "RunControlStoreError",
+  {
+    message: Schema.String,
+    nodeId: Schema.optional(Schema.String),
+    resource: Schema.Union([Schema.Literal("node"), Schema.Literal("run")]),
+    runId: Schema.String,
+  }
+) {}
+
+const missingRunError = (runId: string) =>
+  new RunControlStoreError({
+    message: `Run ${runId} does not exist.`,
+    resource: "run",
+    runId,
+  });
+
+const missingNodeError = (runId: string, nodeId: string) =>
+  new RunControlStoreError({
+    message: `Node ${nodeId} does not exist in run ${runId}.`,
+    nodeId,
+    resource: "node",
+    runId,
+  });
+
+const requireRunEffect = (run: Option.Option<MokaRunManifest>, runId: string) =>
+  Option.match(run, {
+    onNone: () => Effect.fail(missingRunError(runId)),
+    onSome: (value) => Effect.succeed(value),
+  });
+
+export const writeNodeArtifactEffect = (
+  input: WriteNodeArtifactInput
+): Effect.Effect<NodeArtifactReference, unknown> =>
   Effect.gen(function* effectBody() {
     const runId = yield* logicalSegmentEffect("runId", input.runId);
     const nodeId = yield* logicalSegmentEffect("nodeId", input.nodeId);
@@ -63,18 +102,26 @@ export const writeNodeArtifactEffect = (input: WriteNodeArtifactInput): Effect.E
     };
   });
 
-const readRunDirectoryEntriesEffect = (workspaceRoot: string): Effect.Effect<{ name: string }[], unknown> =>
+const readRunDirectoryEntriesEffect = (
+  workspaceRoot: string
+): Effect.Effect<{ name: string }[], unknown> =>
   readDirectoryEntriesEffect(join(workspaceRoot, RUNS_DIRECTORY)).pipe(
-    Effect.map((entries) =>
-      entries
-        .filter((entry) => entry.isDirectory())
-        .toSorted((left, right) => left.name.localeCompare(right.name))
-        .map((entry) => ({ name: entry.name })),
-    ),
-    Effect.catch((error) => (isNotFound(error) ? Effect.succeed([]) : Effect.fail(error))),
+    Effect.matchEffect({
+      onFailure: (error) =>
+        isNotFound(error) ? Effect.succeed([]) : Effect.fail(error),
+      onSuccess: (entries) =>
+        Effect.succeed(
+          entries
+            .filter((entry) => entry.isDirectory())
+            .toSorted((left, right) => left.name.localeCompare(right.name))
+            .map((entry) => ({ name: entry.name }))
+        ),
+    })
   );
 
-const readEventsEffect = (eventsPath: string): Effect.Effect<MokaRunControlEvent[], unknown> =>
+const readEventsEffect = (
+  eventsPath: string
+): Effect.Effect<MokaRunControlEvent[], unknown> =>
   Effect.gen(function* effectBody() {
     const eventLog = yield* readOptionalFileEffect(eventsPath);
 
@@ -92,15 +139,21 @@ const readEventsEffect = (eventsPath: string): Effect.Effect<MokaRunControlEvent
     });
   });
 
-const parseManifestJsonEffect = (manifestJson: string): Effect.Effect<MokaRunManifest, unknown> =>
+const parseManifestJsonEffect = (
+  manifestJson: string
+): Effect.Effect<MokaRunManifest, unknown> =>
   Effect.try({
     catch: (error) => error,
     try: () => parseMokaRunManifest(JSON.parse(manifestJson)),
   });
 
-export const createRunEffect = (input: CreateRunInput): Effect.Effect<MokaRunManifest, unknown> =>
+export const createRunEffect = (
+  input: CreateRunInput
+): Effect.Effect<MokaRunManifest, unknown> =>
   Effect.gen(function* effectBody() {
-    const { manifest, nodeIds, runId } = yield* Effect.sync(() => createRunManifest(input));
+    const { manifest, nodeIds, runId } = yield* Effect.sync(() =>
+      createRunManifest(input)
+    );
     const paths = runPaths(input.workspaceRoot, runId);
 
     // Idempotency: if the manifest file already exists return it unchanged so
@@ -117,7 +170,9 @@ export const createRunEffect = (input: CreateRunInput): Effect.Effect<MokaRunMan
     yield* mkdirEffect(paths.runsRoot, { recursive: true });
     yield* mkdirEffect(paths.runRoot, { recursive: true });
     yield* mkdirEffect(paths.nodesRoot, { recursive: true });
-    yield* Effect.forEach(nodeIds, (nodeId) => mkdirEffect(join(paths.nodesRoot, nodeId), { recursive: true }));
+    yield* Effect.forEach((nodeId: string) =>
+      mkdirEffect(join(paths.nodesRoot, nodeId), { recursive: true })
+    )(nodeIds);
 
     yield* writeJsonEffect(paths.manifest, manifest);
     yield* writeJsonEffect(paths.status, statusFromManifest(manifest));
@@ -133,7 +188,7 @@ export const readRunEffect = (input: ReadRunInput) =>
     const manifestJson = yield* readOptionalFileEffect(paths.manifest);
 
     if (Option.isNone(manifestJson)) {
-      return;
+      return Option.getOrUndefined(Option.none<MokaRunManifest>());
     }
 
     const manifest = yield* parseManifestJsonEffect(manifestJson.value);
@@ -142,25 +197,29 @@ export const readRunEffect = (input: ReadRunInput) =>
     return replayEvents(manifest, events);
   });
 
-export const listRunsEffect = (input: StoreContext): Effect.Effect<MokaRunManifest[], unknown> =>
+export const listRunsEffect = (
+  input: StoreContext
+): Effect.Effect<MokaRunManifest[], unknown> =>
   Effect.gen(function* effectBody() {
     const entries = yield* readRunDirectoryEntriesEffect(input.workspaceRoot);
-    const runs = yield* Effect.forEach(entries, (entry) =>
+    const runs = yield* Effect.forEach((entry: { name: string }) =>
       readRunEffect({
         runId: entry.name,
         workspaceRoot: input.workspaceRoot,
-      }),
-    );
+      })
+    )(entries);
 
     return runs.filter((run): run is MokaRunManifest => run !== undefined);
   });
 
-const readManifestEffect = (path: string): Effect.Effect<MokaRunManifest, unknown> =>
+const readManifestEffect = (
+  path: string
+): Effect.Effect<MokaRunManifest, unknown> =>
   readFileUtf8Effect(path).pipe(Effect.flatMap(parseManifestJsonEffect));
 
 const updateManifestEffect = (
   input: Pick<UpdateRunControllerInput, "runId" | "workspaceRoot">,
-  update: (manifest: MokaRunManifest) => MokaRunManifest,
+  update: (manifest: MokaRunManifest) => MokaRunManifest
 ): Effect.Effect<MokaRunManifest, unknown> =>
   Effect.gen(function* effectBody() {
     const runId = yield* logicalSegmentEffect("runId", input.runId);
@@ -175,12 +234,14 @@ const updateManifestEffect = (
     return updated;
   });
 
-export const updateRunControllerEffect = (input: UpdateRunControllerInput): Effect.Effect<MokaRunManifest, unknown> =>
+export const updateRunControllerEffect = (
+  input: UpdateRunControllerInput
+): Effect.Effect<MokaRunManifest, unknown> =>
   updateManifestEffect(input, (manifest) =>
     parseMokaRunManifest({
       ...manifest,
       controller: parseMokaRunController(input.controller),
-    }),
+    })
   );
 
 const readStatusEffect = (path: string) =>
@@ -188,7 +249,9 @@ const readStatusEffect = (path: string) =>
     const statusJson = yield* readOptionalFileEffect(path);
 
     if (Option.isNone(statusJson)) {
-      return;
+      return Option.getOrUndefined(
+        Option.none<ReturnType<typeof parseRunStatusFile>>()
+      );
     }
 
     return yield* Effect.try({
@@ -197,7 +260,34 @@ const readStatusEffect = (path: string) =>
     });
   });
 
-export const publishScheduleEffect = (input: PublishScheduleInput): Effect.Effect<MokaRunManifest, unknown> =>
+interface RunStatusProjectionInput {
+  readonly runId: string;
+  readonly workspaceRoot: string;
+}
+
+const readRunStatusProjectionEffect = (input: RunStatusProjectionInput) =>
+  Effect.gen(function* effectBody() {
+    const paths = runPaths(input.workspaceRoot, input.runId);
+    const replayed = yield* readRunEffect({
+      runId: input.runId,
+      workspaceRoot: input.workspaceRoot,
+    });
+    const run = yield* requireRunEffect(
+      Option.fromUndefinedOr(replayed),
+      input.runId
+    );
+    const currentStatus = yield* readStatusEffect(paths.status);
+
+    return {
+      currentStatus,
+      run,
+      statusPath: paths.status,
+    };
+  });
+
+export const publishScheduleEffect = (
+  input: PublishScheduleInput
+): Effect.Effect<MokaRunManifest, unknown> =>
   Effect.gen(function* effectBody() {
     const runId = yield* logicalSegmentEffect("runId", input.runId);
     yield* updateManifestEffect({ ...input, runId }, (manifest) =>
@@ -205,22 +295,22 @@ export const publishScheduleEffect = (input: PublishScheduleInput): Effect.Effec
         manifest,
         nodeIds: input.nodeIds,
         schedule: input.schedule,
-      }),
+      })
     );
-    const paths = runPaths(input.workspaceRoot, runId);
-    const replayed = yield* readRunEffect({
+    const projection = yield* readRunStatusProjectionEffect({
       runId,
       workspaceRoot: input.workspaceRoot,
     });
-    if (replayed === undefined) {
-      return yield* Effect.fail(new Error(`Run ${runId} does not exist.`));
-    }
-    const currentStatus = yield* readStatusEffect(paths.status);
-    yield* writeJsonEffect(paths.status, statusFromManifest(replayed, currentStatus));
-    return replayed;
+    yield* writeJsonEffect(
+      projection.statusPath,
+      statusFromManifest(projection.run, projection.currentStatus)
+    );
+    return projection.run;
   });
 
-export const recordEventEffect = (input: RecordEventInput): Effect.Effect<void, unknown> =>
+export const recordEventEffect = (
+  input: RecordEventInput
+): Effect.Effect<void, unknown> =>
   Effect.gen(function* effectBody() {
     const runId = yield* logicalSegmentEffect("runId", input.runId);
     const event = yield* Effect.sync(() => parseMokaRunEvent(input.event));
@@ -228,20 +318,19 @@ export const recordEventEffect = (input: RecordEventInput): Effect.Effect<void, 
 
     yield* ensureRunExistsEffect(paths.manifest, runId);
     yield* appendFileUtf8Effect(paths.events, `${JSON.stringify(event)}\n`);
-    const run = yield* readRunEffect({
+    const projection = yield* readRunStatusProjectionEffect({
       runId,
       workspaceRoot: input.workspaceRoot,
     });
-
-    if (run === undefined) {
-      return yield* Effect.fail(new Error(`Run ${runId} does not exist.`));
-    }
-
-    const currentStatus = yield* readStatusEffect(paths.status);
-    yield* writeJsonEffect(paths.status, statusFromManifest(run, currentStatus));
+    yield* writeJsonEffect(
+      projection.statusPath,
+      statusFromManifest(projection.run, projection.currentStatus)
+    );
   });
 
-export const updateRunStatusEffect = (input: UpdateRunStatusInput): Effect.Effect<void, unknown> =>
+export const updateRunStatusEffect = (
+  input: UpdateRunStatusInput
+): Effect.Effect<void, unknown> =>
   recordEventEffect({
     event: {
       at: input.at,
@@ -252,7 +341,9 @@ export const updateRunStatusEffect = (input: UpdateRunStatusInput): Effect.Effec
     workspaceRoot: input.workspaceRoot,
   });
 
-export const updateNodeStatusEffect = (input: UpdateNodeStatusInput): Effect.Effect<void, unknown> =>
+export const updateNodeStatusEffect = (
+  input: UpdateNodeStatusInput
+): Effect.Effect<void, unknown> =>
   recordEventEffect({
     event: {
       at: input.at,
@@ -264,7 +355,9 @@ export const updateNodeStatusEffect = (input: UpdateNodeStatusInput): Effect.Eff
     workspaceRoot: input.workspaceRoot,
   });
 
-export const updateNodeSessionEffect = (input: UpdateNodeSessionInput): Effect.Effect<void, unknown> =>
+export const updateNodeSessionEffect = (
+  input: UpdateNodeSessionInput
+): Effect.Effect<void, unknown> =>
   Effect.gen(function* effectBody() {
     const runId = yield* logicalSegmentEffect("runId", input.runId);
     const nodeId = yield* logicalSegmentEffect("nodeId", input.nodeId);
@@ -272,23 +365,21 @@ export const updateNodeSessionEffect = (input: UpdateNodeSessionInput): Effect.E
     const paths = runPaths(input.workspaceRoot, runId);
 
     yield* ensureRunExistsEffect(paths.manifest, runId);
-    const run = yield* readRunEffect({
+    const projection = yield* readRunStatusProjectionEffect({
       runId,
       workspaceRoot: input.workspaceRoot,
     });
-
-    if (run === undefined) {
-      return yield* Effect.fail(new Error(`Run ${runId} does not exist.`));
-    }
-    if (!(nodeId in run.nodes)) {
-      return yield* Effect.fail(new Error(`Node ${nodeId} does not exist in run ${runId}.`));
+    if (!(nodeId in projection.run.nodes)) {
+      yield* Effect.fail(missingNodeError(runId, nodeId));
     }
 
-    const currentStatus = yield* readStatusEffect(paths.status);
-    const nextStatus = statusFromManifest(run, currentStatus);
+    const nextStatus = statusFromManifest(
+      projection.run,
+      projection.currentStatus
+    );
     nextStatus.nodes[nodeId] = {
       sessionId,
-      status: run.nodes[nodeId],
+      status: projection.run.nodes[nodeId],
     };
-    yield* writeJsonEffect(paths.status, nextStatus);
+    yield* writeJsonEffect(projection.statusPath, nextStatus);
   });

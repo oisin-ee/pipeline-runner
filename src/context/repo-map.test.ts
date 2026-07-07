@@ -17,9 +17,18 @@ afterEach(() => {
 const fixture = (): string => {
   const dir = mkdtempSync(join(tmpdir(), "moka-repomap-"));
   dirs.push(dir);
-  writeFileSync(join(dir, "a.ts"), "export function alpha() {\n  return 1;\n}\n");
-  writeFileSync(join(dir, "b.ts"), "import { alpha } from './a';\nexport function beta() {\n  return alpha();\n}\n");
-  writeFileSync(join(dir, "c.ts"), "export function gamma() {\n  return 2;\n}\n");
+  writeFileSync(
+    join(dir, "a.ts"),
+    "export function alpha() {\n  return 1;\n}\n"
+  );
+  writeFileSync(
+    join(dir, "b.ts"),
+    "import { alpha } from './a';\nexport function beta() {\n  return alpha();\n}\n"
+  );
+  writeFileSync(
+    join(dir, "c.ts"),
+    "export function gamma() {\n  return 2;\n}\n"
+  );
   return dir;
 };
 

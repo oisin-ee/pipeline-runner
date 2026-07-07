@@ -103,7 +103,11 @@ const recordingExecutor = (ran: string[]) => (plan: RunnerLaunchPlan) => {
 // Seed a node's terminal result into the cluster Postgres for `runId`, then close
 // the store so the write is flushed — the exact state a process that journaled
 // the node and then died leaves behind.
-const seedPersistedNodes = async (dbUrl: string, runId: string, nodeIds: string[]): Promise<void> => {
+const seedPersistedNodes = async (
+  dbUrl: string,
+  runId: string,
+  nodeIds: string[]
+): Promise<void> => {
   const store = await postgresDurableRunStore(dbUrl, runId);
   const journal = store.toRunJournal(runId);
   for (const nodeId of nodeIds) {
@@ -123,7 +127,7 @@ describe("resumeRun (no infra)", () => {
         runId: "missing-run",
         task: "resume without a store",
         worktreePath: tempProject(),
-      }),
+      })
     ).rejects.toThrow(NO_STORE_ERROR);
     expect(ran).toEqual([]);
   });
@@ -173,7 +177,7 @@ describePg("moka resume against the live cluster Postgres", () => {
         runId: id,
         task: "resume a never-persisted run",
         worktreePath: tempProject(),
-      }),
+      })
     ).rejects.toThrow(NO_PERSISTED_STATE_ERROR);
     expect(ran).toEqual([]);
   });

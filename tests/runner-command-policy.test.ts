@@ -3,7 +3,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { runRunnerCommand } from "../src/runner-command/run";
 import { createRunnerEventSink } from "../src/runner-event-sink";
-import { flushAndReport, RunnerCommandIoServiceLive } from "../src/runtime/services/runner-command-io-service";
+import {
+  flushAndReport,
+  RunnerCommandIoServiceLive,
+} from "../src/runtime/services/runner-command-io-service";
 import {
   captureEventBatches,
   cleanupRunnerCommandFixtures,
@@ -11,7 +14,7 @@ import {
   writeRunnerCommandFixture,
 } from "./runner-command-fixture";
 
-const RESOLVED_VOID: void = undefined;
+const RESOLVED_VALUE = undefined;
 
 interface RunnerCommandPolicyMocks {
   commitAndPushNodeRef: ReturnType<typeof vi.fn>;
@@ -43,7 +46,8 @@ const installMockState = (): RunnerCommandPolicyMocks => {
 };
 
 vi.mock("../src/pipeline-runtime", () => ({
-  runScheduledWorkflowTask: (...args: unknown[]) => mockState().runScheduledWorkflowTask(...args),
+  runScheduledWorkflowTask: (...args: unknown[]) =>
+    mockState().runScheduledWorkflowTask(...args),
 }));
 
 vi.mock("execa", () => ({
@@ -59,9 +63,12 @@ vi.mock("../src/credentials/runner", () => ({
 }));
 
 vi.mock("../src/run-state/git-refs", () => ({
-  commitAndPushNodeRef: (...args: unknown[]) => mockState().commitAndPushNodeRef(...args),
-  mergeDependencyRefs: (...args: unknown[]) => mockState().mergeDependencyRefs(...args),
-  prepareRunnerGitWorkspace: (...args: unknown[]) => mockState().prepareRunnerGitWorkspace(...args),
+  commitAndPushNodeRef: (...args: unknown[]) =>
+    mockState().commitAndPushNodeRef(...args),
+  mergeDependencyRefs: (...args: unknown[]) =>
+    mockState().mergeDependencyRefs(...args),
+  prepareRunnerGitWorkspace: (...args: unknown[]) =>
+    mockState().prepareRunnerGitWorkspace(...args),
 }));
 
 afterEach(() => {
@@ -83,7 +90,10 @@ const captureOutput = (): {
   return {
     stream: {
       write: (chunk) => {
-        value += typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf-8");
+        value +=
+          typeof chunk === "string"
+            ? chunk
+            : Buffer.from(chunk).toString("utf-8");
         return true;
       },
     },
@@ -102,7 +112,7 @@ const logPhases = (content: string): string[] =>
   logRecords(content)
     .filter(
       (record): record is { phase: string; status: string } =>
-        typeof record.phase === "string" && typeof record.status === "string",
+        typeof record.phase === "string" && typeof record.status === "string"
     )
     .map((record) => `${record.phase}:${record.status}`);
 
@@ -112,15 +122,17 @@ describe("runner-command hook policy", () => {
     const batches: unknown[][] = [];
     let attempts = 0;
     const capture = captureEventBatches(batches);
-    const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      attempts += 1;
-      if (attempts <= 2) {
-        return new Response("console unavailable", {
-          status: 503,
-        });
+    const fetch = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        attempts += 1;
+        if (attempts <= 2) {
+          return new Response("console unavailable", {
+            status: 503,
+          });
+        }
+        return await capture(input, init);
       }
-      return await capture(input, init);
-    });
+    );
     const sink = createRunnerEventSink({
       authToken: "console-token",
       fetch,
@@ -130,12 +142,19 @@ describe("runner-command hook policy", () => {
     const stderr = captureOutput();
 
     sink.recordFinalResult("PASS", "default");
-    const flush = Effect.runPromise(Effect.provide(flushAndReport(sink, stderr.stream), RunnerCommandIoServiceLive));
+    const flush = Effect.runPromise(
+      Effect.provide(
+        flushAndReport(sink, stderr.stream),
+        RunnerCommandIoServiceLive
+      )
+    );
     await vi.advanceTimersByTimeAsync(2000);
     await flush;
 
     expect(fetch).toHaveBeenCalledTimes(3);
-    expect(finalResults(batches)).toEqual([{ outcome: "PASS", workflowId: "default" }]);
+    expect(finalResults(batches)).toEqual([
+      { outcome: "PASS", workflowId: "default" },
+    ]);
     expect(stderr.text()).toBe("");
   });
 
@@ -153,9 +172,11 @@ describe("runner-command hook policy", () => {
       status: "passed",
     });
     mocks.prepareRunnerGitWorkspace.mockResolvedValue(fixture.dir);
-    mocks.mergeDependencyRefs.mockResolvedValue(RESOLVED_VOID);
-    mocks.commitAndPushNodeRef.mockResolvedValue(RESOLVED_VOID);
-    const fetch = vi.fn(async () => await Promise.resolve(new Response(null, { status: 202 })));
+    mocks.mergeDependencyRefs.mockResolvedValue(RESOLVED_VALUE);
+    mocks.commitAndPushNodeRef.mockResolvedValue(RESOLVED_VALUE);
+    const fetch = vi.fn(
+      async () => await Promise.resolve(new Response(null, { status: 202 }))
+    );
     const stdout = captureOutput();
     const stderr = captureOutput();
 
@@ -175,7 +196,7 @@ describe("runner-command hook policy", () => {
         hookPolicy: { allowCommandHooks: false },
         nodeId: "command",
         workflowId: "schedule-run-policy-root",
-      }),
+      })
     );
   });
 
@@ -192,9 +213,11 @@ describe("runner-command hook policy", () => {
       status: "passed",
     });
     mocks.prepareRunnerGitWorkspace.mockResolvedValue(fixture.dir);
-    mocks.mergeDependencyRefs.mockResolvedValue(RESOLVED_VOID);
-    mocks.commitAndPushNodeRef.mockResolvedValue(RESOLVED_VOID);
-    const fetch = vi.fn(async () => await Promise.resolve(new Response(null, { status: 202 })));
+    mocks.mergeDependencyRefs.mockResolvedValue(RESOLVED_VALUE);
+    mocks.commitAndPushNodeRef.mockResolvedValue(RESOLVED_VALUE);
+    const fetch = vi.fn(
+      async () => await Promise.resolve(new Response(null, { status: 202 }))
+    );
     const stdout = captureOutput();
     const stderr = captureOutput();
 
@@ -216,7 +239,7 @@ describe("runner-command hook policy", () => {
         "task.run:start",
         "git.node-ref.push:finish",
         "event.flush:finish",
-      ]),
+      ])
     );
     expect(stdout.text()).not.toContain("test-token");
     expect(stderr.text()).toBe("");
@@ -235,9 +258,11 @@ describe("runner-command hook policy", () => {
       status: "failed",
     });
     mocks.prepareRunnerGitWorkspace.mockResolvedValue(fixture.dir);
-    mocks.mergeDependencyRefs.mockResolvedValue(RESOLVED_VOID);
-    mocks.commitAndPushNodeRef.mockResolvedValue(RESOLVED_VOID);
-    const fetch = vi.fn(async () => await Promise.resolve(new Response(null, { status: 202 })));
+    mocks.mergeDependencyRefs.mockResolvedValue(RESOLVED_VALUE);
+    mocks.commitAndPushNodeRef.mockResolvedValue(RESOLVED_VALUE);
+    const fetch = vi.fn(
+      async () => await Promise.resolve(new Response(null, { status: 202 }))
+    );
     const stdout = captureOutput();
     const stderr = captureOutput();
 
@@ -262,7 +287,7 @@ describe("runner-command hook policy", () => {
           phase: "task.run",
           status: "failed",
         }),
-      ]),
+      ])
     );
   });
 });

@@ -1,4 +1,8 @@
-import type { ArgoWorkflowEnvVar, ArgoWorkflowResourceRequirements, ArgoWorkflowRetryStrategy } from "./model";
+import type {
+  ArgoWorkflowEnvVar,
+  ArgoWorkflowResourceRequirements,
+  ArgoWorkflowRetryStrategy,
+} from "./model";
 
 export const RUNNER_WORKFLOW_IMAGE = "ghcr.io/oisin-ee/pipeline-runner:latest";
 export const RUNNER_WORKFLOW_SERVICE_ACCOUNT = "pipeline-runner";
@@ -9,7 +13,8 @@ export const RUNNER_WORKFLOW_SCHEDULE_PATH = "/etc/pipeline/schedule.yaml";
 export const RUNNER_GIT_CREDENTIALS_PATH = "/etc/pipeline/git-credentials";
 
 const RUNNER_RETRY_STRATEGY: ArgoWorkflowRetryStrategy = {
-  expression: "lastRetry.status == 'Error' || (lastRetry.exitCode != '0' && lastRetry.exitCode != '1')",
+  expression:
+    "lastRetry.status == 'Error' || (lastRetry.exitCode != '0' && lastRetry.exitCode != '1')",
   limit: "3",
   retryPolicy: "Always",
 };
@@ -45,7 +50,9 @@ export interface RunnerContainerPolicyOptions {
   resources?: ArgoWorkflowResourceRequirements;
 }
 
-export const runnerContainerEnv = (options: RunnerContainerPolicyOptions): ArgoWorkflowEnvVar[] => [
+export const runnerContainerEnv = (
+  options: RunnerContainerPolicyOptions
+): ArgoWorkflowEnvVar[] => [
   ...RUNNER_OPENCODE_ENV,
   { name: "BROKER_URL", value: options.brokerAuth.url },
   {
@@ -106,7 +113,10 @@ export const runnerRetryStrategy = (): ArgoWorkflowRetryStrategy => ({
   ...RUNNER_RETRY_STRATEGY,
 });
 
-export const runnerTemplateResources = (options: RunnerContainerPolicyOptions): ArgoWorkflowResourceRequirements =>
+export const runnerTemplateResources = (
+  options: RunnerContainerPolicyOptions
+): ArgoWorkflowResourceRequirements =>
   options.resources ?? DEFAULT_RUNNER_RESOURCES;
 
-export const runnerTemplateDeadlineSeconds = (): number => DEFAULT_RUNNER_DEADLINE_SECONDS;
+export const runnerTemplateDeadlineSeconds = (): number =>
+  DEFAULT_RUNNER_DEADLINE_SECONDS;

@@ -1,41 +1,62 @@
 import { getOrUndefined, match, none, some } from "effect/Option";
 import type { Option } from "effect/Option";
 
-import type { NodeExecutionState, RuntimeContext, RuntimeGateResult } from "./contracts";
+import type {
+  NodeExecutionState,
+  RuntimeContext,
+  RuntimeGateResult,
+} from "./contracts";
 
-export type ScheduledDependencyOutputs = Map<string, string> | Record<string, string> | void;
+type NoScheduledDependencyOutputs = undefined;
 
-type PresentScheduledDependencyOutputs = Exclude<ScheduledDependencyOutputs, void>;
+export type ScheduledDependencyOutputs =
+  | Map<string, string>
+  | Record<string, string>
+  | NoScheduledDependencyOutputs;
+
+type PresentScheduledDependencyOutputs = Exclude<
+  ScheduledDependencyOutputs,
+  NoScheduledDependencyOutputs
+>;
 
 const dependencyOutputsOption = (
-  dependencyOutputs: ScheduledDependencyOutputs,
-): Option<PresentScheduledDependencyOutputs> => (dependencyOutputs === undefined ? none() : some(dependencyOutputs));
+  dependencyOutputs: ScheduledDependencyOutputs
+): Option<PresentScheduledDependencyOutputs> =>
+  dependencyOutputs === undefined ? none() : some(dependencyOutputs);
 
-const dependencyOutputMap = (dependencyOutputs: ScheduledDependencyOutputs): Map<string, string> =>
+const dependencyOutputMap = (
+  dependencyOutputs: ScheduledDependencyOutputs
+): Map<string, string> =>
   match(dependencyOutputsOption(dependencyOutputs), {
     onNone: () => new Map(),
-    onSome: (outputs) => (outputs instanceof Map ? outputs : new Map(Object.entries(outputs))),
+    onSome: (outputs) =>
+      outputs instanceof Map ? outputs : new Map(Object.entries(outputs)),
   });
 
-const existingAttempts = (existing?: NodeExecutionState): number => (existing ? existing.attempts : 1);
+const existingAttempts = (existing?: NodeExecutionState): number =>
+  existing ? existing.attempts : 1;
 
 const inheritedOutputEvidence = (existing?: NodeExecutionState): string[] => {
   const evidence = existing ? existing.evidence : [];
   return [...evidence, "dependency output inherited from Argo artifact"];
 };
 
-const existingExitCode = (existing?: NodeExecutionState): number => (existing ? (existing.exitCode ?? 0) : 0);
+const existingExitCode = (existing?: NodeExecutionState): number =>
+  existing ? (existing.exitCode ?? 0) : 0;
 
-const existingFinishedAt = (fallback: string, existing?: NodeExecutionState): string =>
-  existing ? (existing.finishedAt ?? fallback) : fallback;
+const existingFinishedAt = (
+  fallback: string,
+  existing?: NodeExecutionState
+): string => (existing ? (existing.finishedAt ?? fallback) : fallback);
 
-const existingGates = (existing?: NodeExecutionState): RuntimeGateResult[] => (existing ? existing.gates : []);
+const existingGates = (existing?: NodeExecutionState): RuntimeGateResult[] =>
+  existing ? existing.gates : [];
 
 const inheritedDependencyOutputState = (
   context: RuntimeContext,
   nodeId: string,
   output: string,
-  finishedAt: string,
+  finishedAt: string
 ): NodeExecutionState => {
   const existing = getOrUndefined(context.nodeStateStore.getNodeState(nodeId));
   return {
@@ -58,12 +79,18 @@ const emptyScheduledDependencyState = (id: string): NodeExecutionState => ({
   status: "pending",
 });
 
-const positiveAttempts = (state: NodeExecutionState): number => (state.attempts > 0 ? state.attempts : 1);
+const positiveAttempts = (state: NodeExecutionState): number =>
+  state.attempts > 0 ? state.attempts : 1;
 
 const dependencyEvidence = (state: NodeExecutionState): string[] =>
-  state.evidence.length > 0 ? state.evidence : ["dependency satisfied by scheduled workflow"];
+  state.evidence.length > 0
+    ? state.evidence
+    : ["dependency satisfied by scheduled workflow"];
 
-const completedScheduledDependencyState = (base: NodeExecutionState, finishedAt: string): NodeExecutionState => ({
+const completedScheduledDependencyState = (
+  base: NodeExecutionState,
+  finishedAt: string
+): NodeExecutionState => ({
   ...base,
   attempts: positiveAttempts(base),
   evidence: dependencyEvidence(base),
@@ -76,13 +103,16 @@ const completedScheduledDependencyState = (base: NodeExecutionState, finishedAt:
 const scheduledDependencyState = (
   id: string,
   finishedAt: string,
-  existing?: NodeExecutionState,
+  existing?: NodeExecutionState
 ): NodeExecutionState => {
   const base = existing ?? emptyScheduledDependencyState(id);
   return completedScheduledDependencyState(base, finishedAt);
 };
 
-const scheduledDependencyNodeIds = (context: RuntimeContext, nodeId: string): string[] => {
+const scheduledDependencyNodeIds = (
+  context: RuntimeContext,
+  nodeId: string
+): string[] => {
   const visited = new Set<string>();
   const ordered: string[] = [];
   const visit = (candidateId: string): void => {
@@ -113,21 +143,32 @@ const now = (): string => new Date().toISOString();
 
 export const hydrateDependencyOutputs = (
   context: RuntimeContext,
-  dependencyOutputs: ScheduledDependencyOutputs,
+  dependencyOutputs: ScheduledDependencyOutputs
 ): void => {
   const outputs = dependencyOutputMap(dependencyOutputs);
   const finishedAt = now();
   for (const [nodeId, output] of outputs) {
     context.nodeStateStore.lastOutputByNode.set(nodeId, output);
     context.nodeStateStore.inheritedOutputNodeIds.add(nodeId);
-    context.nodeStateStore.nodeStates.set(nodeId, inheritedDependencyOutputState(context, nodeId, output, finishedAt));
+    context.nodeStateStore.nodeStates.set(
+      nodeId,
+      inheritedDependencyOutputState(context, nodeId, output, finishedAt)
+    );
   }
 };
 
-export const hydrateScheduledDependencyStates = (context: RuntimeContext, nodeId: string): void => {
+export const hydrateScheduledDependencyStates = (
+  context: RuntimeContext,
+  nodeId: string
+): void => {
   const finishedAt = now();
   for (const dependencyId of scheduledDependencyNodeIds(context, nodeId)) {
-    const existing = getOrUndefined(context.nodeStateStore.getNodeState(dependencyId));
-    context.nodeStateStore.nodeStates.set(dependencyId, scheduledDependencyState(dependencyId, finishedAt, existing));
+    const existing = getOrUndefined(
+      context.nodeStateStore.getNodeState(dependencyId)
+    );
+    context.nodeStateStore.nodeStates.set(
+      dependencyId,
+      scheduledDependencyState(dependencyId, finishedAt, existing)
+    );
   }
 };

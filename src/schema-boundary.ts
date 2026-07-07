@@ -14,40 +14,35 @@ const { Struct: makeStruct } = Schema;
 const propertyKey = Schema.Union([Schema.Number, Schema.String, Schema.Symbol]);
 const keyedIssuePathSegmentSchema = makeStruct({ key: Schema.Unknown });
 
-export const struct = <const Fields extends Schema.Struct.Fields>(fields: Fields): Schema.Struct<Fields> =>
-  makeStruct(fields);
+export const struct = <const Fields extends Schema.Struct.Fields>(
+  fields: Fields
+): Schema.Struct<Fields> => makeStruct(fields);
 
-export function booleanValue(): typeof Schema.Boolean {
-  return Schema.Boolean;
-}
+export const booleanValue = (): typeof Schema.Boolean => Schema.Boolean;
 
-export function numberValue(): typeof Schema.Number {
-  return Schema.Number;
-}
+export const numberValue = (): typeof Schema.Number => Schema.Number;
 
-export function stringValue(): typeof Schema.String {
-  return Schema.String;
-}
+export const stringValue = (): typeof Schema.String => Schema.String;
 
-export function taggedErrorClass<Self = never>(identifier?: string) {
-  return Schema.TaggedErrorClass<Self>(identifier);
-}
+export const taggedErrorClass = <Self = never>(identifier?: string) =>
+  Schema.TaggedErrorClass<Self>(identifier);
 
-export function isObjectValue(value: unknown): value is object {
-  return Schema.is(Schema.ObjectKeyword)(value);
-}
+export const isObjectValue = (value: unknown): value is object =>
+  Schema.is(Schema.ObjectKeyword)(value);
 
-export function literalSchema<L extends SchemaAST.LiteralValue>(value: L): Schema.Literal<L> {
-  return Schema.Literal(value);
-}
+export const literalSchema = <L extends SchemaAST.LiteralValue>(
+  value: L
+): Schema.Literal<L> => Schema.Literal(value);
 
-export function literalsSchema<const L extends readonly SchemaAST.LiteralValue[]>(values: L): Schema.Literals<L> {
-  return Schema.Literals(values);
-}
+export const literalsSchema = <
+  const L extends readonly SchemaAST.LiteralValue[],
+>(
+  values: L
+): Schema.Literals<L> => Schema.Literals(values);
 
-export function optionalSchema<S extends Schema.Constraint>(schema: S): Schema.optional<S> {
-  return Schema.optional(schema);
-}
+export const optionalSchema = <S extends Schema.Constraint>(
+  schema: S
+): Schema.optional<S> => Schema.optional(schema);
 
 export const requiredString = Schema.NonEmptyString;
 export type requiredString = typeof requiredString.Type;
@@ -61,27 +56,21 @@ export type stringArray = typeof stringArray.Type;
 export const unknownRecord = Schema.Record(Schema.String, Schema.Unknown);
 export type unknownRecord = typeof unknownRecord.Type;
 
-export function isUnknownRecord(value: unknown): value is Record<string, unknown> {
-  return Schema.is(unknownRecord)(value);
-}
+export const isUnknownRecord = (
+  value: unknown
+): value is Record<string, unknown> => Schema.is(unknownRecord)(value);
 
-export function isNumberValue(value: unknown): value is number {
-  return Schema.is(numberValue())(value);
-}
+export const isNumberValue = (value: unknown): value is number =>
+  Schema.is(numberValue())(value);
 
-export function isStringValue(value: unknown): value is string {
-  return Schema.is(stringValue())(value);
-}
+export const isStringValue = (value: unknown): value is string =>
+  Schema.is(stringValue())(value);
 
 export const stringRecord = Schema.Record(Schema.String, Schema.String);
 export type stringRecord = typeof stringRecord.Type;
 
-export function stringRecordValue(value: unknown): stringRecord {
-  const parsed = parseResultWithSchema(stringRecord, value);
-  return parsed.ok ? parsed.value : {};
-}
-
-export const mutableArray = <S extends Schema.Constraint>(schema: S) => Schema.mutable(Schema.Array(schema));
+export const mutableArray = <S extends Schema.Constraint>(schema: S) =>
+  Schema.mutable(Schema.Array(schema));
 
 export const nonEmptyMutableArray = <S extends Schema.Constraint>(schema: S) =>
   mutableArray(schema).check(Schema.isNonEmpty());
@@ -89,32 +78,44 @@ export const nonEmptyMutableArray = <S extends Schema.Constraint>(schema: S) =>
 export const integer = Schema.Number.check(Schema.isInt());
 export type integer = typeof integer.Type;
 
-export const positiveInteger = Schema.Number.check(Schema.isInt(), Schema.isGreaterThan(0));
+export const positiveInteger = Schema.Number.check(
+  Schema.isInt(),
+  Schema.isGreaterThan(0)
+);
 export type positiveInteger = typeof positiveInteger.Type;
 
-export const nonNegativeInteger = Schema.Number.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(0));
+export const nonNegativeInteger = Schema.Number.check(
+  Schema.isInt(),
+  Schema.isGreaterThanOrEqualTo(0)
+);
 export type nonNegativeInteger = typeof nonNegativeInteger.Type;
 
 export const positiveNumber = Schema.Number.check(Schema.isGreaterThan(0));
 export type positiveNumber = typeof positiveNumber.Type;
 
-export const regexString = (pattern: RegExp) => Schema.String.check(Schema.isPattern(pattern));
+export const regexString = (pattern: RegExp) =>
+  Schema.String.check(Schema.isPattern(pattern));
 
-export const literalEnum = <const T extends readonly SchemaAST.LiteralValue[]>(values: T): Schema.Literals<T> =>
-  Schema.Literals(values);
+export const literalEnum = <const T extends readonly SchemaAST.LiteralValue[]>(
+  values: T
+): Schema.Literals<T> => Schema.Literals(values);
 
 export const withDefault = <S extends Schema.Constraint>(
   schema: S,
-  value: S["Encoded"],
-): Schema.withDecodingDefault<S, never> => Schema.withDecodingDefault(succeed(value))(schema);
+  value: S["Encoded"]
+): Schema.withDecodingDefault<S> =>
+  Schema.withDecodingDefault(succeed(value))(schema);
 
 export const urlString = Schema.String.check(
-  Schema.makeFilter<string>((value) => URL.canParse(value) || "must be a valid URL", {
-    description: "String must parse as a URL.",
-    identifier: "UrlString",
-    jsonSchema: { format: "uri" },
-    title: "URL string",
-  }),
+  Schema.makeFilter<string>(
+    (value) => URL.canParse(value) || "must be a valid URL",
+    {
+      description: "String must parse as a URL.",
+      identifier: "UrlString",
+      jsonSchema: { format: "uri" },
+      title: "URL string",
+    }
+  )
 );
 export type urlString = typeof urlString.Type;
 
@@ -130,14 +131,15 @@ export type EffectSchemaParseResult<T> =
 
 const schemaIssueFormatter = makeFormatterStandardSchemaV1();
 
-const isPropertyKey: (value: unknown) => value is PropertyKey = Schema.is(propertyKey);
+const isPropertyKey: (value: unknown) => value is PropertyKey =
+  Schema.is(propertyKey);
 
 const issuePathKey = (segment: unknown): PropertyKey => {
   if (isPropertyKey(segment)) {
     return segment;
   }
   if (Schema.is(keyedIssuePathSegmentSchema)(segment)) {
-    const key = segment.key;
+    const { key } = segment;
     if (isPropertyKey(key)) {
       return key;
     }
@@ -145,12 +147,16 @@ const issuePathKey = (segment: unknown): PropertyKey => {
   return String(segment);
 };
 
-const issuePath = (path: readonly unknown[] = []): readonly PropertyKey[] => path.map(issuePathKey);
+const issuePath = (path: readonly unknown[] = []): readonly PropertyKey[] =>
+  path.map(issuePathKey);
 
-const lastIssuePathSegmentText = (path: readonly PropertyKey[]): string => String(path.at(-1) ?? "");
+const lastIssuePathSegmentText = (path: readonly PropertyKey[]): string =>
+  String(path.at(-1) ?? "");
 
 const expectedArrayMessage = (message: string): string =>
-  message.startsWith("Expected array, got ") ? "Invalid input: expected array, received string" : message;
+  message.startsWith("Expected array, got ")
+    ? "Invalid input: expected array, received string"
+    : message;
 
 const expectedValueMessage = (message: string): string => {
   if (!message.startsWith("Expected ")) {
@@ -168,7 +174,8 @@ const expectedValueMessage = (message: string): string => {
   return "Invalid input";
 };
 
-const expectedMessage = (message: string): string => expectedValueMessage(expectedArrayMessage(message));
+const expectedMessage = (message: string): string =>
+  expectedValueMessage(expectedArrayMessage(message));
 
 const publicIssueMessage = (issue: EffectSchemaIssue): string => {
   if (issue.message.startsWith("Unexpected key with value")) {
@@ -180,9 +187,12 @@ const publicIssueMessage = (issue: EffectSchemaIssue): string => {
   return expectedMessage(issue.message);
 };
 
-class EffectSchemaParseError extends Schema.TaggedErrorClass<EffectSchemaParseError>()("EffectSchemaParseError", {
-  message: Schema.String,
-}) {}
+class EffectSchemaParseError extends Schema.TaggedErrorClass<EffectSchemaParseError>()(
+  "EffectSchemaParseError",
+  {
+    message: Schema.String,
+  }
+) {}
 
 const schemaErrorIssues = (error: Error): readonly EffectSchemaIssue[] => {
   if (!Schema.isSchemaError(error)) {
@@ -207,7 +217,9 @@ const schemaErrorIssues = (error: Error): readonly EffectSchemaIssue[] => {
   });
 };
 
-export const formatSchemaIssueList = (issues: readonly EffectSchemaIssue[]): string =>
+export const formatSchemaIssueList = (
+  issues: readonly EffectSchemaIssue[]
+): string =>
   issues
     .map((issue) => {
       const path = issue.path.map(String).join(".");
@@ -215,38 +227,53 @@ export const formatSchemaIssueList = (issues: readonly EffectSchemaIssue[]): str
     })
     .join("; ");
 
-const withJsonSchemaMeta = (document: JsonSchema.Document<"draft-07">): JsonSchemaObject => ({
+const withJsonSchemaMeta = (
+  document: JsonSchema.Document<"draft-07">
+): JsonSchemaObject => ({
   $schema: JsonSchema.META_SCHEMA_URI_DRAFT_07,
   ...document.schema,
   definitions: document.definitions,
 });
 
-const parseOptionsWithAllErrors = (options?: EffectParseOptions): EffectParseOptions => ({ errors: "all", ...options });
+const parseOptionsWithAllErrors = (
+  options?: EffectParseOptions
+): EffectParseOptions => ({ errors: "all", ...options });
 
 export const parseWithSchema = <S extends Schema.ConstraintDecoder<unknown>>(
   schema: S,
   input: unknown,
-  options?: EffectParseOptions,
-): S["Type"] => Schema.decodeUnknownSync(schema, parseOptionsWithAllErrors(options))(input);
+  options?: EffectParseOptions
+): S["Type"] =>
+  Schema.decodeUnknownSync(schema, parseOptionsWithAllErrors(options))(input);
 
-export const parseStrictWithSchema = <S extends Schema.ConstraintDecoder<unknown>>(
+export const parseStrictWithSchema = <
+  S extends Schema.ConstraintDecoder<unknown>,
+>(
   schema: S,
   input: unknown,
-  options?: EffectParseOptions,
-): S["Type"] => parseWithSchema(schema, input, { ...options, onExcessProperty: "error" });
+  options?: EffectParseOptions
+): S["Type"] =>
+  parseWithSchema(schema, input, { ...options, onExcessProperty: "error" });
 
-export const parseJsonWithSchema = <S extends Schema.ConstraintDecoder<unknown>>(
+export const parseJsonWithSchema = <
+  S extends Schema.ConstraintDecoder<unknown>,
+>(
   schema: S,
   source: string,
-  options?: EffectParseOptions,
+  options?: EffectParseOptions
 ): S["Type"] => parseWithSchema(Schema.fromJsonString(schema), source, options);
 
-export const parseResultWithSchema = <S extends Schema.ConstraintDecoder<unknown>>(
+export const parseResultWithSchema = <
+  S extends Schema.ConstraintDecoder<unknown>,
+>(
   schema: S,
   input: unknown,
-  options?: EffectParseOptions,
+  options?: EffectParseOptions
 ): EffectSchemaParseResult<S["Type"]> => {
-  const result = Schema.decodeUnknownResult(schema, parseOptionsWithAllErrors(options))(input);
+  const result = Schema.decodeUnknownResult(
+    schema,
+    parseOptionsWithAllErrors(options)
+  )(input);
   if (isSuccess(result)) {
     return { ok: true, value: result.success };
   }
@@ -260,18 +287,28 @@ export const parseResultWithSchema = <S extends Schema.ConstraintDecoder<unknown
   };
 };
 
+export const stringRecordValue = (value: unknown): stringRecord => {
+  const parsed = parseResultWithSchema(stringRecord, value);
+  return parsed.ok ? parsed.value : {};
+};
+
 export const decodeWithSchema = <S extends Schema.Constraint>(
   schema: S,
   input: unknown,
-  options?: EffectParseOptions,
-): Effect<S["Type"], Schema.SchemaError, S["DecodingServices"]> => Schema.decodeUnknownEffect(schema, options)(input);
+  options?: EffectParseOptions
+): Effect<S["Type"], Schema.SchemaError, S["DecodingServices"]> =>
+  Schema.decodeUnknownEffect(schema, options)(input);
 
 const effectSchemaDocument = (
   schema: Schema.Constraint,
-  options?: Schema.ToJsonSchemaOptions,
-): JsonSchema.Document<"draft-2020-12"> => Schema.toJsonSchemaDocument(schema, options);
+  options?: Schema.ToJsonSchemaOptions
+): JsonSchema.Document<"draft-2020-12"> =>
+  Schema.toJsonSchemaDocument(schema, options);
 
 export const effectSchemaDocumentDraft07 = (
   schema: Schema.Constraint,
-  options?: Schema.ToJsonSchemaOptions,
-): JsonSchemaObject => withJsonSchemaMeta(JsonSchema.toDocumentDraft07(effectSchemaDocument(schema, options)));
+  options?: Schema.ToJsonSchemaOptions
+): JsonSchemaObject =>
+  withJsonSchemaMeta(
+    JsonSchema.toDocumentDraft07(effectSchemaDocument(schema, options))
+  );

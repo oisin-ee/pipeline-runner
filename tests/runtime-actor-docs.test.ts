@@ -42,13 +42,29 @@ const EXPECTED_NODE_STATES = [
   "skipped",
 ] as const;
 
-const EXPECTED_HOOK_STATES = ["queued", "running", "passed", "failed", "timedOut", "skipped"] as const;
+const EXPECTED_HOOK_STATES = [
+  "queued",
+  "running",
+  "passed",
+  "failed",
+  "timedOut",
+  "skipped",
+] as const;
 
-const EXPECTED_GATE_STATES = ["pending", "running", "passed", "failed", "timedOut", "cancelled"] as const;
+const EXPECTED_GATE_STATES = [
+  "pending",
+  "running",
+  "passed",
+  "failed",
+  "timedOut",
+  "cancelled",
+] as const;
 const XSTATE_BRAND_RE = /\bXState\b|\bxstate\b/u;
 
 const documentedStates = (doc: string, label: string): string[] => {
-  const line = doc.split("\n").find((candidate) => candidate.startsWith(`${label} states:`));
+  const line = doc
+    .split("\n")
+    .find((candidate) => candidate.startsWith(`${label} states:`));
   if (!line) {
     throw new Error(`Missing ${label} states line`);
   }
@@ -57,7 +73,10 @@ const documentedStates = (doc: string, label: string): string[] => {
 
 describe("runtime actor documentation", () => {
   it("uses the non-XState runtime actor model document", () => {
-    const oldDocPath = join(process.cwd(), "docs/xstate-runtime-actor-model.md");
+    const oldDocPath = join(
+      process.cwd(),
+      "docs/xstate-runtime-actor-model.md"
+    );
     const docPath = join(process.cwd(), "docs/runtime-actor-model.md");
 
     expect(existsSync(oldDocPath)).toBe(false);
@@ -65,10 +84,15 @@ describe("runtime actor documentation", () => {
   });
 
   it("keeps documented state taxonomy without importing runtime-machine contracts", () => {
-    const doc = readFileSync(join(process.cwd(), "docs/runtime-actor-model.md"), "utf-8");
+    const doc = readFileSync(
+      join(process.cwd(), "docs/runtime-actor-model.md"),
+      "utf-8"
+    );
 
     expect(doc).not.toMatch(XSTATE_BRAND_RE);
-    expect(documentedStates(doc, "Workflow")).toEqual([...EXPECTED_WORKFLOW_STATES]);
+    expect(documentedStates(doc, "Workflow")).toEqual([
+      ...EXPECTED_WORKFLOW_STATES,
+    ]);
     expect(documentedStates(doc, "Node")).toEqual([...EXPECTED_NODE_STATES]);
     expect(documentedStates(doc, "Hook")).toEqual([...EXPECTED_HOOK_STATES]);
     expect(documentedStates(doc, "Gate")).toEqual([...EXPECTED_GATE_STATES]);

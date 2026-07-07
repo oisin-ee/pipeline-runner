@@ -3,7 +3,12 @@ import { NodeStateStore } from "../src/runtime/node-state-store";
 
 type BaseGateRuntimeFields = Pick<
   RuntimeContext,
-  "agentInvocations" | "executor" | "gates" | "hookFailures" | "hookPolicy" | "hookResults"
+  | "agentInvocations"
+  | "executor"
+  | "gates"
+  | "hookFailures"
+  | "hookPolicy"
+  | "hookResults"
 >;
 
 /**
@@ -13,7 +18,7 @@ type BaseGateRuntimeFields = Pick<
  */
 export const baseGateRuntimeFields = (): BaseGateRuntimeFields => ({
   agentInvocations: [],
-  executor: async () => ({ exitCode: 0, stdout: "" }),
+  executor: () => ({ exitCode: 0, stdout: "" }),
   gates: [],
   hookFailures: [],
   hookPolicy: {
@@ -28,7 +33,12 @@ export const baseGateRuntimeFields = (): BaseGateRuntimeFields => ({
 });
 
 /** A {@link NodeStateStore} seeded with one node's changed-file snapshot. */
-export const gateNodeStateStore = (nodeId: string, files: string[]): NodeStateStore =>
+export const gateNodeStateStore = (
+  nodeId: string,
+  files: string[]
+): NodeStateStore =>
   new NodeStateStore({
-    nodeSnapshots: new Map([[nodeId, { files: new Set(files), fingerprints: new Map() }]]),
+    nodeSnapshots: new Map([
+      [nodeId, { files: new Set(files), fingerprints: new Map() }],
+    ]),
   });

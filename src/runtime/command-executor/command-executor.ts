@@ -23,13 +23,23 @@ const commandErrorFields = (error: unknown): CommandErrorFields => ({
   timedOut: getOrElse(booleanField(error, "timedOut"), () => false),
 });
 
-const limitOutput = (text: string, limitBytes?: number): { evidence: string[]; text: string } => {
-  if (limitBytes === undefined || Buffer.byteLength(text, "utf-8") <= limitBytes) {
+const limitOutput = (
+  text: string,
+  limitBytes?: number
+): { evidence: string[]; text: string } => {
+  if (
+    limitBytes === undefined ||
+    Buffer.byteLength(text, "utf-8") <= limitBytes
+  ) {
     return { evidence: [], text };
   }
-  const truncated = Buffer.from(text, "utf-8").subarray(0, limitBytes).toString("utf-8");
+  const truncated = Buffer.from(text, "utf-8")
+    .subarray(0, limitBytes)
+    .toString("utf-8");
   return {
-    evidence: [`command output truncated to ${limitBytes} bytes from ${Buffer.byteLength(text, "utf-8")} bytes`],
+    evidence: [
+      `command output truncated to ${limitBytes} bytes from ${Buffer.byteLength(text, "utf-8")} bytes`,
+    ],
     text: truncated,
   };
 };
@@ -37,7 +47,7 @@ const limitOutput = (text: string, limitBytes?: number): { evidence: string[]; t
 export const executeCommand = async (
   command: string[],
   context: CommandExecutionContext,
-  options: CommandExecutionOptions = {},
+  options: CommandExecutionOptions = {}
 ): Promise<NodeAttemptResult> => {
   if (command.length === 0) {
     return { evidence: ["empty command"], exitCode: 1, output: "" };
@@ -49,12 +59,20 @@ export const executeCommand = async (
       ...(options.env === undefined ? {} : { env: options.env }),
       ...(options.extendEnv === false ? { extendEnv: false } : {}),
       ...(options.input === undefined ? {} : { input: options.input }),
-      ...(options.outputLimitBytes === undefined ? {} : { maxBuffer: options.outputLimitBytes }),
+      ...(options.outputLimitBytes === undefined
+        ? {}
+        : { maxBuffer: options.outputLimitBytes }),
       timeout: options.timeout,
     });
-    const output = limitOutput([result.stdout, result.stderr].filter(Boolean).join("\n"), options.outputLimitBytes);
+    const output = limitOutput(
+      [result.stdout, result.stderr].filter(Boolean).join("\n"),
+      options.outputLimitBytes
+    );
     return {
-      evidence: [`command exited ${result.exitCode ?? 0}: ${command.join(" ")}`, ...output.evidence],
+      evidence: [
+        `command exited ${result.exitCode ?? 0}: ${command.join(" ")}`,
+        ...output.evidence,
+      ],
       exitCode: result.exitCode ?? 0,
       output: output.text,
     };
@@ -62,7 +80,7 @@ export const executeCommand = async (
     const commandError = commandErrorFields(error);
     const output = limitOutput(
       [commandError.stdout, commandError.stderr].filter(Boolean).join("\n"),
-      options.outputLimitBytes,
+      options.outputLimitBytes
     );
     return {
       evidence: [

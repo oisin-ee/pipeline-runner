@@ -19,11 +19,19 @@ const configWith = (mcp_gateway?: Record<string, unknown>): PipelineConfig =>
 
 describe("shouldEmbedProjectGateway", () => {
   it("embeds the gateway when host_scope is project (the default)", () => {
-    expect(shouldEmbedProjectGateway(configWith({ ...gateway, host_scope: "project" }))).toBe(true);
+    expect(
+      shouldEmbedProjectGateway(
+        configWith({ ...gateway, host_scope: "project" })
+      )
+    ).toBe(true);
   });
 
   it("omits the gateway when host_scope is global", () => {
-    expect(shouldEmbedProjectGateway(configWith({ ...gateway, host_scope: "global" }))).toBe(false);
+    expect(
+      shouldEmbedProjectGateway(
+        configWith({ ...gateway, host_scope: "global" })
+      )
+    ).toBe(false);
   });
 
   it("does not embed a gateway that is not configured", () => {

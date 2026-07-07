@@ -51,8 +51,12 @@ interface DeleteConfigMapRequest {
 }
 
 interface ConfigMapApiOverrides {
-  readonly createNamespacedConfigMap: (input: { readonly body: V1ConfigMap }) => unknown;
-  readonly deleteNamespacedConfigMap?: (input: DeleteConfigMapRequest) => unknown;
+  readonly createNamespacedConfigMap: (input: {
+    readonly body: V1ConfigMap;
+  }) => unknown;
+  readonly deleteNamespacedConfigMap?: (
+    input: DeleteConfigMapRequest
+  ) => unknown;
   readonly patchNamespacedConfigMap?: (input: PatchConfigMapRequest) => unknown;
 }
 
@@ -72,7 +76,7 @@ const configMapApi = (overrides: ConfigMapApiOverrides) => ({
           kind: "Status",
           metadata: { name: request.name },
         }))
-      )(input),
+      )(input)
     ),
   patchNamespacedConfigMap: async (input: PatchConfigMapRequest) =>
     await Promise.resolve(
@@ -87,11 +91,13 @@ const configMapApi = (overrides: ConfigMapApiOverrides) => ({
             ownerReferences: request.body.metadata.ownerReferences,
           },
         }))
-      )(input),
+      )(input)
     ),
 });
 
-const customObjectsApi = (createNamespacedCustomObject: (input: WorkflowApiInput) => unknown) => ({
+const customObjectsApi = (
+  createNamespacedCustomObject: (input: WorkflowApiInput) => unknown
+) => ({
   createNamespacedCustomObject: async (input: WorkflowApiInput) =>
     await Promise.resolve(createNamespacedCustomObject(input)),
 });
@@ -186,7 +192,7 @@ describe("submitRunnerArgoWorkflow", () => {
             },
           };
         }),
-      },
+      }
     );
 
     expect(createdConfigMaps).toHaveLength(3);
@@ -208,7 +214,7 @@ describe("submitRunnerArgoWorkflow", () => {
           }),
           kind: "ConfigMap",
         }),
-      ]),
+      ])
     );
     expect(createdWorkflows[0]).toMatchObject({
       apiVersion: "argoproj.io/v1alpha1",
@@ -253,7 +259,9 @@ describe("submitRunnerArgoWorkflow", () => {
       namespace,
       payloadConfigMapName: expect.stringMatching(PAYLOAD_CONFIG_MAP_RE),
       scheduleConfigMapName: expect.stringMatching(SCHEDULE_CONFIG_MAP_RE),
-      taskDescriptorConfigMapName: expect.stringMatching(TASK_DESCRIPTOR_CONFIG_MAP_RE),
+      taskDescriptorConfigMapName: expect.stringMatching(
+        TASK_DESCRIPTOR_CONFIG_MAP_RE
+      ),
       workflowName: "pipeline-run-abcde",
       workflowUid: "workflow-uid-1",
     });
@@ -298,12 +306,16 @@ describe("submitRunnerArgoWorkflow", () => {
             uid: WORKFLOW_OWNER_REFERENCE.uid,
           },
         })),
-      },
+      }
     );
 
-    const createdNames = createdConfigMaps.map((configMap) => configMap.metadata?.name);
+    const createdNames = createdConfigMaps.map(
+      (configMap) => configMap.metadata?.name
+    );
     expect(patchedConfigMaps).toHaveLength(3);
-    expect(patchedConfigMaps.map((configMap) => configMap.name)).toEqual(expect.arrayContaining(createdNames));
+    expect(patchedConfigMaps.map((configMap) => configMap.name)).toEqual(
+      expect.arrayContaining(createdNames)
+    );
     expect(patchedConfigMaps).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -327,7 +339,7 @@ describe("submitRunnerArgoWorkflow", () => {
           name: expect.stringMatching(TASK_DESCRIPTOR_CONFIG_MAP_RE),
           namespace,
         }),
-      ]),
+      ])
     );
   });
 
@@ -368,7 +380,7 @@ describe("submitRunnerArgoWorkflow", () => {
             uid: WORKFLOW_OWNER_REFERENCE.uid,
           },
         })),
-      },
+      }
     );
 
     expect(patchedConfigMaps).toHaveLength(1);
@@ -386,7 +398,9 @@ describe("submitRunnerArgoWorkflow", () => {
       "ownerReference patching fails after Workflow creation",
     async () => {
       const deletedConfigMaps: DeleteConfigMapRequest[] = [];
-      const stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+      const stderrSpy = vi
+        .spyOn(process.stderr, "write")
+        .mockImplementation(() => true);
 
       try {
         const result = await submitRunnerArgoWorkflow(
@@ -417,26 +431,32 @@ describe("submitRunnerArgoWorkflow", () => {
                 uid: WORKFLOW_OWNER_REFERENCE.uid,
               },
             })),
-          },
+          }
         );
 
         expect(result).toEqual({
           namespace,
           payloadConfigMapName: expect.stringMatching(PAYLOAD_CONFIG_MAP_RE),
           scheduleConfigMapName: expect.stringMatching(SCHEDULE_CONFIG_MAP_RE),
-          taskDescriptorConfigMapName: expect.stringMatching(TASK_DESCRIPTOR_CONFIG_MAP_RE),
+          taskDescriptorConfigMapName: expect.stringMatching(
+            TASK_DESCRIPTOR_CONFIG_MAP_RE
+          ),
           workflowName: WORKFLOW_OWNER_REFERENCE.name,
           workflowUid: WORKFLOW_OWNER_REFERENCE.uid,
         });
         expect(deletedConfigMaps).toEqual([]);
         expect(stderrSpy).toHaveBeenCalledWith(
-          expect.stringContaining("moka submit: failed to set Workflow ownerReference"),
+          expect.stringContaining(
+            "moka submit: failed to set Workflow ownerReference"
+          )
         );
-        expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining("patch failed"));
+        expect(stderrSpy).toHaveBeenCalledWith(
+          expect.stringContaining("patch failed")
+        );
       } finally {
         stderrSpy.mockRestore();
       }
-    },
+    }
   );
 
   it("deletes created ConfigMaps when Workflow creation fails before Workflow exists", async () => {
@@ -476,8 +496,8 @@ describe("submitRunnerArgoWorkflow", () => {
           workflowApi: customObjectsApi(() => {
             throw new Error("workflow create failed");
           }),
-        },
-      ),
+        }
+      )
     ).rejects.toThrow("workflow create failed");
 
     expect(patchedConfigMaps).toEqual([]);
@@ -495,14 +515,16 @@ describe("submitRunnerArgoWorkflow", () => {
           name: expect.stringMatching(TASK_DESCRIPTOR_CONFIG_MAP_RE),
           namespace,
         }),
-      ]),
+      ])
     );
   });
 
   it("returns submitted Workflow result and skips ownership when Workflow response has no uid", async () => {
     const deletedConfigMaps: DeleteConfigMapRequest[] = [];
     const patchedConfigMaps: PatchConfigMapRequest[] = [];
-    const stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    const stderrSpy = vi
+      .spyOn(process.stderr, "write")
+      .mockImplementation(() => true);
 
     try {
       const result = await submitDynamicRunnerArgoWorkflow(
@@ -539,7 +561,7 @@ describe("submitRunnerArgoWorkflow", () => {
               name: WORKFLOW_OWNER_REFERENCE.name,
             },
           })),
-        },
+        }
       );
 
       expect(result).toEqual({
@@ -549,7 +571,9 @@ describe("submitRunnerArgoWorkflow", () => {
       });
       expect(deletedConfigMaps).toEqual([]);
       expect(patchedConfigMaps).toEqual([]);
-      expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining("did not include metadata.uid"));
+      expect(stderrSpy).toHaveBeenCalledWith(
+        expect.stringContaining("did not include metadata.uid")
+      );
     } finally {
       stderrSpy.mockRestore();
     }
@@ -595,11 +619,12 @@ describe("submitRunnerArgoWorkflow", () => {
             uid: "workflow-normalized-uid",
           },
         })),
-      },
+      }
     );
 
     const payloadConfigMap = createdConfigMaps.find(
-      (configMap) => configMap.metadata?.name?.startsWith("pipeline-payload-") === true,
+      (configMap) =>
+        configMap.metadata?.name?.startsWith("pipeline-payload-") === true
     );
     const payloadJson = payloadConfigMap?.data?.["payload.json"];
     expect(payloadJson).toBeDefined();
@@ -607,7 +632,9 @@ describe("submitRunnerArgoWorkflow", () => {
       throw new Error("Expected payload ConfigMap to include payload.json");
     }
     const persistedPayload = JSON.parse(payloadJson);
-    expect(persistedPayload.repository.url).toBe("https://github.com/oisin-ee/rondo.git");
+    expect(persistedPayload.repository.url).toBe(
+      "https://github.com/oisin-ee/rondo.git"
+    );
   });
 
   it("threads caller-supplied Workflow retention, deadline, and pod GC into static submissions", async () => {
@@ -638,7 +665,9 @@ describe("submitRunnerArgoWorkflow", () => {
           },
         }),
         workflowApi: customObjectsApi((input) => {
-          createdWorkflows.push(parseWithSchema(runnerArgoWorkflowManifestSchema, input.body));
+          createdWorkflows.push(
+            parseWithSchema(runnerArgoWorkflowManifestSchema, input.body)
+          );
           return {
             metadata: {
               name: "pipeline-run-lifecycle",
@@ -646,7 +675,7 @@ describe("submitRunnerArgoWorkflow", () => {
             },
           };
         }),
-      },
+      }
     );
 
     expect(createdWorkflows).toHaveLength(1);
@@ -691,7 +720,9 @@ describe("submitRunnerArgoWorkflow", () => {
           },
         }),
         workflowApi: customObjectsApi((input) => {
-          createdWorkflows.push(parseWithSchema(runnerArgoWorkflowManifestSchema, input.body));
+          createdWorkflows.push(
+            parseWithSchema(runnerArgoWorkflowManifestSchema, input.body)
+          );
           return {
             metadata: {
               name: "pipeline-run-dynamic-lifecycle",
@@ -699,7 +730,7 @@ describe("submitRunnerArgoWorkflow", () => {
             },
           };
         }),
-      },
+      }
     );
 
     expect(createdWorkflows).toHaveLength(1);
@@ -735,7 +766,9 @@ describe("submitRunnerArgoWorkflow", () => {
           },
         }),
         workflowApi: customObjectsApi((input) => {
-          createdWorkflows.push(parseWithSchema(runnerArgoWorkflowManifestSchema, input.body));
+          createdWorkflows.push(
+            parseWithSchema(runnerArgoWorkflowManifestSchema, input.body)
+          );
           return {
             metadata: {
               name: "pipeline-run-no-lifecycle",
@@ -743,11 +776,13 @@ describe("submitRunnerArgoWorkflow", () => {
             },
           };
         }),
-      },
+      }
     );
 
     expect(createdWorkflows).toHaveLength(1);
-    expect(createdWorkflows[0].spec).not.toHaveProperty("activeDeadlineSeconds");
+    expect(createdWorkflows[0].spec).not.toHaveProperty(
+      "activeDeadlineSeconds"
+    );
     expect(createdWorkflows[0].spec).not.toHaveProperty("podGC");
     expect(createdWorkflows[0].spec).not.toHaveProperty("ttlStrategy");
   });
@@ -790,7 +825,7 @@ describe("submitRunnerArgoWorkflow", () => {
             },
           };
         }),
-      },
+      }
     );
 
     expect(createdWorkflows[0]).toMatchObject({
@@ -832,7 +867,9 @@ describe("submitRunnerArgoWorkflow", () => {
         }),
         workflowApi: customObjectsApi((input) => {
           // Parse through the manifest schema — type-safe, no casts.
-          createdWorkflows.push(parseWithSchema(runnerArgoWorkflowManifestSchema, input.body));
+          createdWorkflows.push(
+            parseWithSchema(runnerArgoWorkflowManifestSchema, input.body)
+          );
           return {
             metadata: {
               name: "pipeline-run-dbauth",
@@ -840,11 +877,13 @@ describe("submitRunnerArgoWorkflow", () => {
             },
           };
         }),
-      },
+      }
     );
 
     expect(createdWorkflows).toHaveLength(1);
-    const containerTemplates = createdWorkflows[0].spec.templates.filter((t) => t.container !== undefined);
+    const containerTemplates = createdWorkflows[0].spec.templates.filter(
+      (t) => t.container !== undefined
+    );
     expect(containerTemplates.length).toBeGreaterThan(0);
     for (const template of containerTemplates) {
       expect(template.container?.env).toContainEqual({
@@ -873,7 +912,9 @@ describe("submitRunnerArgoWorkflow", () => {
           },
         }),
         workflowApi: customObjectsApi((input) => {
-          createdWorkflows.push(parseWithSchema(runnerArgoWorkflowManifestSchema, input.body));
+          createdWorkflows.push(
+            parseWithSchema(runnerArgoWorkflowManifestSchema, input.body)
+          );
           return {
             metadata: {
               name: "pipeline-run-no-dbauth",
@@ -881,13 +922,15 @@ describe("submitRunnerArgoWorkflow", () => {
             },
           };
         }),
-      },
+      }
     );
 
     expect(createdWorkflows).toHaveLength(1);
     for (const template of createdWorkflows[0].spec.templates) {
       const env = template.container?.env ?? [];
-      expect(env).not.toContainEqual(expect.objectContaining({ name: "MOKA_DB_URL" }));
+      expect(env).not.toContainEqual(
+        expect.objectContaining({ name: "MOKA_DB_URL" })
+      );
     }
   });
 
@@ -914,7 +957,9 @@ describe("submitRunnerArgoWorkflow", () => {
           },
         }),
         workflowApi: customObjectsApi((input) => {
-          createdWorkflows.push(parseWithSchema(runnerArgoWorkflowManifestSchema, input.body));
+          createdWorkflows.push(
+            parseWithSchema(runnerArgoWorkflowManifestSchema, input.body)
+          );
           return {
             metadata: {
               name: "pipeline-run-mcpgateway",
@@ -922,11 +967,13 @@ describe("submitRunnerArgoWorkflow", () => {
             },
           };
         }),
-      },
+      }
     );
 
     expect(createdWorkflows).toHaveLength(1);
-    const containerTemplates = createdWorkflows[0].spec.templates.filter((t) => t.container !== undefined);
+    const containerTemplates = createdWorkflows[0].spec.templates.filter(
+      (t) => t.container !== undefined
+    );
     expect(containerTemplates.length).toBeGreaterThan(0);
     for (const template of containerTemplates) {
       expect(template.container?.env).toContainEqual({
@@ -960,7 +1007,9 @@ describe("submitRunnerArgoWorkflow", () => {
           },
         }),
         workflowApi: customObjectsApi((input) => {
-          createdWorkflows.push(parseWithSchema(runnerArgoWorkflowManifestSchema, input.body));
+          createdWorkflows.push(
+            parseWithSchema(runnerArgoWorkflowManifestSchema, input.body)
+          );
           return {
             metadata: {
               name: "pipeline-run-no-mcpgateway",
@@ -968,13 +1017,15 @@ describe("submitRunnerArgoWorkflow", () => {
             },
           };
         }),
-      },
+      }
     );
 
     expect(createdWorkflows).toHaveLength(1);
     for (const template of createdWorkflows[0].spec.templates) {
       const env = template.container?.env ?? [];
-      expect(env).not.toContainEqual(expect.objectContaining({ name: "PIPELINE_MCP_GATEWAY_AUTHORIZATION" }));
+      expect(env).not.toContainEqual(
+        expect.objectContaining({ name: "PIPELINE_MCP_GATEWAY_AUTHORIZATION" })
+      );
     }
   });
 
@@ -1001,7 +1052,9 @@ describe("submitRunnerArgoWorkflow", () => {
           },
         }),
         workflowApi: customObjectsApi((input) => {
-          createdWorkflows.push(parseWithSchema(runnerArgoWorkflowManifestSchema, input.body));
+          createdWorkflows.push(
+            parseWithSchema(runnerArgoWorkflowManifestSchema, input.body)
+          );
           return {
             metadata: {
               name: "pipeline-run-dynamic-mcpgateway",
@@ -1009,11 +1062,13 @@ describe("submitRunnerArgoWorkflow", () => {
             },
           };
         }),
-      },
+      }
     );
 
     expect(createdWorkflows).toHaveLength(1);
-    const containerTemplates = createdWorkflows[0].spec.templates.filter((t) => t.container !== undefined);
+    const containerTemplates = createdWorkflows[0].spec.templates.filter(
+      (t) => t.container !== undefined
+    );
     expect(containerTemplates.length).toBeGreaterThan(0);
     for (const template of containerTemplates) {
       expect(template.container?.env).toContainEqual({
@@ -1048,7 +1103,9 @@ describe("submitRunnerArgoWorkflow", () => {
           },
         }),
         workflowApi: customObjectsApi((input) => {
-          createdWorkflows.push(parseWithSchema(runnerArgoWorkflowManifestSchema, input.body));
+          createdWorkflows.push(
+            parseWithSchema(runnerArgoWorkflowManifestSchema, input.body)
+          );
           return {
             metadata: {
               name: "pipeline-run-npm-registry",
@@ -1056,7 +1113,7 @@ describe("submitRunnerArgoWorkflow", () => {
             },
           };
         }),
-      },
+      }
     );
 
     expect(createdWorkflows).toHaveLength(1);
@@ -1064,12 +1121,16 @@ describe("submitRunnerArgoWorkflow", () => {
       expect.objectContaining({
         name: "npm-registry-auth",
         secret: expect.objectContaining({ secretName: "npm-registry-auth" }),
-      }),
+      })
     );
-    const containerTemplates = createdWorkflows[0].spec.templates.filter((t) => t.container !== undefined);
+    const containerTemplates = createdWorkflows[0].spec.templates.filter(
+      (t) => t.container !== undefined
+    );
     expect(containerTemplates.length).toBeGreaterThan(0);
     for (const template of containerTemplates) {
-      expect(template.container?.volumeMounts).toContainEqual(expect.objectContaining({ mountPath: "/root/.npmrc" }));
+      expect(template.container?.volumeMounts).toContainEqual(
+        expect.objectContaining({ mountPath: "/root/.npmrc" })
+      );
     }
   });
 
@@ -1093,7 +1154,9 @@ describe("submitRunnerArgoWorkflow", () => {
           },
         }),
         workflowApi: customObjectsApi((input) => {
-          createdWorkflows.push(parseWithSchema(runnerArgoWorkflowManifestSchema, input.body));
+          createdWorkflows.push(
+            parseWithSchema(runnerArgoWorkflowManifestSchema, input.body)
+          );
           return {
             metadata: {
               name: "pipeline-run-dynamic-npm-registry",
@@ -1101,7 +1164,7 @@ describe("submitRunnerArgoWorkflow", () => {
             },
           };
         }),
-      },
+      }
     );
 
     expect(createdWorkflows).toHaveLength(1);
@@ -1109,12 +1172,16 @@ describe("submitRunnerArgoWorkflow", () => {
       expect.objectContaining({
         name: "npm-registry-auth",
         secret: expect.objectContaining({ secretName: "npm-registry-auth" }),
-      }),
+      })
     );
-    const containerTemplates = createdWorkflows[0].spec.templates.filter((t) => t.container !== undefined);
+    const containerTemplates = createdWorkflows[0].spec.templates.filter(
+      (t) => t.container !== undefined
+    );
     expect(containerTemplates.length).toBeGreaterThan(0);
     for (const template of containerTemplates) {
-      expect(template.container?.volumeMounts).toContainEqual(expect.objectContaining({ mountPath: "/root/.npmrc" }));
+      expect(template.container?.volumeMounts).toContainEqual(
+        expect.objectContaining({ mountPath: "/root/.npmrc" })
+      );
     }
   });
 
@@ -1125,7 +1192,7 @@ describe("submitRunnerArgoWorkflow", () => {
         generatedAt: new Date("2026-06-10T01:02:03.000Z"),
         scheduleId: "custom-quick",
         task: "moka submit --quick ship it",
-      }),
+      })
     );
 
     expect(schedule).toMatchObject({
@@ -1154,7 +1221,7 @@ describe("submitRunnerArgoWorkflow", () => {
         command: ["echo", "hi"],
         scheduleId: "custom-no-pr",
         task: "echo hi",
-      }),
+      })
     );
 
     const { nodes } = schedule.workflows.root;
@@ -1169,12 +1236,14 @@ describe("submitRunnerArgoWorkflow", () => {
         deliverPullRequest: true,
         scheduleId: "custom-with-pr",
         task: "echo hi",
-      }),
+      })
     );
 
     const { nodes } = schedule.workflows.root;
     expect(nodes).toHaveLength(2);
-    const prNode = nodes.find((n) => n.kind === "builtin" && n.builtin === "open-pull-request");
+    const prNode = nodes.find(
+      (n) => n.kind === "builtin" && n.builtin === "open-pull-request"
+    );
     expect(prNode).toBeDefined();
     expect(prNode?.needs).toEqual(["command"]);
   });
@@ -1289,11 +1358,11 @@ workflows:
             uid: "workflow-moka-full-agent-uid",
           },
         })),
-      },
+      }
     );
 
     const descriptorConfigMap = createdConfigMaps.find((cm) =>
-      Object.keys(cm.data ?? {}).some((key) => key.startsWith("node-")),
+      Object.keys(cm.data ?? {}).some((key) => key.startsWith("node-"))
     );
     expect(descriptorConfigMap?.data).toMatchObject({
       "node-impl.json": '{"nodeId":"impl"}\n',

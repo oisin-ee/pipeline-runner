@@ -48,7 +48,9 @@ runners:
   });
 };
 
-const artifactWithNodes = (nodes: ScheduleArtifact["workflows"]["root"]["nodes"]): ScheduleArtifact => ({
+const artifactWithNodes = (
+  nodes: ScheduleArtifact["workflows"]["root"]["nodes"]
+): ScheduleArtifact => ({
   generated_at: "2026-06-18T00:00:00.000Z",
   kind: "pipeline-schedule",
   root_workflow: "root",
@@ -73,7 +75,7 @@ describe("appendPullRequestDelivery pass", () => {
       shouldAppendPullRequestDelivery({
         config,
         requested: true,
-      }),
+      })
     ).toBe(true);
   });
 
@@ -81,36 +83,46 @@ describe("appendPullRequestDelivery pass", () => {
     expect(
       shouldAppendPullRequestDelivery({
         config: baseConfig(true),
-      }),
+      })
     ).toBe(true);
     expect(
       shouldAppendPullRequestDelivery({
         config: baseConfig(true),
         requested: false,
-      }),
+      })
     ).toBe(true);
     expect(
       shouldAppendPullRequestDelivery({
         config: baseConfig(false),
         requested: false,
-      }),
+      })
     ).toBe(false);
   });
 
   it("returns artifact unchanged when delivery is disabled (default)", () => {
     const config = baseConfig(false);
-    const artifact = artifactWithNodes([{ id: "impl", kind: "agent", profile: "a" }]);
+    const artifact = artifactWithNodes([
+      { id: "impl", kind: "agent", profile: "a" },
+    ]);
 
-    const result = appendPullRequestDelivery(isPullRequestDeliveryEnabled(config), artifact);
+    const result = appendPullRequestDelivery(
+      isPullRequestDeliveryEnabled(config),
+      artifact
+    );
 
     expect(result).toBe(artifact);
   });
 
   it("returns artifact unchanged when delivery config is absent", () => {
     const config = baseConfig();
-    const artifact = artifactWithNodes([{ id: "impl", kind: "agent", profile: "a" }]);
+    const artifact = artifactWithNodes([
+      { id: "impl", kind: "agent", profile: "a" },
+    ]);
 
-    const result = appendPullRequestDelivery(isPullRequestDeliveryEnabled(config), artifact);
+    const result = appendPullRequestDelivery(
+      isPullRequestDeliveryEnabled(config),
+      artifact
+    );
 
     expect(result).toBe(artifact);
   });
@@ -123,10 +135,15 @@ describe("appendPullRequestDelivery pass", () => {
       { id: "verify", kind: "agent", needs: ["implement"], profile: "a" },
     ]);
 
-    const result = appendPullRequestDelivery(isPullRequestDeliveryEnabled(config), artifact);
+    const result = appendPullRequestDelivery(
+      isPullRequestDeliveryEnabled(config),
+      artifact
+    );
 
     const rootNodes = result.workflows[result.root_workflow].nodes;
-    const prNodes = rootNodes.filter((n) => n.kind === "builtin" && n.builtin === "open-pull-request");
+    const prNodes = rootNodes.filter(
+      (n) => n.kind === "builtin" && n.builtin === "open-pull-request"
+    );
     expect(prNodes).toHaveLength(1);
     expect(prNodes[0].needs).toEqual(["verify"]);
   });
@@ -138,23 +155,38 @@ describe("appendPullRequestDelivery pass", () => {
       { id: "branch-b", kind: "agent", profile: "a" },
     ]);
 
-    const result = appendPullRequestDelivery(isPullRequestDeliveryEnabled(config), artifact);
+    const result = appendPullRequestDelivery(
+      isPullRequestDeliveryEnabled(config),
+      artifact
+    );
 
     const rootNodes = result.workflows[result.root_workflow].nodes;
-    const prNode = rootNodes.find((n) => n.kind === "builtin" && n.builtin === "open-pull-request");
+    const prNode = rootNodes.find(
+      (n) => n.kind === "builtin" && n.builtin === "open-pull-request"
+    );
     expect(prNode).toBeDefined();
     expect(prNode?.needs?.toSorted()).toEqual(["branch-a", "branch-b"]);
   });
 
   it("is idempotent — running twice produces no duplicate PR node", () => {
     const config = baseConfig(true);
-    const artifact = artifactWithNodes([{ id: "impl", kind: "agent", profile: "a" }]);
+    const artifact = artifactWithNodes([
+      { id: "impl", kind: "agent", profile: "a" },
+    ]);
 
-    const once = appendPullRequestDelivery(isPullRequestDeliveryEnabled(config), artifact);
-    const twice = appendPullRequestDelivery(isPullRequestDeliveryEnabled(config), once);
+    const once = appendPullRequestDelivery(
+      isPullRequestDeliveryEnabled(config),
+      artifact
+    );
+    const twice = appendPullRequestDelivery(
+      isPullRequestDeliveryEnabled(config),
+      once
+    );
 
     const rootNodes = twice.workflows[twice.root_workflow].nodes;
-    const prNodes = rootNodes.filter((n) => n.kind === "builtin" && n.builtin === "open-pull-request");
+    const prNodes = rootNodes.filter(
+      (n) => n.kind === "builtin" && n.builtin === "open-pull-request"
+    );
     expect(prNodes).toHaveLength(1);
   });
 
@@ -170,10 +202,15 @@ describe("appendPullRequestDelivery pass", () => {
       },
     ]);
 
-    const result = appendPullRequestDelivery(isPullRequestDeliveryEnabled(config), artifact);
+    const result = appendPullRequestDelivery(
+      isPullRequestDeliveryEnabled(config),
+      artifact
+    );
 
     const rootNodes = result.workflows[result.root_workflow].nodes;
-    const prNodes = rootNodes.filter((n) => n.kind === "builtin" && n.builtin === "open-pull-request");
+    const prNodes = rootNodes.filter(
+      (n) => n.kind === "builtin" && n.builtin === "open-pull-request"
+    );
     expect(prNodes).toHaveLength(1);
   });
 
@@ -181,18 +218,26 @@ describe("appendPullRequestDelivery pass", () => {
     const config = baseConfig(true);
     const artifact = artifactWithNodes([]);
 
-    const result = appendPullRequestDelivery(isPullRequestDeliveryEnabled(config), artifact);
+    const result = appendPullRequestDelivery(
+      isPullRequestDeliveryEnabled(config),
+      artifact
+    );
 
     expect(result).toBe(artifact);
   });
 
   it("returns a new immutable artifact (does not mutate input)", () => {
     const config = baseConfig(true);
-    const artifact = artifactWithNodes([{ id: "impl", kind: "agent", profile: "a" }]);
-    const originalNodeCount = artifact.workflows[artifact.root_workflow].nodes.length;
+    const artifact = artifactWithNodes([
+      { id: "impl", kind: "agent", profile: "a" },
+    ]);
+    const originalNodeCount =
+      artifact.workflows[artifact.root_workflow].nodes.length;
 
     appendPullRequestDelivery(isPullRequestDeliveryEnabled(config), artifact);
 
-    expect(artifact.workflows[artifact.root_workflow].nodes).toHaveLength(originalNodeCount);
+    expect(artifact.workflows[artifact.root_workflow].nodes).toHaveLength(
+      originalNodeCount
+    );
   });
 });

@@ -1,7 +1,12 @@
 import * as Option from "effect/Option";
 import { describe, expect, it } from "vitest";
 
-import { handoffFinalizerPrompt, parseHandoff, renderHandoff, synthesizeMinimalHandoff } from "./handoff";
+import {
+  handoffFinalizerPrompt,
+  parseHandoff,
+  renderHandoff,
+  synthesizeMinimalHandoff,
+} from "./handoff";
 
 describe("parseHandoff", () => {
   it("defaults arrays when only a summary is provided", () => {

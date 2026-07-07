@@ -3,7 +3,11 @@ import { randomBytes } from "node:crypto";
 import { Effect } from "effect";
 
 import { loadMokaDbUrl } from "../../moka-global-config";
-import type { MokaSubmitOutput, ParsedMokaSubmitOptions, ParsedMokaWithRun } from "../../moka-submit";
+import type {
+  MokaSubmitOutput,
+  ParsedMokaSubmitOptions,
+  ParsedMokaWithRun,
+} from "../../moka-submit";
 import { resolveRunControlStore } from "../../run-control/run-control-store";
 import type { RunControlStore } from "../../run-control/run-control-store";
 import { buildRemoteRunCreateRequest } from "../../run-control/run-record";
@@ -11,11 +15,15 @@ import { preScheduleNodeIds } from "../../runner-command/pre-schedule";
 import { submitCompiledMokaWorkflow } from "./argo-submission";
 import type { MokaWorkflowSubmit } from "./argo-submission";
 import { compileMokaSubmitPlan } from "./compilation";
-import type { CompiledMokaSubmitPlan, MokaSubmitCompilationDependencies } from "./compilation";
+import type {
+  CompiledMokaSubmitPlan,
+  MokaSubmitCompilationDependencies,
+} from "./compilation";
 import { resolveSubmissionContext } from "./io";
 import type { MokaSubmitIoDependencies } from "./io";
 
-export interface SubmitMokaDependencies extends MokaSubmitCompilationDependencies, MokaSubmitIoDependencies {
+export interface SubmitMokaDependencies
+  extends MokaSubmitCompilationDependencies, MokaSubmitIoDependencies {
   generateRunId?: () => string;
   submitWorkflow?: MokaWorkflowSubmit;
   /**
@@ -28,15 +36,22 @@ export interface SubmitMokaDependencies extends MokaSubmitCompilationDependencie
    *
    * Tests inject this to spy on the createRun call or simulate outages.
    */
-  upsertRunRecord?: (plan: CompiledMokaSubmitPlan, worktreePath?: string) => Promise<void>;
+  upsertRunRecord?: (
+    plan: CompiledMokaSubmitPlan,
+    worktreePath?: string
+  ) => Promise<void>;
 }
 
 const upsertSubmittedRunRecord = (
   store: RunControlStore,
   plan: CompiledMokaSubmitPlan,
-  worktreePath?: string,
+  worktreePath?: string
 ): Effect.Effect<unknown, unknown> => {
-  if (plan.dynamicScheduling || plan.scheduleYaml === undefined || plan.scheduleYaml.length === 0) {
+  if (
+    plan.dynamicScheduling ||
+    plan.scheduleYaml === undefined ||
+    plan.scheduleYaml.length === 0
+  ) {
     return store.createRun({
       effort: "normal",
       mode: "write",
@@ -66,8 +81,8 @@ const upsertSubmittedRunRecord = (
           nodeIds: request.nodeIds,
           runId: request.runId,
           schedule: request.schedule ?? scheduleYaml,
-        }),
-      ),
+        })
+      )
     );
 };
 
@@ -85,11 +100,14 @@ const upsertSubmittedRunRecord = (
  * createRun again (idempotent upsert from PIPE-94.1) with the real node list
  * once the schedule is compiled inside the pod.
  */
-const defaultUpsertRunRecord = async (plan: CompiledMokaSubmitPlan, worktreePath?: string): Promise<void> => {
+const defaultUpsertRunRecord = async (
+  plan: CompiledMokaSubmitPlan,
+  worktreePath?: string
+): Promise<void> => {
   const dbUrl = loadMokaDbUrl();
   if (dbUrl === undefined) {
     process.stderr.write(
-      `moka submit: db.url not configured — run ${plan.runId} will appear in durable store when the runner pod initialises\n`,
+      `moka submit: db.url not configured — run ${plan.runId} will appear in durable store when the runner pod initialises\n`
     );
     return;
   }
@@ -97,13 +115,15 @@ const defaultUpsertRunRecord = async (plan: CompiledMokaSubmitPlan, worktreePath
     await Effect.runPromise(
       Effect.scoped(
         resolveRunControlStore(dbUrl, worktreePath ?? "").pipe(
-          Effect.flatMap((store) => upsertSubmittedRunRecord(store, plan, worktreePath)),
-        ),
-      ),
+          Effect.flatMap((store) =>
+            upsertSubmittedRunRecord(store, plan, worktreePath)
+          )
+        )
+      )
     );
   } catch (error) {
     process.stderr.write(
-      `moka submit: createRun failed (store may be unreachable) — submitting Argo workflow for run ${plan.runId} regardless: ${error instanceof Error ? error.message : String(error)}\n`,
+      `moka submit: createRun failed (store may be unreachable) — submitting Argo workflow for run ${plan.runId} regardless: ${error instanceof Error ? error.message : String(error)}\n`
     );
   }
 };
@@ -111,21 +131,24 @@ const defaultUpsertRunRecord = async (plan: CompiledMokaSubmitPlan, worktreePath
 const generateRunId = (dependencies: SubmitMokaDependencies): string =>
   dependencies.generateRunId?.() ?? `run-${randomBytes(8).toString("hex")}`;
 
-const submitRunId = (options: ParsedMokaWithRun, dependencies: SubmitMokaDependencies): string =>
-  options.run?.id ?? generateRunId(dependencies);
+const submitRunId = (
+  options: ParsedMokaWithRun,
+  dependencies: SubmitMokaDependencies
+): string => options.run?.id ?? generateRunId(dependencies);
 
 export const submitParsedMoka = async (
   options: ParsedMokaSubmitOptions,
-  dependencies: SubmitMokaDependencies = {},
+  dependencies: SubmitMokaDependencies = {}
 ): Promise<MokaSubmitOutput> => {
   const runId = submitRunId(options, dependencies);
   const context = await resolveSubmissionContext(options, dependencies, runId);
-  const plan = await compileMokaSubmitPlan({ dependencies, options, runId });
-  const upsertRunRecord = dependencies.upsertRunRecord ?? defaultUpsertRunRecord;
+  const plan = compileMokaSubmitPlan({ dependencies, options, runId });
+  const upsertRunRecord =
+    dependencies.upsertRunRecord ?? defaultUpsertRunRecord;
   // PIPE-94.4: guard — a failing upsert must never block Argo submission.
   await upsertRunRecord(plan, options.worktreePath).catch((error: unknown) => {
     process.stderr.write(
-      `moka submit: run record upsert threw unexpectedly — proceeding with Argo submission for run ${plan.runId}: ${error instanceof Error ? error.message : String(error)}\n`,
+      `moka submit: run record upsert threw unexpectedly — proceeding with Argo submission for run ${plan.runId}: ${error instanceof Error ? error.message : String(error)}\n`
     );
   });
   return await submitCompiledMokaWorkflow({

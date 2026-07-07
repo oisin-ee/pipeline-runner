@@ -4,11 +4,17 @@ import { isAbsolute, join } from "node:path";
 
 import { Effect } from "effect";
 
-import type { PipelineRuntimeEvent, PipelineRuntimeOptions } from "../pipeline-runtime";
+import type {
+  PipelineRuntimeEvent,
+  PipelineRuntimeOptions,
+} from "../pipeline-runtime";
 import { createSerializedWriteQueue } from "../serialized-write-queue";
 import type { RunControlStore } from "./run-control-store";
 import { withRunStateLock } from "./run-state-lock";
-import { createRuntimeEventProjectionState, projectRuntimeEvent } from "./runtime-event-projection";
+import {
+  createRuntimeEventProjectionState,
+  projectRuntimeEvent,
+} from "./runtime-event-projection";
 import type { RuntimeEventStoreWriteIntent } from "./runtime-event-projection";
 
 type RuntimeReporter = NonNullable<PipelineRuntimeOptions["reporter"]>;
@@ -38,10 +44,16 @@ const RUNTIME_EVENTS_FILE = "runtime-events.jsonl";
 const NODES_DIRECTORY = "nodes";
 const STDOUT_ARTIFACT = "stdout.jsonl";
 
-const writesFilesystemRunState = (store: RunControlStore, runId: string): boolean =>
+const writesFilesystemRunState = (
+  store: RunControlStore,
+  runId: string
+): boolean =>
   store.statusPaths({ runId }).manifest.startsWith(`${RUNS_DIRECTORY}/`);
 
-const appendJsonlEffect = (path: string, value: unknown): Effect.Effect<void, unknown> =>
+const appendJsonlEffect = (
+  path: string,
+  value: unknown
+): Effect.Effect<void, unknown> =>
   Effect.tryPromise({
     catch: (error) => error,
     try: async () => {
@@ -49,7 +61,10 @@ const appendJsonlEffect = (path: string, value: unknown): Effect.Effect<void, un
     },
   });
 
-const mkdirEffect = (path: string, options: Parameters<typeof mkdir>[1]): Effect.Effect<void, unknown> =>
+const mkdirEffect = (
+  path: string,
+  options: Parameters<typeof mkdir>[1]
+): Effect.Effect<void, unknown> =>
   Effect.tryPromise({
     catch: (error) => error,
     try: async () => await mkdir(path, options),
@@ -73,7 +88,10 @@ const logicalSegment = (label: string, value: string): string => {
 const runDirectory = (workspaceRoot: string, runId: string): string =>
   join(workspaceRoot, RUNS_DIRECTORY, logicalSegment("runId", runId));
 
-const runDirectoryEffect = (workspaceRoot: string, runId: string): Effect.Effect<string, unknown> =>
+const runDirectoryEffect = (
+  workspaceRoot: string,
+  runId: string
+): Effect.Effect<string, unknown> =>
   Effect.try({
     catch: (error) => error,
     try: () => runDirectory(workspaceRoot, runId),
@@ -81,7 +99,7 @@ const runDirectoryEffect = (workspaceRoot: string, runId: string): Effect.Effect
 
 const appendRuntimeEventEffect = (
   input: CreateRunStoreRuntimeReporterInput,
-  event: PipelineRuntimeEvent,
+  event: PipelineRuntimeEvent
 ): Effect.Effect<void, unknown> =>
   Effect.gen(function* effectBody() {
     const runRoot = yield* runDirectoryEffect(input.workspaceRoot, input.runId);
@@ -89,7 +107,10 @@ const appendRuntimeEventEffect = (
     yield* appendJsonlEffect(join(runRoot, RUNTIME_EVENTS_FILE), event);
   });
 
-const logicalSegmentEffect = (label: string, value: string): Effect.Effect<string, unknown> =>
+const logicalSegmentEffect = (
+  label: string,
+  value: string
+): Effect.Effect<string, unknown> =>
   Effect.try({
     catch: (error) => error,
     try: () => logicalSegment(label, value),
@@ -98,7 +119,7 @@ const logicalSegmentEffect = (label: string, value: string): Effect.Effect<strin
 const appendNodeStdoutEffect = (
   input: CreateRunStoreRuntimeReporterInput,
   nodeId: string,
-  event: Extract<PipelineRuntimeEvent, { type: "node.output.recorded" }>,
+  event: Extract<PipelineRuntimeEvent, { type: "node.output.recorded" }>
 ): Effect.Effect<void, unknown> =>
   Effect.gen(function* effectBody() {
     const runRoot = yield* runDirectoryEffect(input.workspaceRoot, input.runId);
@@ -118,7 +139,7 @@ const persistStoreWriteIntentEffect = (
   input: CreateRunStoreRuntimeReporterInput,
   store: RunControlStore,
   writeIntent: RuntimeEventStoreWriteIntent,
-  now: () => Date,
+  now: () => Date
 ): Effect.Effect<void, unknown> => {
   switch (writeIntent.type) {
     case "node.session": {
@@ -154,10 +175,13 @@ const persistRuntimeEventEffect = (
   store: RunControlStore,
   event: PipelineRuntimeEvent,
   writeIntents: RuntimeEventStoreWriteIntent[],
-  now: () => Date,
+  now: () => Date
 ): Effect.Effect<void, unknown> =>
   Effect.gen(function* effectBody() {
-    const writesFilesystemObservability = writesFilesystemRunState(store, input.runId);
+    const writesFilesystemObservability = writesFilesystemRunState(
+      store,
+      input.runId
+    );
 
     if (writesFilesystemObservability) {
       yield* appendRuntimeEventEffect(input, event);
@@ -167,26 +191,35 @@ const persistRuntimeEventEffect = (
       yield* persistStoreWriteIntentEffect(input, store, writeIntent, now);
     }
 
-    if (writesFilesystemObservability && event.type === "node.output.recorded") {
+    if (
+      writesFilesystemObservability &&
+      event.type === "node.output.recorded"
+    ) {
       yield* appendNodeStdoutEffect(input, event.nodeId, event);
     }
   });
 
-const errorMessage = (error: unknown): string => (error instanceof Error ? error.message : String(error));
+const errorMessage = (error: unknown): string =>
+  error instanceof Error ? error.message : String(error);
 
 const warnPersistSkipped = (
   input: CreateRunStoreRuntimeReporterInput,
   event: PipelineRuntimeEvent,
-  error: unknown,
+  error: unknown
 ): Effect.Effect<void> =>
   Effect.sync(() => {
-    const nodeId = "nodeId" in event && typeof event.nodeId === "string" ? ` node=${event.nodeId}` : "";
+    const nodeId =
+      "nodeId" in event && typeof event.nodeId === "string"
+        ? ` node=${event.nodeId}`
+        : "";
     process.stderr.write(
-      `run-control: skipped persisting ${event.type}${nodeId} for run ${input.runId}: ${errorMessage(error)}\n`,
+      `run-control: skipped persisting ${event.type}${nodeId} for run ${input.runId}: ${errorMessage(error)}\n`
     );
   });
 
-const createRunStoreRuntimeReporterRuntime = (input: CreateRunStoreRuntimeReporterInput): RunStoreRuntimeReporter => {
+const createRunStoreRuntimeReporterRuntime = (
+  input: CreateRunStoreRuntimeReporterInput
+): RunStoreRuntimeReporter => {
   const now = input.now ?? (() => new Date());
   const { store } = input;
   let projectionState = createRuntimeEventProjectionState();
@@ -200,8 +233,17 @@ const createRunStoreRuntimeReporterRuntime = (input: CreateRunStoreRuntimeReport
     // internal sub-invocation such as the `<node>:handoff` finalizer, which is
     // not a declared run node) is logged and skipped, not propagated into the
     // write chain that flush() rethrows.
-    const persisted = persistRuntimeEventEffect(input, store, event, projection.writes, now).pipe(
-      Effect.catch((error) => warnPersistSkipped(input, event, error)),
+    const persisted = persistRuntimeEventEffect(
+      input,
+      store,
+      event,
+      projection.writes,
+      now
+    ).pipe(
+      Effect.matchEffect({
+        onFailure: (error) => warnPersistSkipped(input, event, error),
+        onSuccess: () => Effect.void,
+      })
     );
     writes.enqueue(async () => {
       // Serialize against the builtin run-state hide window: persistence writes
@@ -235,8 +277,11 @@ const createRunStoreRuntimeReporterRuntime = (input: CreateRunStoreRuntimeReport
 };
 
 export const createRunStoreRuntimeReporterEffect = (
-  input: CreateRunStoreRuntimeReporterInput,
-): Effect.Effect<RunStoreRuntimeReporter> => Effect.sync(() => createRunStoreRuntimeReporterRuntime(input));
+  input: CreateRunStoreRuntimeReporterInput
+): Effect.Effect<RunStoreRuntimeReporter> =>
+  Effect.sync(() => createRunStoreRuntimeReporterRuntime(input));
 
-export const createRunStoreRuntimeReporter = (input: CreateRunStoreRuntimeReporterInput): RunStoreRuntimeReporter =>
+export const createRunStoreRuntimeReporter = (
+  input: CreateRunStoreRuntimeReporterInput
+): RunStoreRuntimeReporter =>
   Effect.runSync(createRunStoreRuntimeReporterEffect(input));

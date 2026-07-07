@@ -22,7 +22,9 @@ interface PipelineInitInstallerFlags {
   force: boolean;
 }
 
-const initInstallerFlags = (options: PipelineInitOptions): PipelineInitInstallerFlags => {
+const initInstallerFlags = (
+  options: PipelineInitOptions
+): PipelineInitInstallerFlags => {
   const { check, dryRun } = options;
   return {
     check,
@@ -42,7 +44,9 @@ const initInstallerFlags = (options: PipelineInitOptions): PipelineInitInstaller
  * host adapters here means the runner image (and local dev) still gets the
  * `/moka-*` entrypoints after `chezmoi apply` lays down the harness.
  */
-export const initPipelineProject = async (options: PipelineInitOptions = {}): Promise<PipelineInitResult> => {
+export const initPipelineProject = async (
+  options: PipelineInitOptions = {}
+): Promise<PipelineInitResult> => {
   const cwd = options.cwd ?? process.cwd();
   const installerFlags = initInstallerFlags(options);
   const result = await installCommands({ cwd, host: "all", ...installerFlags });
@@ -67,7 +71,9 @@ const INIT_RESULT_COPY = {
   },
 } as const;
 
-const initResultMode = (mode: PipelineInitFormatMode): keyof typeof INIT_RESULT_COPY => {
+const initResultMode = (
+  mode: PipelineInitFormatMode
+): keyof typeof INIT_RESULT_COPY => {
   if (mode.check === true) {
     return "check";
   }
@@ -77,7 +83,10 @@ const initResultMode = (mode: PipelineInitFormatMode): keyof typeof INIT_RESULT_
   return "install";
 };
 
-export const formatPipelineInitResult = (result: PipelineInitResult, mode: PipelineInitFormatMode = {}): string => {
+export const formatPipelineInitResult = (
+  result: PipelineInitResult,
+  mode: PipelineInitFormatMode = {}
+): string => {
   const copy = INIT_RESULT_COPY[initResultMode(mode)];
   return [
     copy.headline,

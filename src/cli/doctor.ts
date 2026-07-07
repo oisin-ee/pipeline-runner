@@ -4,7 +4,10 @@ import { join } from "node:path";
 import { execa } from "execa";
 import matter from "gray-matter";
 
-import { defaultClusterDoctorNamespace, runClusterDoctor } from "../cluster-doctor";
+import {
+  defaultClusterDoctorNamespace,
+  runClusterDoctor,
+} from "../cluster-doctor";
 import { loadPipelineConfig, PipelineConfigError } from "../config";
 import type { PipelineConfig } from "../config";
 import { loadMokaGlobalConfig } from "../moka-global-config";
@@ -12,7 +15,14 @@ import { opencodeAgentName } from "../runtime/opencode-agent-name";
 import { isRecord } from "../safe-json";
 
 const HEADLESS_AGENT_PERMISSION_VALUES = new Set(["ask"]);
-const RUN_READINESS_CATEGORIES = new Set(["acceptance", "green", "intake", "red", "research", "verification"]);
+const RUN_READINESS_CATEGORIES = new Set([
+  "acceptance",
+  "green",
+  "intake",
+  "red",
+  "research",
+  "verification",
+]);
 const OPENCODE_AGENT_LIST_ARGS = ["agent", "list", "--json"];
 const BULLET_PREFIX_RE = /^[-*]\s+/u;
 const LINE_RE = /\r?\n/u;
@@ -48,8 +58,13 @@ interface VisibleAgents {
   recognized: boolean;
 }
 
-const clusterNamespace = (value: boolean | string, configuredNamespace?: string): string =>
-  typeof value === "string" && value.length > 0 ? value : (configuredNamespace ?? defaultClusterDoctorNamespace());
+const clusterNamespace = (
+  value: boolean | string,
+  configuredNamespace?: string
+): string =>
+  typeof value === "string" && value.length > 0
+    ? value
+    : (configuredNamespace ?? defaultClusterDoctorNamespace());
 
 const checkPipelineConfig = (cwd: string): DoctorCheck => {
   try {
@@ -64,7 +79,7 @@ const checkPipelineConfig = (cwd: string): DoctorCheck => {
     if (error instanceof PipelineConfigError) {
       message = error.issues.map((issue) => issue.message).join("; ");
     } else if (error instanceof Error) {
-      message = error.message;
+      ({ message } = error);
     }
     return {
       detail: message || "missing or invalid",
@@ -102,7 +117,11 @@ const expectedRunAgentNames = (config: PipelineConfig): string[] => {
     .toSorted((a, b) => a.localeCompare(b));
 };
 
-const collectAgentNames = (value: unknown, names: Set<string>, inAgentList: boolean): boolean => {
+const collectAgentNames = (
+  value: unknown,
+  names: Set<string>,
+  inAgentList: boolean
+): boolean => {
   if (typeof value === "string") {
     if (inAgentList) {
       names.add(value);
@@ -155,22 +174,34 @@ const visibleAgentNames = (stdout: string): VisibleAgents => {
   return { ambiguous: true, names, recognized: names.size > 0 };
 };
 
-const interactivePermissionPaths = (value: unknown, path: string[] = ["permission"]): string[] => {
+const interactivePermissionPaths = (
+  value: unknown,
+  path: string[] = ["permission"]
+): string[] => {
   if (typeof value === "string") {
-    return HEADLESS_AGENT_PERMISSION_VALUES.has(value.toLowerCase()) ? [path.join(".")] : [];
+    return HEADLESS_AGENT_PERMISSION_VALUES.has(value.toLowerCase())
+      ? [path.join(".")]
+      : [];
   }
   if (Array.isArray(value)) {
-    return value.flatMap((item, index) => interactivePermissionPaths(item, [...path, String(index)]));
+    return value.flatMap((item, index) =>
+      interactivePermissionPaths(item, [...path, String(index)])
+    );
   }
   if (!isRecord(value)) {
     return [];
   }
-  return Object.entries(value).flatMap(([key, item]) => interactivePermissionPaths(item, [...path, key]));
+  return Object.entries(value).flatMap(([key, item]) =>
+    interactivePermissionPaths(item, [...path, key])
+  );
 };
 
 const isHeadless = (): boolean => {
   const ci = process.env.CI?.toLowerCase();
-  return (ci !== undefined && ci !== "" && ci !== "0" && ci !== "false") || !process.stdin.isTTY;
+  return (
+    (ci !== undefined && ci !== "" && ci !== "0" && ci !== "false") ||
+    !process.stdin.isTTY
+  );
 };
 
 const stringField = (value: unknown, field: string): string => {
@@ -183,9 +214,12 @@ const stringField = (value: unknown, field: string): string => {
 
 const commandErrorDetail = (err: unknown): string => {
   const detail =
-    [stringField(err, "shortMessage"), stringField(err, "stderr"), stringField(err, "message"), String(err)].find(
-      (candidate) => candidate.trim() !== "",
-    ) ?? "not available";
+    [
+      stringField(err, "shortMessage"),
+      stringField(err, "stderr"),
+      stringField(err, "message"),
+      String(err),
+    ].find((candidate) => candidate.trim() !== "") ?? "not available";
   return detail.trim();
 };
 
@@ -193,7 +227,7 @@ const checkCommandWithRunner = async (
   name: string,
   command: string,
   args: string[],
-  cwd: string,
+  cwd: string
 ): Promise<DoctorCheck> => {
   try {
     await execa(command, args, {
@@ -214,8 +248,11 @@ const checkCommandWithRunner = async (
   }
 };
 
-const checkCommand = async (name: string, args: string[], cwd: string): Promise<DoctorCheck> =>
-  await checkCommandWithRunner(name, name, args, cwd);
+const checkCommand = async (
+  name: string,
+  args: string[],
+  cwd: string
+): Promise<DoctorCheck> => await checkCommandWithRunner(name, name, args, cwd);
 
 const checkOpenCodeSdk = async (): Promise<DoctorCheck> => {
   try {
@@ -241,7 +278,10 @@ const checkOpenCodeSdk = async (): Promise<DoctorCheck> => {
   }
 };
 
-const checkMokaAgents = async (cwd: string, config: PipelineConfig): Promise<AgentVisibilityResult> => {
+const checkMokaAgents = async (
+  cwd: string,
+  config: PipelineConfig
+): Promise<AgentVisibilityResult> => {
   const expected = expectedRunAgentNames(config);
   if (expected.length === 0) {
     return {
@@ -260,10 +300,17 @@ const checkMokaAgents = async (cwd: string, config: PipelineConfig): Promise<Age
     });
     const visible = visibleAgentNames(result.stdout);
     if (!visible.recognized) {
-      return skippedAgentVisibility("OpenCode agent listing output was not recognized");
+      return skippedAgentVisibility(
+        "OpenCode agent listing output was not recognized"
+      );
     }
-    if (visible.ambiguous && expected.every((name) => !visible.names.has(name))) {
-      return skippedAgentVisibility("OpenCode agent listing output did not include recognizable MoKa agent names");
+    if (
+      visible.ambiguous &&
+      expected.every((name) => !visible.names.has(name))
+    ) {
+      return skippedAgentVisibility(
+        "OpenCode agent listing output did not include recognizable MoKa agent names"
+      );
     }
     const missing = expected.filter((name) => !visible.names.has(name));
     return {
@@ -280,11 +327,16 @@ const checkMokaAgents = async (cwd: string, config: PipelineConfig): Promise<Age
           },
     };
   } catch (error) {
-    return skippedAgentVisibility(`Could not cheaply list OpenCode agents: ${commandErrorDetail(error)}`);
+    return skippedAgentVisibility(
+      `Could not cheaply list OpenCode agents: ${commandErrorDetail(error)}`
+    );
   }
 };
 
-const headlessPermissionWarning = (path: string, entry: string): DoctorCheck[] => {
+const headlessPermissionWarning = (
+  path: string,
+  entry: string
+): DoctorCheck[] => {
   try {
     if (!statSync(path).isFile()) {
       return [];
@@ -322,10 +374,15 @@ const headlessPermissionWarnings = (cwd: string): DoctorCheck[] => {
   }
   return readdirSync(agentDir)
     .filter((entry) => entry.endsWith(".md"))
-    .flatMap((entry) => headlessPermissionWarning(join(agentDir, entry), entry));
+    .flatMap((entry) =>
+      headlessPermissionWarning(join(agentDir, entry), entry)
+    );
 };
 
-export const runDoctor = async (cwd: string, options: DoctorFlags = {}): Promise<DoctorResult> => {
+export const runDoctor = async (
+  cwd: string,
+  options: DoctorFlags = {}
+): Promise<DoctorResult> => {
   const commandChecks = await Promise.all([
     checkCommand("npx", ["--version"], cwd),
     checkCommand("opencode", ["--version"], cwd),
@@ -351,15 +408,29 @@ export const runDoctor = async (cwd: string, options: DoctorFlags = {}): Promise
       ? await runClusterDoctor({
           kubeContext: options.kubeContext,
           kubeconfigPath:
-            options.kubeconfig ?? (globalConfig === null ? undefined : globalConfig.momokaya.kubernetes.kubeconfig),
+            options.kubeconfig ??
+            (globalConfig === null
+              ? undefined
+              : globalConfig.momokaya.kubernetes.kubeconfig),
           namespace: clusterNamespace(
             options.cluster,
-            globalConfig === null ? undefined : globalConfig.momokaya.kubernetes.namespace,
+            globalConfig === null
+              ? undefined
+              : globalConfig.momokaya.kubernetes.namespace
           ),
         })
       : { checks: [] };
-  const checks = [...commandChecks, configCheck, sdkCheck, agentVisibility.check, ...clusterResult.checks];
-  const warnings = [...(agentVisibility.warning ? [agentVisibility.warning] : []), ...headlessPermissionWarnings(cwd)];
+  const checks = [
+    ...commandChecks,
+    configCheck,
+    sdkCheck,
+    agentVisibility.check,
+    ...clusterResult.checks,
+  ];
+  const warnings = [
+    ...(agentVisibility.warning ? [agentVisibility.warning] : []),
+    ...headlessPermissionWarnings(cwd),
+  ];
   const blockers = checks.filter((check) => !check.passed);
   return {
     blockers,

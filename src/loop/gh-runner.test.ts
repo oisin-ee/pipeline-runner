@@ -15,7 +15,7 @@ interface ExecCall {
 }
 
 const recordingExec = (
-  stdout: string,
+  stdout: string
 ): {
   exec: GhExec;
   calls: ExecCall[];
@@ -28,6 +28,10 @@ const recordingExec = (
   return { calls, exec };
 };
 
+const failingGhExec: GhExec = () => {
+  throw new Error("gh: not mergeable");
+};
+
 // ---------------------------------------------------------------------------
 // AC3 — text() routes secretEnv to the child ENV, never into argv.
 // ---------------------------------------------------------------------------
@@ -38,7 +42,9 @@ describe("createGhRunner — secretEnv channel", () => {
     const gh = createGhRunner({ exec });
 
     const args = ["pr", "merge", "1", "--admin", "--squash"];
-    await Effect.runPromise(gh.text(args, { secretEnv: { GH_TOKEN: "s3cr3t-admin-token" } }));
+    await Effect.runPromise(
+      gh.text(args, { secretEnv: { GH_TOKEN: "s3cr3t-admin-token" } })
+    );
 
     expect(calls).toHaveLength(1);
     const call = calls.at(0);
@@ -56,7 +62,9 @@ describe("createGhRunner — secretEnv channel", () => {
     const { exec, calls } = recordingExec("ok");
     const gh = createGhRunner({ exec });
 
-    await Effect.runPromise(gh.text(["pr", "merge", "2", "--auto", "--squash"]));
+    await Effect.runPromise(
+      gh.text(["pr", "merge", "2", "--auto", "--squash"])
+    );
 
     expect(calls[0]?.env).toBeUndefined();
   });
@@ -65,16 +73,15 @@ describe("createGhRunner — secretEnv channel", () => {
     const { exec } = recordingExec('[{"number":7,"headRefName":"moka/run/x"}]');
     const gh = createGhRunner({ exec });
 
-    const parsed = await Effect.runPromise(gh.json(["pr", "list", "--json", "number,headRefName"]));
+    const parsed = await Effect.runPromise(
+      gh.json(["pr", "list", "--json", "number,headRefName"])
+    );
 
     expect(parsed).toEqual([{ headRefName: "moka/run/x", number: 7 }]);
   });
 
   it("surfaces a gh failure as a typed Error (no silent swallow)", async () => {
-    const exec: GhExec = () => {
-      throw new Error("gh: not mergeable");
-    };
-    const gh = createGhRunner({ exec });
+    const gh = createGhRunner({ exec: failingGhExec });
 
     const exit = await Effect.runPromiseExit(gh.text(["pr", "merge", "3"]));
     expect(exit._tag).toBe("Failure");

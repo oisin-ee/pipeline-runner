@@ -1,6 +1,10 @@
 import { Option } from "effect";
 
-import type { AcceptanceCriterion, CompletionClaim, UnmetCriterion } from "../../contracts";
+import type {
+  AcceptanceCriterion,
+  CompletionClaim,
+  UnmetCriterion,
+} from "../../contracts";
 
 /**
  * The verdict an injected {@link LlmJudge} returns for one residual acceptance
@@ -48,18 +52,21 @@ const HONOR_POLICIES: readonly HonorPolicy[] = [
     reason: "llm-judge pass rejected: verdict cited no deterministic evidence",
   },
   {
-    failed: (verdict, anchored) => anchored.length < verdict.citedEvidence.length,
-    reason: "llm-judge pass rejected: cited evidence is not present in the deterministic evidence set",
+    failed: (verdict, anchored) =>
+      anchored.length < verdict.citedEvidence.length,
+    reason:
+      "llm-judge pass rejected: cited evidence is not present in the deterministic evidence set",
   },
 ];
 
-const TRIVIAL_REFUSAL = "trivial completion claim refused without consulting llm-judge: no non-blank claimed evidence";
+const TRIVIAL_REFUSAL =
+  "trivial completion claim refused without consulting llm-judge: no non-blank claimed evidence";
 
 const adjudicateCriterion = (
   criterion: AcceptanceCriterion,
   claimedEvidence: string[],
   deterministicEvidence: string[],
-  judge: LlmJudge,
+  judge: LlmJudge
 ): Option.Option<UnmetCriterion> => {
   const meaningful = claimedEvidence.filter((item) => item.trim().length > 0);
   if (meaningful.length === 0) {
@@ -74,20 +81,29 @@ const adjudicateCriterion = (
     criterion,
     deterministicEvidence,
   });
-  const anchored = verdict.citedEvidence.filter((item) => deterministicEvidence.includes(item));
-  const broken = HONOR_POLICIES.find((policy) => policy.failed(verdict, anchored));
+  const anchored = verdict.citedEvidence.filter((item) =>
+    deterministicEvidence.includes(item)
+  );
+  const broken = HONOR_POLICIES.find((policy) =>
+    policy.failed(verdict, anchored)
+  );
   if (broken === undefined) {
     return Option.none();
   }
   return Option.some({
     criterion: criterion.id,
-    evidence: verdict.citedEvidence.length > 0 ? verdict.citedEvidence : meaningful,
+    evidence:
+      verdict.citedEvidence.length > 0 ? verdict.citedEvidence : meaningful,
     reason: broken.reason,
   });
 };
 
-const claimedEvidenceFor = (criterion: AcceptanceCriterion, claim: CompletionClaim): string[] =>
-  claim.criteria.find((entry) => entry.criterion === criterion.id)?.evidence ?? [];
+const claimedEvidenceFor = (
+  criterion: AcceptanceCriterion,
+  claim: CompletionClaim
+): string[] =>
+  claim.criteria.find((entry) => entry.criterion === criterion.id)?.evidence ??
+  [];
 
 /**
  * Adjudicates the residual acceptance criteria — the un-encodable residue the
@@ -101,9 +117,14 @@ export const llmJudgeUnmet = (
   residue: readonly AcceptanceCriterion[],
   claim: CompletionClaim,
   deterministicEvidence: string[],
-  judge: LlmJudge,
+  judge: LlmJudge
 ): UnmetCriterion[] =>
   residue.flatMap((criterion) => {
-    const failure = adjudicateCriterion(criterion, claimedEvidenceFor(criterion, claim), deterministicEvidence, judge);
+    const failure = adjudicateCriterion(
+      criterion,
+      claimedEvidenceFor(criterion, claim),
+      deterministicEvidence,
+      judge
+    );
     return Option.isSome(failure) ? [failure.value] : [];
   });

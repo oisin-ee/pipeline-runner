@@ -2,7 +2,11 @@ import * as Option from "effect/Option";
 import { describe, expect, it } from "vitest";
 
 import type { PlannedWorkflowNode } from "../planning/compile";
-import type { ChangedFilesSnapshot, NodeExecutionState, RuntimeStructuredOutput } from "./contracts";
+import type {
+  ChangedFilesSnapshot,
+  NodeExecutionState,
+  RuntimeStructuredOutput,
+} from "./contracts";
 import { NodeStateStore } from "./node-state-store";
 
 const pendingState = (id: string): NodeExecutionState => ({
@@ -52,7 +56,9 @@ describe("NodeStateStore", () => {
       id: "a",
       status: "pending",
     });
-    expect(store.nodeSnapshots.get("a")?.files.has("src/example.ts")).toBe(true);
+    expect(store.nodeSnapshots.get("a")?.files.has("src/example.ts")).toBe(
+      true
+    );
     expect(store.lastOutputByNode.get("setup")).toBe("setup output");
     expect([...store.inheritedOutputNodeIds]).toEqual(["setup"]);
     expect(store.structuredOutputs).toEqual([structuredOutput]);
@@ -82,7 +88,10 @@ describe("NodeStateStore", () => {
       },
     });
 
-    const fork = parent.forkForParallelChildren([plannedNode("child-a", 0), plannedNode("child-b", 1)]);
+    const fork = parent.forkForParallelChildren([
+      plannedNode("child-a", 0),
+      plannedNode("child-b", 1),
+    ]);
 
     expect([...fork.inheritedOutputNodeIds]).toEqual(["setup"]);
     expect(fork.lastOutputByNode).not.toBe(parent.lastOutputByNode);
@@ -114,7 +123,9 @@ describe("NodeStateStore", () => {
       testNames: [],
     });
 
-    expect(Option.getOrUndefined(store.handoff("a"))?.summary).toBe("did a thing");
+    expect(Option.getOrUndefined(store.handoff("a"))?.summary).toBe(
+      "did a thing"
+    );
     expect(Option.getOrUndefined(store.handoff("missing"))).toBeUndefined();
   });
 

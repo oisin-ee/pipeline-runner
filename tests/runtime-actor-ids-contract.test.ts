@@ -43,7 +43,11 @@ describe("public runtime actor/retry contracts", () => {
       type: "runtime.retry.scheduled",
     };
     const emitted: RuntimeObservabilityEvent[] = [];
-    const emit: RuntimeObservabilityEmitter = (next: RuntimeObservabilityEvent) => emitted.push(next);
+    const emit: RuntimeObservabilityEmitter = (
+      next: RuntimeObservabilityEvent
+    ) => {
+      emitted.push(next);
+    };
 
     emit(event);
 
@@ -55,7 +59,7 @@ describe("public runtime actor/retry contracts", () => {
       runtimeActorId("workflow", {
         runId: "run-1",
         workflowId: "default",
-      }),
+      })
     ).toBe("pipeline.workflow.run-1.default");
 
     expect(
@@ -63,7 +67,7 @@ describe("public runtime actor/retry contracts", () => {
         nodeId: "verify",
         runId: "run-1",
         workflowId: "default",
-      }),
+      })
     ).toBe("pipeline.node.run-1.default.verify");
 
     expect(
@@ -72,7 +76,7 @@ describe("public runtime actor/retry contracts", () => {
         nodeId: "verify",
         runId: "run-1",
         workflowId: "default",
-      }),
+      })
     ).toBe("pipeline.gate.run-1.default.verify.review");
 
     expect(
@@ -81,7 +85,7 @@ describe("public runtime actor/retry contracts", () => {
         nodeId: "build",
         runId: "run-1",
         workflowId: "default",
-      }),
+      })
     ).toBe("pipeline.hook.run-1.default.build.post-check");
 
     expect(
@@ -89,7 +93,7 @@ describe("public runtime actor/retry contracts", () => {
         hookId: "on-start",
         runId: "run-1",
         workflowId: "default",
-      }),
+      })
     ).toBe("pipeline.hook.run-1.default.on-start");
   });
 });

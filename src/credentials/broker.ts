@@ -37,12 +37,17 @@ const brokerCredentialsOption = (env: NodeJS.ProcessEnv) => {
   if (apiKey === undefined || apiKey === "") {
     return Option.none<BrokerCredentials>();
   }
-  const baseUrl = (env[BROKER_URL_ENV] ?? DEFAULT_BROKER_URL).replace(TRAILING_SLASH_RE, "");
+  const baseUrl = (env[BROKER_URL_ENV] ?? DEFAULT_BROKER_URL).replace(
+    TRAILING_SLASH_RE,
+    ""
+  );
   return Option.some({ apiKey, baseUrl });
 };
 
-export const resolveBrokerCredentials = (env: NodeJS.ProcessEnv = process.env) =>
-  Option.getOrUndefined(brokerCredentialsOption(env));
+export const resolveBrokerCredentials = (
+  env: NodeJS.ProcessEnv = process.env
+) => Option.getOrUndefined(brokerCredentialsOption(env));
 
 /** The broker's OpenAI-compatible endpoint (`<baseUrl>/v1`). */
-export const brokerV1Url = (credentials: BrokerCredentials): string => `${credentials.baseUrl}/v1`;
+export const brokerV1Url = (credentials: BrokerCredentials): string =>
+  `${credentials.baseUrl}/v1`;

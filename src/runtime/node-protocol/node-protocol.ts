@@ -55,21 +55,25 @@ export const submitResultSchema = submitResultBaseSchema.check(
             path: ["result", "nodeId"],
           },
     {
-      description: "Submitted runtime result must belong to the submitted node.",
+      description:
+        "Submitted runtime result must belong to the submitted node.",
       identifier: "SubmitResultNodeIdConsistency",
       title: "Submit result node id consistency",
-    },
-  ),
+    }
+  )
 );
 
 export type SubmitResult = typeof submitResultSchema.Type;
 
-const nextNodeEnvelopeTypeGuard: { readonly Type: NextNodeEnvelope } = nextNodeEnvelopeSchema;
-const submitResultTypeGuard: { readonly Type: SubmitResult } = submitResultSchema;
+const nextNodeEnvelopeTypeGuard: { readonly Type: NextNodeEnvelope } =
+  nextNodeEnvelopeSchema;
+const submitResultTypeGuard: { readonly Type: SubmitResult } =
+  submitResultSchema;
 const acceptanceCriterionTypeGuard: {
   readonly Type: Readonly<AcceptanceCriterion>;
 } = acceptanceCriterionSchema;
-const runtimeNodeResultTypeGuard: { readonly Type: RuntimeNodeResult } = runtimeNodeResultSchema;
+const runtimeNodeResultTypeGuard: { readonly Type: RuntimeNodeResult } =
+  runtimeNodeResultSchema;
 
 void nextNodeEnvelopeTypeGuard;
 void submitResultTypeGuard;
@@ -79,11 +83,16 @@ void runtimeNodeResultTypeGuard;
 const freezeNextNodeEnvelope = (envelope: NextNodeEnvelope): NextNodeEnvelope =>
   Object.freeze({
     ...envelope,
-    criteria: Object.freeze(envelope.criteria.map((criterion) => Object.freeze({ ...criterion }))),
-    upstreamOutputs: Object.freeze(envelope.upstreamOutputs.map((output) => Object.freeze({ ...output }))),
+    criteria: Object.freeze(
+      envelope.criteria.map((criterion) => Object.freeze({ ...criterion }))
+    ),
+    upstreamOutputs: Object.freeze(
+      envelope.upstreamOutputs.map((output) => Object.freeze({ ...output }))
+    ),
   });
 
 export const parseNextNodeEnvelope = (value: unknown): NextNodeEnvelope =>
   freezeNextNodeEnvelope(parseStrictWithSchema(nextNodeEnvelopeSchema, value));
 
-export const parseSubmitResult = (value: unknown): SubmitResult => parseStrictWithSchema(submitResultSchema, value);
+export const parseSubmitResult = (value: unknown): SubmitResult =>
+  parseStrictWithSchema(submitResultSchema, value);

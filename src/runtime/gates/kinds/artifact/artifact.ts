@@ -14,12 +14,14 @@ export const evaluateArtifactGate = (
   gate: ArtifactGateSpec,
   gateId: string,
   nodeId: string,
-  context: ArtifactContext,
+  context: ArtifactContext
 ): RuntimeGateResult => {
   const { path } = gate;
   const passed = path.length > 0 && artifactExists(context.worktreePath, path);
   return {
-    evidence: [passed ? `artifact exists: ${path}` : `missing artifact: ${path}`],
+    evidence: [
+      passed ? `artifact exists: ${path}` : `missing artifact: ${path}`,
+    ],
     gateId,
     kind: gate.kind,
     nodeId,

@@ -1,12 +1,21 @@
 import { describe, expect, it } from "vitest";
 
 import { loadPipelineConfig } from "../../config";
-import { applyGoalStateEvent, createGoalState, recordGoalStateChangedFiles } from "../goal-state/goal-state";
+import {
+  applyGoalStateEvent,
+  createGoalState,
+  recordGoalStateChangedFiles,
+} from "../goal-state/goal-state";
 import type { PipelineGoalState } from "../goal-state/goal-state";
 import { renderContinuationPrompt } from "./continuation-prompt";
-import { createGoalContinuationLaunchPlan, runBoundedGoalLoop } from "./goal-loop";
+import {
+  createGoalContinuationLaunchPlan,
+  runBoundedGoalLoop,
+} from "./goal-loop";
 
-const verifierFailureState = (options: { priorAttempt?: boolean } = {}): PipelineGoalState => {
+const verifierFailureState = (
+  options: { priorAttempt?: boolean } = {}
+): PipelineGoalState => {
   const initial = createGoalState({
     runId: "run-1",
     scheduleId: "schedule-1",
@@ -50,7 +59,7 @@ const verifierFailureState = (options: { priorAttempt?: boolean } = {}): Pipelin
       passed: false,
       reason: "verdict requirement failed",
       type: "gate.finish",
-    },
+    }
   );
   const finished = applyGoalStateEvent(failed, {
     attempt: 1,
@@ -61,7 +70,9 @@ const verifierFailureState = (options: { priorAttempt?: boolean } = {}): Pipelin
     status: "failed",
     type: "node.finish",
   });
-  const withFiles = recordGoalStateChangedFiles(finished, "green", ["src/feature.ts"]);
+  const withFiles = recordGoalStateChangedFiles(finished, "green", [
+    "src/feature.ts",
+  ]);
   if (options.priorAttempt === false) {
     return withFiles;
   }
@@ -99,7 +110,8 @@ describe("pipeline goal loop", () => {
     const result = await runBoundedGoalLoop({
       initialState: verifierFailureState({ priorAttempt: false }),
       maxContinuations: 1,
-      runContinuation: ({ state }) => recordGoalStateChangedFiles(state, "green", ["src/progress.ts"]),
+      runContinuation: ({ state }) =>
+        recordGoalStateChangedFiles(state, "green", ["src/progress.ts"]),
     });
 
     expect(result.terminalState).toBe("max_continuations_reached");
@@ -116,7 +128,9 @@ describe("pipeline goal loop", () => {
 
     expect(result.terminalState).toBe("no_progress_detected");
     expect(result.state.terminalOutcome).toBe("BLOCKED");
-    expect(result.state.blockedReasons).toContain("same failure repeated without new changed files or evidence");
+    expect(result.state.blockedReasons).toContain(
+      "same failure repeated without new changed files or evidence"
+    );
   });
 
   it("stops cleanly when cancellation is requested", async () => {
@@ -142,7 +156,9 @@ describe("pipeline goal loop", () => {
           format: "json_schema",
           nodeId: "acceptance",
           output: {
-            acceptance: [{ evidence: ["AC1 covered"], id: "AC1", verdict: "PASS" }],
+            acceptance: [
+              { evidence: ["AC1 covered"], id: "AC1", verdict: "PASS" },
+            ],
             evidence: ["acceptance passed"],
             verdict: "PASS",
           },
@@ -175,20 +191,25 @@ describe("pipeline goal loop", () => {
   });
 
   it("does not mark passed from workflow PASS without verifier evidence", async () => {
-    const state = applyGoalStateEvent(verifierFailureState({ priorAttempt: false }), {
-      outcome: "PASS",
-      type: "workflow.finish",
-      workflowId: "root",
-    });
+    const state = applyGoalStateEvent(
+      verifierFailureState({ priorAttempt: false }),
+      {
+        outcome: "PASS",
+        type: "workflow.finish",
+        workflowId: "root",
+      }
+    );
 
     const result = await runBoundedGoalLoop({
       initialState: state,
       maxContinuations: 1,
-      runContinuation: ({ state }) => state,
+      runContinuation: ({ state: currentState }) => currentState,
     });
 
     expect(result.terminalState).toBe("blocked");
-    expect(result.reason).toBe("missing deterministic verifier or acceptance evidence");
+    expect(result.reason).toBe(
+      "missing deterministic verifier or acceptance evidence"
+    );
   });
 
   it("builds continuation launch plans through the configured OpenCode runner", () => {

@@ -1,5 +1,12 @@
 import { execFileSync } from "node:child_process";
-import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  cpSync,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
 
 import {
@@ -31,9 +38,15 @@ const OWNER = "oisin-pipeline";
 // directory — unlike the CLI, which falls back to the default agent. So a
 // candidate worktree must carry these generated resources or every agent prompt
 // in it fails. Copied from the parent repo on worktree creation.
-const GENERATED_WORKTREE_RESOURCES = [join(".opencode", "agents"), join(".opencode", "command")];
+const GENERATED_WORKTREE_RESOURCES = [
+  join(".opencode", "agents"),
+  join(".opencode", "command"),
+];
 
-const provisionGeneratedResources = (repoRoot: string, worktreePath: string): void => {
+const provisionGeneratedResources = (
+  repoRoot: string,
+  worktreePath: string
+): void => {
   for (const relativePath of GENERATED_WORKTREE_RESOURCES) {
     const source = join(repoRoot, relativePath);
     const target = join(worktreePath, relativePath);
@@ -43,7 +56,12 @@ const provisionGeneratedResources = (repoRoot: string, worktreePath: string): vo
   }
 };
 
-const worktreeStateSchema = literalsSchema(["active", "removed", "retained-dirty", "retained-unpushed"]);
+const worktreeStateSchema = literalsSchema([
+  "active",
+  "removed",
+  "retained-dirty",
+  "retained-unpushed",
+]);
 
 export type WorktreeState = typeof worktreeStateSchema.Type;
 type RetentionState = "remove" | "retained-dirty" | "retained-unpushed";
@@ -73,27 +91,52 @@ const worktreeManifestSchema = struct({
   path: stringValue(),
   runId: optionalSchema(stringValue()),
   schemaVersion: literalSchema(1),
-  state: literalsSchema(["active", "creating", "removed", "retained-dirty", "retained-unpushed"]),
+  state: literalsSchema([
+    "active",
+    "creating",
+    "removed",
+    "retained-dirty",
+    "retained-unpushed",
+  ]),
 });
 
 type WorktreeManifest = typeof worktreeManifestSchema.Type;
 
-const git = (cwd: string, args: string[]): string => execFileSync("git", args, { cwd, encoding: "utf-8" }).trim();
+const git = (cwd: string, args: string[]): string =>
+  execFileSync("git", args, { cwd, encoding: "utf-8" }).trim();
 
-const sanitize = (id: string): string => id.replaceAll(/[^A-Za-z0-9._-]/gu, "-");
+const sanitize = (id: string): string =>
+  id.replaceAll(/[^A-Za-z0-9._-]/gu, "-");
 
-const childWorktreeRelPath = (parentNodeId: string, childNodeId: string, runId?: string): string =>
-  join(WORKTREE_ROOT, "trees", sanitize(runId ?? "local"), sanitize(parentNodeId), sanitize(childNodeId));
+const childWorktreeRelPath = (
+  parentNodeId: string,
+  childNodeId: string,
+  runId?: string
+): string =>
+  join(
+    WORKTREE_ROOT,
+    "trees",
+    sanitize(runId ?? "local"),
+    sanitize(parentNodeId),
+    sanitize(childNodeId)
+  );
 
 const writeManifest = (path: string, manifest: WorktreeManifest): void => {
   writeFileSync(path, `${JSON.stringify(manifest, null, 2)}\n`, "utf-8");
 };
 
 const readManifest = (path: string): WorktreeManifest =>
-  parseWithSchema(worktreeManifestSchema, JSON.parse(readFileSync(path, "utf-8")));
+  parseWithSchema(
+    worktreeManifestSchema,
+    JSON.parse(readFileSync(path, "utf-8"))
+  );
 
 const retentionState = (absPath: string, baseSha: string): RetentionState => {
-  const dirty = git(absPath, ["status", "--porcelain", "--untracked-files=all"]);
+  const dirty = git(absPath, [
+    "status",
+    "--porcelain",
+    "--untracked-files=all",
+  ]);
   if (dirty.length > 0) {
     return "retained-dirty";
   }
@@ -105,7 +148,10 @@ const retentionState = (absPath: string, baseSha: string): RetentionState => {
 };
 
 /** Idempotent, crash-safe teardown. Retains (never deletes) dirty/unpushed work. */
-const releaseWorktree = (repoRoot: string, manifestPath: string): WorktreeState => {
+const releaseWorktree = (
+  repoRoot: string,
+  manifestPath: string
+): WorktreeState => {
   if (!existsSync(manifestPath)) {
     return "removed";
   }
@@ -127,12 +173,18 @@ const releaseWorktree = (repoRoot: string, manifestPath: string): WorktreeState 
   return "removed";
 };
 
-export const createChildWorktree = (opts: CreateWorktreeOptions): WorktreeLease => {
+export const createChildWorktree = (
+  opts: CreateWorktreeOptions
+): WorktreeLease => {
   const runSeg = sanitize(opts.runId ?? "local");
   const parentSeg = sanitize(opts.parentNodeId);
   const childSeg = sanitize(opts.childNodeId);
   const baseSha = git(opts.repoRoot, ["rev-parse", "HEAD"]);
-  const relPath = childWorktreeRelPath(opts.parentNodeId, opts.childNodeId, opts.runId);
+  const relPath = childWorktreeRelPath(
+    opts.parentNodeId,
+    opts.childNodeId,
+    opts.runId
+  );
   const absPath = join(opts.repoRoot, relPath);
   const branch = `pipeline/worktrees/${runSeg}/${parentSeg}/${childSeg}`;
   const leaseId = `${runSeg}__${parentSeg}__${childSeg}`;

@@ -1,4 +1,11 @@
-import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { dirname, join } from "node:path";
 
 import type { BrokerCredentials } from "./broker";
@@ -29,22 +36,30 @@ export interface SyncLocalCodexAuthResult {
   ok: boolean;
 }
 
-type CurrentProjectConfig = { content: string; kind: "present" } | { kind: "missing" };
+type CurrentProjectConfig =
+  | { content: string; kind: "present" }
+  | { kind: "missing" };
 
 const brokerRequiredResult = (root: string): SyncLocalCodexAuthResult => ({
   items: [
     {
       action: "error",
-      message: "BROKER_API_KEY is required: codex + opencode authenticate through the central CLIProxyAPI broker.",
+      message:
+        "BROKER_API_KEY is required: codex + opencode authenticate through the central CLIProxyAPI broker.",
       path: root,
     },
   ],
   ok: false,
 });
 
-export const formatCodexAuthSyncResult = (result: SyncLocalCodexAuthResult): string => {
+export const formatCodexAuthSyncResult = (
+  result: SyncLocalCodexAuthResult
+): string => {
   const lines = result.items.map((item) => {
-    const suffix = item.message !== undefined && item.message !== "" ? `: ${item.message}` : "";
+    const suffix =
+      item.message !== undefined && item.message !== ""
+        ? `: ${item.message}`
+        : "";
     return `${item.action} ${item.path}${suffix}`;
   });
   if (!result.ok) {
@@ -53,21 +68,25 @@ export const formatCodexAuthSyncResult = (result: SyncLocalCodexAuthResult): str
   return lines.join("\n");
 };
 
-const changedAction = (currentText: CurrentProjectConfig, nextText: string): Exclude<CodexAuthSyncAction, "error"> => {
+const changedAction = (
+  currentText: CurrentProjectConfig,
+  nextText: string
+): Exclude<CodexAuthSyncAction, "error"> => {
   if (currentText.kind === "present" && currentText.content === nextText) {
     return "unchanged";
   }
   return currentText.kind === "missing" ? "create" : "update";
 };
 
-const writesEnabled = (options: Pick<SyncLocalCodexAuthOptions, "check" | "dryRun">): boolean =>
-  !(options.check === true || options.dryRun === true);
+const writesEnabled = (
+  options: Pick<SyncLocalCodexAuthOptions, "check" | "dryRun">
+): boolean => !(options.check === true || options.dryRun === true);
 
 const writeIfChanged = (
   path: string,
   currentText: CurrentProjectConfig,
   nextText: string,
-  options: Pick<SyncLocalCodexAuthOptions, "check" | "dryRun">,
+  options: Pick<SyncLocalCodexAuthOptions, "check" | "dryRun">
 ): CodexAuthSyncItem => {
   const action = changedAction(currentText, nextText);
   if (action === "unchanged") {
@@ -83,7 +102,7 @@ const writeIfChanged = (
 const syncProjectBrokerConfig = (
   repo: string,
   broker: BrokerCredentials,
-  options: Pick<SyncLocalCodexAuthOptions, "check" | "dryRun">,
+  options: Pick<SyncLocalCodexAuthOptions, "check" | "dryRun">
 ): CodexAuthSyncItem => {
   const path = join(repo, ".opencode/opencode.json");
   const currentText = existsSync(path)
@@ -115,10 +134,14 @@ const discoverGitRepositories = (root: string): string[] =>
 
 const syncLocalCodexAuthWithBroker = (
   options: SyncLocalCodexAuthOptions,
-  broker: BrokerCredentials,
+  broker: BrokerCredentials
 ): SyncLocalCodexAuthResult => {
-  const items = discoverGitRepositories(options.root).map((repo) => syncProjectBrokerConfig(repo, broker, options));
-  const hasRequiredChanges = items.some((item) => item.action === "create" || item.action === "update");
+  const items = discoverGitRepositories(options.root).map((repo) =>
+    syncProjectBrokerConfig(repo, broker, options)
+  );
+  const hasRequiredChanges = items.some(
+    (item) => item.action === "create" || item.action === "update"
+  );
   const hasErrors = items.some((item) => item.action === "error");
   const checkFailed = options.check === true && hasRequiredChanges;
   return { items, ok: !(hasErrors || checkFailed) };
@@ -130,7 +153,11 @@ const syncLocalCodexAuthWithBroker = (
  * (which owns OAuth refresh / rotation / failover), so there is no per-project
  * account pool to declare.
  */
-export const syncLocalCodexAuth = (options: SyncLocalCodexAuthOptions): SyncLocalCodexAuthResult => {
+export const syncLocalCodexAuth = (
+  options: SyncLocalCodexAuthOptions
+): SyncLocalCodexAuthResult => {
   const broker = options.broker ?? resolveBrokerCredentials();
-  return broker === undefined ? brokerRequiredResult(options.root) : syncLocalCodexAuthWithBroker(options, broker);
+  return broker === undefined
+    ? brokerRequiredResult(options.root)
+    : syncLocalCodexAuthWithBroker(options, broker);
 };

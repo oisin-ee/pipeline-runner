@@ -29,7 +29,11 @@ interface EntrypointCommandFlags {
   serviceAccount?: string;
 }
 
-type EntrypointRunner = (entrypoint: string, task: string, opts: EntrypointCommandFlags) => Promise<void>;
+type EntrypointRunner = (
+  entrypoint: string,
+  task: string,
+  opts: EntrypointCommandFlags
+) => Promise<void>;
 
 class EntrypointCommandService extends Context.Service<
   EntrypointCommandService,
@@ -37,7 +41,7 @@ class EntrypointCommandService extends Context.Service<
     readonly runEntrypoint: (
       entrypoint: string,
       task: string,
-      opts: EntrypointCommandFlags,
+      opts: EntrypointCommandFlags
     ) => Effect.Effect<void, unknown>;
   }
 >()("EntrypointCommandService") {}
@@ -56,9 +60,9 @@ const createEntrypointCommandServiceLive = (runEntrypoint: EntrypointRunner) =>
 const runConfiguredEntrypointCommand = (
   entrypoint: string,
   descriptionParts: string[],
-  flags: EntrypointCommandFlags,
+  flags: EntrypointCommandFlags
 ) =>
-  Effect.gen(function* runConfiguredEntrypointCommand() {
+  Effect.gen(function* effectBody() {
     const service = yield* EntrypointCommandService;
     yield* service.runEntrypoint(entrypoint, descriptionParts.join(" "), flags);
   });
@@ -74,7 +78,10 @@ const addScheduledEntrypointOptions = (command: Command): Command =>
     .option("--image-pull-secret <name>", "imagePullSecret name")
     .option("--event-url <url>", "runner event sink URL");
 
-const configureEntrypointOptions = (command: Command, entrypoint: PipelineConfig["entrypoints"][string]): Command => {
+const configureEntrypointOptions = (
+  command: Command,
+  entrypoint: PipelineConfig["entrypoints"][string]
+): Command => {
   if ("schedule" in entrypoint) {
     return addScheduledEntrypointOptions(command);
   }
@@ -84,7 +91,7 @@ const configureEntrypointOptions = (command: Command, entrypoint: PipelineConfig
 const createEntrypointCommand = (
   program: Command,
   id: string,
-  entrypoint: PipelineConfig["entrypoints"][string],
+  entrypoint: PipelineConfig["entrypoints"][string]
 ): Command => {
   const command = program
     .command(id)
@@ -96,22 +103,31 @@ const createEntrypointCommand = (
 const registerEntrypointAction = (
   command: Command,
   id: string,
-  serviceLive: ReturnType<typeof createEntrypointCommandServiceLive>,
+  serviceLive: ReturnType<typeof createEntrypointCommandServiceLive>
 ): void => {
-  command.action(async (descriptionParts: string[], flags: EntrypointCommandFlags) => {
-    await Effect.runPromise(Effect.provide(runConfiguredEntrypointCommand(id, descriptionParts, flags), serviceLive));
-  });
+  command.action(
+    async (descriptionParts: string[], flags: EntrypointCommandFlags) => {
+      await Effect.runPromise(
+        Effect.provide(
+          runConfiguredEntrypointCommand(id, descriptionParts, flags),
+          serviceLive
+        )
+      );
+    }
+  );
 };
 
 export const registerConfiguredEntrypointCommands = (
   program: Command,
   config: PipelineConfig,
-  runEntrypoint: EntrypointRunner,
+  runEntrypoint: EntrypointRunner
 ): Set<string> => {
   const registered = new Set<string>();
   const serviceLive = createEntrypointCommandServiceLive(runEntrypoint);
 
-  const reservedCommands = new Set(program.commands.map((command) => command.name()));
+  const reservedCommands = new Set(
+    program.commands.map((command) => command.name())
+  );
   for (const [id, entrypoint] of Object.entries(config.entrypoints)) {
     if (reservedCommands.has(id)) {
       continue;

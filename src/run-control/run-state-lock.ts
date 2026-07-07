@@ -16,7 +16,22 @@
  * a lock with manual acquire/release for critical sections that can span
  * filesystem rename/restore boundaries; it is not a FIFO write/flush queue.
  */
-let chain: Promise<void> = Promise.resolve();
+
+interface PromiseWithResolversResult<T> {
+  promise: Promise<T>;
+  reject: (reason?: unknown) => void;
+  resolve: (value: T | PromiseLike<T>) => void;
+}
+
+declare global {
+  interface PromiseConstructor {
+    withResolvers<T>(): PromiseWithResolversResult<T>;
+  }
+}
+
+const LOCK_RELEASED = undefined;
+
+let chain: Promise<undefined> = Promise.resolve(LOCK_RELEASED);
 
 /**
  * Acquire the lock, resolving with a release function once every previously
@@ -26,13 +41,17 @@ let chain: Promise<void> = Promise.resolve();
  */
 export const acquireRunStateLock = async (): Promise<() => void> => {
   const previous = chain;
-  let release: () => void = () => {
-    // replaced synchronously below
+  const next = Promise.withResolvers<undefined>();
+  chain = next.promise;
+  await previous;
+  let released = false;
+  return () => {
+    if (released) {
+      return;
+    }
+    released = true;
+    next.resolve(LOCK_RELEASED);
   };
-  chain = new Promise<void>((resolve) => {
-    release = resolve;
-  });
-  return await previous.then(() => release);
 };
 
 /** Run `fn` while holding the run-state lock, releasing on success or failure. */

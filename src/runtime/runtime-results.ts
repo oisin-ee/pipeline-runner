@@ -15,7 +15,9 @@ const workflowRuntimeFailure = (): RuntimeFailure => ({
   reason: "workflow failed",
 });
 
-export const nodeRuntimeFailure = (node: RuntimeNodeResult): RuntimeFailure => ({
+export const nodeRuntimeFailure = (
+  node: RuntimeNodeResult
+): RuntimeFailure => ({
   evidence: node.evidence,
   gate: node.nodeId,
   nodeId: node.nodeId,
@@ -28,14 +30,19 @@ export const cancelledFailure = (): RuntimeFailure => ({
   reason: "pipeline cancelled",
 });
 
-const runtimeNodeStates = (context: RuntimeContext): Record<string, NodeExecutionState> =>
+const runtimeNodeStates = (
+  context: RuntimeContext
+): Record<string, NodeExecutionState> =>
   R.fromEntries(context.nodeStateStore.nodeStates);
 
-const runtimeStructuredOutputs = (context: RuntimeContext): RuntimeStructuredOutput[] => [
-  ...context.nodeStateStore.structuredOutputs,
-];
+const runtimeStructuredOutputs = (
+  context: RuntimeContext
+): RuntimeStructuredOutput[] => [...context.nodeStateStore.structuredOutputs];
 
-const passedRuntimeResult = (context: RuntimeContext, nodes: RuntimeNodeResult[]): PipelineRuntimeResult => ({
+const passedRuntimeResult = (
+  context: RuntimeContext,
+  nodes: RuntimeNodeResult[]
+): PipelineRuntimeResult => ({
   agentInvocations: context.agentInvocations,
   failureDetails: [],
   gates: context.gates,
@@ -50,7 +57,7 @@ const passedRuntimeResult = (context: RuntimeContext, nodes: RuntimeNodeResult[]
 const failedRuntimeResult = (
   context: RuntimeContext,
   nodes: RuntimeNodeResult[],
-  failure: RuntimeFailure,
+  failure: RuntimeFailure
 ): PipelineRuntimeResult => ({
   agentInvocations: context.agentInvocations,
   failureDetails: [failure],
@@ -63,7 +70,10 @@ const failedRuntimeResult = (
   structuredOutputs: runtimeStructuredOutputs(context),
 });
 
-const cancelledRuntimeResult = (context: RuntimeContext, nodes: RuntimeNodeResult[]): PipelineRuntimeResult => ({
+const cancelledRuntimeResult = (
+  context: RuntimeContext,
+  nodes: RuntimeNodeResult[]
+): PipelineRuntimeResult => ({
   agentInvocations: context.agentInvocations,
   failureDetails: [cancelledFailure()],
   gates: context.gates,
@@ -79,13 +89,17 @@ export const workflowRuntimeResult = (
   context: RuntimeContext,
   outcome: PipelineRuntimeResult["outcome"],
   nodes: RuntimeNodeResult[],
-  failure?: RuntimeFailure,
+  failure?: RuntimeFailure
 ): PipelineRuntimeResult => {
   if (outcome === "CANCELLED") {
     return cancelledRuntimeResult(context, nodes);
   }
   if (outcome === "FAIL") {
-    return failedRuntimeResult(context, nodes, failure ?? workflowRuntimeFailure());
+    return failedRuntimeResult(
+      context,
+      nodes,
+      failure ?? workflowRuntimeFailure()
+    );
   }
   return passedRuntimeResult(context, nodes);
 };

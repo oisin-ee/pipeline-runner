@@ -2,7 +2,12 @@ import { describe, expect, it } from "vitest";
 
 import { parseResultWithSchema, parseWithSchema } from "../../schema-boundary";
 import type { AcceptanceCriterion, RuntimeNodeResult } from "../contracts";
-import { nextNodeEnvelopeSchema, parseNextNodeEnvelope, parseSubmitResult, submitResultSchema } from "./node-protocol";
+import {
+  nextNodeEnvelopeSchema,
+  parseNextNodeEnvelope,
+  parseSubmitResult,
+  submitResultSchema,
+} from "./node-protocol";
 import type { NextNodeEnvelope, SubmitResult } from "./node-protocol";
 
 // A representative envelope for one node: a prompt, two read-only acceptance
@@ -39,7 +44,9 @@ const sampleSubmit = (): SubmitResult => ({
 describe("NextNodeEnvelope", () => {
   it("round-trips through JSON including criteria and upstream outputs (AC#1)", () => {
     const envelope = sampleEnvelope();
-    expect(parseWithSchema(nextNodeEnvelopeSchema, structuredClone(envelope))).toEqual(envelope);
+    expect(
+      parseWithSchema(nextNodeEnvelopeSchema, structuredClone(envelope))
+    ).toEqual(envelope);
   });
 
   it("carries prompt, read-only criteria, and upstream outputs for one node (AC#2)", () => {
@@ -49,7 +56,9 @@ describe("NextNodeEnvelope", () => {
     const runId = "run-123";
     const prompt = "Implement the feature.";
     const criteria: AcceptanceCriterion[] = [{ id: "ac-1", text: "compiles" }];
-    const upstream: RuntimeNodeResult[] = [{ ...sampleResult(), nodeId: "plan", output: "plan summary" }];
+    const upstream: RuntimeNodeResult[] = [
+      { ...sampleResult(), nodeId: "plan", output: "plan summary" },
+    ];
     const envelope = parseNextNodeEnvelope({
       criteria,
       nodeId,
@@ -65,7 +74,9 @@ describe("NextNodeEnvelope", () => {
     expect(envelope.runId).toBe(runId);
     expect(envelope.nodeId).toBe(nodeId);
     expect(envelope.criteria).toEqual(criteria);
-    expect(envelope.upstreamOutputs).toEqual([{ nodeId: "plan", output: "plan summary" }]);
+    expect(envelope.upstreamOutputs).toEqual([
+      { nodeId: "plan", output: "plan summary" },
+    ]);
   });
 
   it("freezes criteria so the executing agent cannot mutate them (decision #7)", () => {
@@ -81,8 +92,8 @@ describe("NextNodeEnvelope", () => {
           ...sampleEnvelope(),
           extra: "nope",
         },
-        { onExcessProperty: "error" },
-      ).ok,
+        { onExcessProperty: "error" }
+      ).ok
     ).toBe(false);
   });
 });
@@ -90,7 +101,9 @@ describe("NextNodeEnvelope", () => {
 describe("SubmitResult", () => {
   it("round-trips a RuntimeNodeResult keyed (runId, nodeId) through JSON (AC#1)", () => {
     const submit = sampleSubmit();
-    expect(parseWithSchema(submitResultSchema, structuredClone(submit))).toEqual(submit);
+    expect(
+      parseWithSchema(submitResultSchema, structuredClone(submit))
+    ).toEqual(submit);
   });
 
   it("rejects a result missing required fields with a structured error (AC#3)", () => {
@@ -116,7 +129,7 @@ describe("SubmitResult", () => {
         nodeId: "implement",
         result: { ...sampleResult(), nodeId: "other" },
         runId: "run-123",
-      }),
+      })
     ).toThrow(/result\.nodeId/u);
   });
 });

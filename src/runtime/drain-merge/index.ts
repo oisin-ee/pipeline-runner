@@ -1,1 +1,1 @@
-export * from "./drain-merge";
+export { executeDrainMergeBuiltin } from "./drain-merge";

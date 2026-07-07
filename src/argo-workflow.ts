@@ -13,8 +13,14 @@ import type {
   ParsedBuildDynamicRunnerArgoWorkflowOptions,
   ParsedBuildRunnerArgoWorkflowOptions,
 } from "./remote/argo/model";
-import { RUNNER_WORKFLOW_ENTRYPOINT, RUNNER_WORKFLOW_START_TASK } from "./remote/argo/policy";
-import { dynamicRunnerWorkflowStorage, runnerWorkflowStorage } from "./remote/argo/storage";
+import {
+  RUNNER_WORKFLOW_ENTRYPOINT,
+  RUNNER_WORKFLOW_START_TASK,
+} from "./remote/argo/policy";
+import {
+  dynamicRunnerWorkflowStorage,
+  runnerWorkflowStorage,
+} from "./remote/argo/storage";
 import type { RunnerWorkflowStorage } from "./remote/argo/storage";
 import {
   dynamicPreScheduleTemplate,
@@ -28,39 +34,54 @@ import {
 } from "./remote/argo/templates";
 import { parseStrictWithSchema, parseWithSchema } from "./schema-boundary";
 
-export const runnerArgoWorkflowManifestSchema = createRunnerArgoWorkflowManifestSchema();
+export const runnerArgoWorkflowManifestSchema =
+  createRunnerArgoWorkflowManifestSchema();
 export type ArgoWorkflowManifest = typeof runnerArgoWorkflowManifestSchema.Type;
-export type BuildRunnerArgoWorkflowOptions = typeof buildRunnerArgoWorkflowOptionsSchema.Encoded & {
-  plan: WorkflowExecutionPlan;
-};
-export type BuildDynamicRunnerArgoWorkflowOptions = typeof buildDynamicRunnerArgoWorkflowOptionsSchema.Encoded;
+export type BuildRunnerArgoWorkflowOptions =
+  typeof buildRunnerArgoWorkflowOptionsSchema.Encoded & {
+    plan: WorkflowExecutionPlan;
+  };
+export type BuildDynamicRunnerArgoWorkflowOptions =
+  typeof buildDynamicRunnerArgoWorkflowOptionsSchema.Encoded;
 type ArgoWorkflowMetadata = ArgoWorkflowManifest["metadata"];
 type ArgoWorkflowSpec = ArgoWorkflowManifest["spec"];
 type WorkflowSpecOptions = Pick<
   ParsedBuildRunnerArgoWorkflowOptions,
-  "activeDeadlineSeconds" | "imagePullSecretName" | "serviceAccountName" | "ttlStrategy"
+  | "activeDeadlineSeconds"
+  | "imagePullSecretName"
+  | "serviceAccountName"
+  | "ttlStrategy"
 >;
 type WorkflowMetadataOptions = Pick<
   ParsedBuildRunnerArgoWorkflowOptions,
   "annotations" | "generateName" | "labels" | "name" | "namespace"
 >;
 
-export const stringifyRunnerArgoWorkflow = (workflow: ArgoWorkflowManifest): string =>
+export const stringifyRunnerArgoWorkflow = (
+  workflow: ArgoWorkflowManifest
+): string =>
   stringify(
     parseWithSchema(runnerArgoWorkflowManifestSchema, workflow, {
       onExcessProperty: "preserve",
-    }),
+    })
   );
 
-const parsedBuildOptions = (rawOptions: BuildRunnerArgoWorkflowOptions): ParsedBuildRunnerArgoWorkflowOptions => {
+const parsedBuildOptions = (
+  rawOptions: BuildRunnerArgoWorkflowOptions
+): ParsedBuildRunnerArgoWorkflowOptions => {
   const { plan, ...schemaOptions } = rawOptions;
   return {
-    ...parseStrictWithSchema(buildRunnerArgoWorkflowOptionsSchema, schemaOptions),
+    ...parseStrictWithSchema(
+      buildRunnerArgoWorkflowOptionsSchema,
+      schemaOptions
+    ),
     plan,
   };
 };
 
-const workflowDagTemplate = (tasks: ArgoExecutableTask[]): ArgoWorkflowTemplate => ({
+const workflowDagTemplate = (
+  tasks: ArgoExecutableTask[]
+): ArgoWorkflowTemplate => ({
   dag: {
     tasks: [
       {
@@ -80,7 +101,7 @@ const workflowDagTemplate = (tasks: ArgoExecutableTask[]): ArgoWorkflowTemplate 
 const workflowTemplates = (
   options: ParsedBuildRunnerArgoWorkflowOptions,
   tasks: ArgoExecutableTask[],
-  volumeMounts: RunnerWorkflowStorage["volumeMounts"],
+  volumeMounts: RunnerWorkflowStorage["volumeMounts"]
 ): ArgoWorkflowTemplate[] => [
   workflowDagTemplate(tasks),
   runnerLifecycleTemplate(options, volumeMounts),
@@ -91,11 +112,14 @@ const workflowTemplates = (
 const workflowSpecBase = (
   options: WorkflowSpecOptions,
   storage: RunnerWorkflowStorage,
-  templates: ArgoWorkflowTemplate[],
+  templates: ArgoWorkflowTemplate[]
 ): ArgoWorkflowSpec => ({
-  ...(options.activeDeadlineSeconds === undefined ? {} : { activeDeadlineSeconds: options.activeDeadlineSeconds }),
+  ...(options.activeDeadlineSeconds === undefined
+    ? {}
+    : { activeDeadlineSeconds: options.activeDeadlineSeconds }),
   entrypoint: RUNNER_WORKFLOW_ENTRYPOINT,
-  ...(options.imagePullSecretName !== undefined && options.imagePullSecretName.length > 0
+  ...(options.imagePullSecretName !== undefined &&
+  options.imagePullSecretName.length > 0
     ? { imagePullSecrets: [{ name: options.imagePullSecretName }] }
     : {}),
   onExit: "pipeline-finalizer",
@@ -108,8 +132,13 @@ const workflowSpecBase = (
 const workflowSpec = (
   options: ParsedBuildRunnerArgoWorkflowOptions,
   tasks: ArgoExecutableTask[],
-  storage: RunnerWorkflowStorage,
-): ArgoWorkflowSpec => workflowSpecBase(options, storage, workflowTemplates(options, tasks, storage.volumeMounts));
+  storage: RunnerWorkflowStorage
+): ArgoWorkflowSpec =>
+  workflowSpecBase(
+    options,
+    storage,
+    workflowTemplates(options, tasks, storage.volumeMounts)
+  );
 
 const dynamicWorkflowEntrypointTemplate = (): ArgoWorkflowTemplate => ({
   name: RUNNER_WORKFLOW_ENTRYPOINT,
@@ -151,7 +180,7 @@ const dynamicDrainTemplate = (): ArgoWorkflowTemplate => {
 
 const dynamicWorkflowTemplates = (
   options: ParsedBuildDynamicRunnerArgoWorkflowOptions,
-  volumeMounts: RunnerWorkflowStorage["volumeMounts"],
+  volumeMounts: RunnerWorkflowStorage["volumeMounts"]
 ): ArgoWorkflowTemplate[] => [
   dynamicWorkflowEntrypointTemplate(),
   dynamicDrainTemplate(),
@@ -165,15 +194,31 @@ const dynamicWorkflowTemplates = (
 
 const dynamicWorkflowSpec = (
   options: ParsedBuildDynamicRunnerArgoWorkflowOptions,
-  storage: RunnerWorkflowStorage,
-): ArgoWorkflowSpec => workflowSpecBase(options, storage, dynamicWorkflowTemplates(options, storage.volumeMounts));
+  storage: RunnerWorkflowStorage
+): ArgoWorkflowSpec =>
+  workflowSpecBase(
+    options,
+    storage,
+    dynamicWorkflowTemplates(options, storage.volumeMounts)
+  );
 
-const compactRecord = (input: Partial<Record<string, string>>): Record<string, string> =>
-  Object.fromEntries(Object.entries(input).filter((entry): entry is [string, string] => entry[1] !== undefined));
+const compactRecord = (
+  input: Partial<Record<string, string>>
+): Record<string, string> =>
+  Object.fromEntries(
+    Object.entries(input).filter(
+      (entry): entry is [string, string] => entry[1] !== undefined
+    )
+  );
 
-const workflowMetadata = (options: WorkflowMetadataOptions, workflowId: string): ArgoWorkflowMetadata => ({
+const workflowMetadata = (
+  options: WorkflowMetadataOptions,
+  workflowId: string
+): ArgoWorkflowMetadata => ({
   annotations: compactRecord(options.annotations),
-  ...(options.name !== undefined && options.name.length > 0 ? { name: options.name } : {}),
+  ...(options.name !== undefined && options.name.length > 0
+    ? { name: options.name }
+    : {}),
   ...(options.generateName !== undefined && options.generateName.length > 0
     ? { generateName: options.generateName }
     : {}),
@@ -188,7 +233,7 @@ const workflowMetadata = (options: WorkflowMetadataOptions, workflowId: string):
 const runnerArgoWorkflowManifest = (
   options: WorkflowMetadataOptions,
   workflowId: string,
-  spec: ArgoWorkflowSpec,
+  spec: ArgoWorkflowSpec
 ): ArgoWorkflowManifest =>
   parseStrictWithSchema(runnerArgoWorkflowManifestSchema, {
     apiVersion: "argoproj.io/v1alpha1",
@@ -197,17 +242,30 @@ const runnerArgoWorkflowManifest = (
     spec,
   });
 
-export const buildRunnerArgoWorkflowManifest = (rawOptions: BuildRunnerArgoWorkflowOptions): ArgoWorkflowManifest => {
+export const buildRunnerArgoWorkflowManifest = (
+  rawOptions: BuildRunnerArgoWorkflowOptions
+): ArgoWorkflowManifest => {
   const options = parsedBuildOptions(rawOptions);
   const graph = compileArgoExecutionGraph(options.plan);
   const storage = runnerWorkflowStorage(options, graph.tasks);
-  return runnerArgoWorkflowManifest(options, options.plan.workflowId, workflowSpec(options, graph.tasks, storage));
+  return runnerArgoWorkflowManifest(
+    options,
+    options.plan.workflowId,
+    workflowSpec(options, graph.tasks, storage)
+  );
 };
 
 export const buildDynamicRunnerArgoWorkflowManifest = (
-  rawOptions: BuildDynamicRunnerArgoWorkflowOptions,
+  rawOptions: BuildDynamicRunnerArgoWorkflowOptions
 ): ArgoWorkflowManifest => {
-  const options = parseStrictWithSchema(buildDynamicRunnerArgoWorkflowOptionsSchema, rawOptions);
+  const options = parseStrictWithSchema(
+    buildDynamicRunnerArgoWorkflowOptionsSchema,
+    rawOptions
+  );
   const storage = dynamicRunnerWorkflowStorage(options);
-  return runnerArgoWorkflowManifest(options, options.workflowId, dynamicWorkflowSpec(options, storage));
+  return runnerArgoWorkflowManifest(
+    options,
+    options.workflowId,
+    dynamicWorkflowSpec(options, storage)
+  );
 };

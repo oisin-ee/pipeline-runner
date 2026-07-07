@@ -17,7 +17,12 @@ import { createRunnerLaunchPlan } from "../src/runner";
 import { runLaunchPlan } from "../src/runner/subprocess";
 import { createProtectedPathGuard } from "../src/runtime/protected-paths/protected-paths.ts";
 import { RepoIoServiceLive } from "../src/runtime/services/repo-io-service.ts";
-import { isStringValue, isUnknownRecord, parseWithSchema, struct } from "../src/schema-boundary.ts";
+import {
+  isStringValue,
+  isUnknownRecord,
+  parseWithSchema,
+  struct,
+} from "../src/schema-boundary.ts";
 import { loadBacklogTaskStoreEffect } from "../src/tickets/backlog-task-store.ts";
 
 const VIOLATION_RE = /Protected-path violation/u;
@@ -38,7 +43,10 @@ const AC_CONTENT = [
 ].join("\n");
 const TEST_CONTENT = 'it("adjudicates", () => expect(1).toBe(1));\n';
 
-const permissionEntry = Schema.Union([Schema.String, Schema.Record(Schema.String, Schema.String)]);
+const permissionEntry = Schema.Union([
+  Schema.String,
+  Schema.Record(Schema.String, Schema.String),
+]);
 const agentPermissionSchema = struct({
   permission: Schema.Record(Schema.String, permissionEntry),
 });
@@ -63,9 +71,14 @@ const NODE_ERROR_TAGS: Record<string, SystemErrorTag> = {
   EPERM: "PermissionDenied",
 };
 
-const nodeSystemErrorTag = (cause: unknown): SystemErrorTag => NODE_ERROR_TAGS[nodeErrorCode(cause)] ?? "Unknown";
+const nodeSystemErrorTag = (cause: unknown): SystemErrorTag =>
+  NODE_ERROR_TAGS[nodeErrorCode(cause)] ?? "Unknown";
 
-const nodePlatformError = (method: string, path: string, cause: unknown): PlatformError =>
+const nodePlatformError = (
+  method: string,
+  path: string,
+  cause: unknown
+): PlatformError =>
   systemError({
     _tag: nodeSystemErrorTag(cause),
     cause,
@@ -77,7 +90,7 @@ const nodePlatformError = (method: string, path: string, cause: unknown): Platfo
 const nodeFileSystemEffect = <A>(
   method: string,
   path: string,
-  run: () => Promise<A>,
+  run: () => Promise<A>
 ): Effect.Effect<A, PlatformError> =>
   Effect.tryPromise({
     catch: (cause) => nodePlatformError(method, path, cause),
@@ -86,7 +99,7 @@ const nodeFileSystemEffect = <A>(
 
 const makeDirectory = (
   path: string,
-  options?: { readonly mode?: number; readonly recursive?: boolean },
+  options?: { readonly mode?: number; readonly recursive?: boolean }
 ): Effect.Effect<void, PlatformError> =>
   nodeFileSystemEffect("makeDirectory", path, async () => {
     const fs = await import("node:fs/promises");
@@ -97,15 +110,21 @@ const makeTempDirectory = (options?: {
   readonly directory?: string;
   readonly prefix?: string;
 }): Effect.Effect<string, PlatformError> =>
-  nodeFileSystemEffect("makeTempDirectory", options?.directory ?? "", async () => {
-    const fs = await import("node:fs/promises");
-    const nodePath = await import("node:path");
-    return await fs.mkdtemp(nodePath.join(options?.directory ?? "/tmp", options?.prefix ?? "tmp-"));
-  });
+  nodeFileSystemEffect(
+    "makeTempDirectory",
+    options?.directory ?? "",
+    async () => {
+      const fs = await import("node:fs/promises");
+      const nodePath = await import("node:path");
+      return await fs.mkdtemp(
+        nodePath.join(options?.directory ?? "/tmp", options?.prefix ?? "tmp-")
+      );
+    }
+  );
 
 const remove = (
   path: string,
-  options?: { readonly force?: boolean; readonly recursive?: boolean },
+  options?: { readonly force?: boolean; readonly recursive?: boolean }
 ): Effect.Effect<void, PlatformError> =>
   nodeFileSystemEffect("remove", path, async () => {
     const fs = await import("node:fs/promises");
@@ -115,11 +134,15 @@ const remove = (
 const writeFileString = (
   path: string,
   data: string,
-  options?: { readonly flag?: OpenFlag; readonly mode?: number },
+  options?: { readonly flag?: OpenFlag; readonly mode?: number }
 ): Effect.Effect<void, PlatformError> =>
   nodeFileSystemEffect("writeFileString", path, async () => {
     const fs = await import("node:fs/promises");
-    await fs.writeFile(path, data, { encoding: "utf-8", flag: options?.flag, mode: options?.mode });
+    await fs.writeFile(path, data, {
+      encoding: "utf-8",
+      flag: options?.flag,
+      mode: options?.mode,
+    });
   });
 
 const readFileString = (path: string): Effect.Effect<string, PlatformError> =>
@@ -139,12 +162,12 @@ const exists = (path: string): Effect.Effect<boolean, PlatformError> =>
     const fs = await import("node:fs/promises");
     return await fs.access(path).then(
       () => true,
-      (cause: unknown) => {
-        if (nodeErrorCode(cause) === "ENOENT") {
+      (error: unknown) => {
+        if (nodeErrorCode(error) === "ENOENT") {
           return false;
         }
-        throw cause;
-      },
+        throw error;
+      }
     );
   });
 
@@ -153,7 +176,7 @@ const makeTempDirectoryScoped = (options?: {
   readonly prefix?: string;
 }): Effect.Effect<string, PlatformError, Scope> =>
   Effect.acquireRelease(makeTempDirectory(options), (path) =>
-    Effect.orDie(remove(path, { force: true, recursive: true })),
+    Effect.orDie(remove(path, { force: true, recursive: true }))
   );
 
 const testFileSystemLayer = layerNoop({
@@ -169,7 +192,11 @@ const testFileSystemLayer = layerNoop({
 
 const protectedPathFixtureLayer = mergeAll(testFileSystemLayer, layer);
 
-const shellPlan = (cwd: string, script: string, protectedPaths: readonly string[] | void): RunnerLaunchPlan => ({
+const shellPlan = (
+  cwd: string,
+  script: string,
+  protectedPaths?: readonly string[]
+): RunnerLaunchPlan => ({
   args: ["-c", script],
   command: "bash",
   cwd,
@@ -184,20 +211,31 @@ const shellPlan = (cwd: string, script: string, protectedPaths: readonly string[
 const runShellEffect = (
   cwd: string,
   script: string,
-  protectedPaths?: readonly string[],
+  protectedPaths?: readonly string[]
 ): Effect.Effect<LaunchResult, unknown> =>
   Effect.tryPromise({
     catch: (error: unknown) => error,
-    try: async () => await runLaunchPlan(shellPlan(cwd, script, protectedPaths)),
+    try: async () =>
+      await runLaunchPlan(shellPlan(cwd, script, protectedPaths)),
   });
 
-const makeWorktreeEffect = (): Effect.Effect<string, PlatformError, FileSystem | Path | Scope> =>
+const makeWorktreeEffect = (): Effect.Effect<
+  string,
+  PlatformError,
+  FileSystem | Path | Scope
+> =>
   Effect.gen(function* makeWorktreeProgram() {
     const fileSystem = yield* FileSystem;
     const path = yield* Path;
-    const root = yield* fileSystem.makeTempDirectoryScoped({ prefix: "moka-protected-" });
-    yield* fileSystem.makeDirectory(path.join(root, "backlog", "tasks"), { recursive: true });
-    yield* fileSystem.makeDirectory(path.join(root, "tests"), { recursive: true });
+    const root = yield* fileSystem.makeTempDirectoryScoped({
+      prefix: "moka-protected-",
+    });
+    yield* fileSystem.makeDirectory(path.join(root, "backlog", "tasks"), {
+      recursive: true,
+    });
+    yield* fileSystem.makeDirectory(path.join(root, "tests"), {
+      recursive: true,
+    });
     yield* fileSystem.writeFileString(path.join(root, AC_FILE), AC_CONTENT);
     yield* fileSystem.writeFileString(path.join(root, TEST_FILE), TEST_CONTENT);
     return root;
@@ -206,7 +244,7 @@ const makeWorktreeEffect = (): Effect.Effect<string, PlatformError, FileSystem |
 const writeTextEffect = (
   root: string,
   rel: string,
-  content: string,
+  content: string
 ): Effect.Effect<void, PlatformError, FileSystem | Path> =>
   Effect.gen(function* writeTextProgram() {
     const fileSystem = yield* FileSystem;
@@ -214,21 +252,30 @@ const writeTextEffect = (
     yield* fileSystem.writeFileString(path.join(root, rel), content);
   });
 
-const removePathEffect = (root: string, rel: string): Effect.Effect<void, PlatformError, FileSystem | Path> =>
+const removePathEffect = (
+  root: string,
+  rel: string
+): Effect.Effect<void, PlatformError, FileSystem | Path> =>
   Effect.gen(function* removePathProgram() {
     const fileSystem = yield* FileSystem;
     const path = yield* Path;
     yield* fileSystem.remove(path.join(root, rel), { force: true });
   });
 
-const readEffect = (root: string, rel: string): Effect.Effect<string, PlatformError, FileSystem | Path> =>
+const readEffect = (
+  root: string,
+  rel: string
+): Effect.Effect<string, PlatformError, FileSystem | Path> =>
   Effect.gen(function* readProgram() {
     const fileSystem = yield* FileSystem;
     const path = yield* Path;
     return yield* fileSystem.readFileString(path.join(root, rel));
   });
 
-const existsEffect = (root: string, rel: string): Effect.Effect<boolean, PlatformError, FileSystem | Path> =>
+const existsEffect = (
+  root: string,
+  rel: string
+): Effect.Effect<boolean, PlatformError, FileSystem | Path> =>
   Effect.gen(function* existsProgram() {
     const fileSystem = yield* FileSystem;
     const path = yield* Path;
@@ -238,13 +285,16 @@ const existsEffect = (root: string, rel: string): Effect.Effect<boolean, Platfor
 const isNonSymlinkReadLinkError = (error: PlatformError): boolean =>
   error.reason._tag === "InvalidData" || error.reason._tag === "NotFound";
 
-const isSymbolicLinkEffect = (root: string, rel: string): Effect.Effect<boolean, PlatformError, FileSystem | Path> =>
+const isSymbolicLinkEffect = (
+  root: string,
+  rel: string
+): Effect.Effect<boolean, PlatformError, FileSystem | Path> =>
   Effect.gen(function* isSymbolicLinkProgram() {
     const fileSystem = yield* FileSystem;
     const path = yield* Path;
     return yield* fileSystem.readLink(path.join(root, rel)).pipe(
       Effect.as(true),
-      Effect.catchIf(isNonSymlinkReadLinkError, () => Effect.succeed(false)),
+      Effect.catchIf(isNonSymlinkReadLinkError, () => Effect.succeed(false))
     );
   });
 
@@ -256,8 +306,8 @@ const ORIGINAL: Record<ProtectedFixturePath, string> = {
 // Run a tampering script in a fresh guarded worktree and return the outcome for
 // the caller to assert on.
 describe("protected-path guard module", () => {
-  it.layer(protectedPathFixtureLayer)((it) => {
-    it.effect("detects and reverts a modified protected file", () =>
+  it.layer(protectedPathFixtureLayer)((test) => {
+    test.effect("detects and reverts a modified protected file", () =>
       Effect.gen(function* modifiedProtectedFile() {
         const root = yield* makeWorktreeEffect();
         const guard = createProtectedPathGuard(root, PROTECTED);
@@ -267,10 +317,10 @@ describe("protected-path guard module", () => {
 
         expect(violations).toEqual([{ kind: "modified", path: AC_FILE }]);
         expect(yield* readEffect(root, AC_FILE)).toBe(AC_CONTENT);
-      }),
+      })
     );
 
-    it.effect("detects and recreates a deleted protected file", () =>
+    test.effect("detects and recreates a deleted protected file", () =>
       Effect.gen(function* deletedProtectedFile() {
         const root = yield* makeWorktreeEffect();
         const guard = createProtectedPathGuard(root, PROTECTED);
@@ -280,10 +330,10 @@ describe("protected-path guard module", () => {
 
         expect(violations).toEqual([{ kind: "deleted", path: TEST_FILE }]);
         expect(yield* readEffect(root, TEST_FILE)).toBe(TEST_CONTENT);
-      }),
+      })
     );
 
-    it.effect("is a no-op when no protected patterns are configured", () =>
+    test.effect("is a no-op when no protected patterns are configured", () =>
       Effect.gen(function* unprotectedFile() {
         const root = yield* makeWorktreeEffect();
         const guard = createProtectedPathGuard(root);
@@ -291,7 +341,7 @@ describe("protected-path guard module", () => {
 
         expect(guard.verifyAndRestore()).toEqual([]);
         expect(yield* readEffect(root, AC_FILE)).toBe("freely edited");
-      }),
+      })
     );
   });
 });
@@ -330,46 +380,61 @@ const tamperCases: readonly TamperCase[] = [
 ];
 
 describe("runLaunchPlan — CLI/runner transport enforcement", () => {
-  it.layer(protectedPathFixtureLayer)((it) => {
-    it.effect.each(tamperCases)("rejects $name — file unchanged, node failed", ({ script, target }) =>
-      Effect.gen(function* rejectedTamper() {
-        const root = yield* makeWorktreeEffect();
-        const result = yield* runShellEffect(root, script, PROTECTED);
+  it.layer(protectedPathFixtureLayer)((test) => {
+    test.effect.each(tamperCases)(
+      "rejects $name — file unchanged, node failed",
+      ({ script, target }) =>
+        Effect.gen(function* rejectedTamper() {
+          const root = yield* makeWorktreeEffect();
+          const result = yield* runShellEffect(root, script, PROTECTED);
 
-        expect(yield* readEffect(root, target)).toBe(ORIGINAL[target]);
-        expect(result.stderr).toMatch(VIOLATION_RE);
-        expect(result.exitCode).not.toBe(0);
-      }),
+          expect(yield* readEffect(root, target)).toBe(ORIGINAL[target]);
+          expect(result.stderr).toMatch(VIOLATION_RE);
+          expect(result.exitCode).not.toBe(0);
+        })
     );
 
-    it.effect("AC#7: reverts a symlink substituted for the protected path itself", () =>
-      Effect.gen(function* symlinkSubstitution() {
-        const script = `rm -f ${TEST_FILE} && ln -s /etc/hosts ${TEST_FILE}`;
-        const root = yield* makeWorktreeEffect();
-        yield* runShellEffect(root, script, PROTECTED);
+    test.effect(
+      "AC#7: reverts a symlink substituted for the protected path itself",
+      () =>
+        Effect.gen(function* symlinkSubstitution() {
+          const script = `rm -f ${TEST_FILE} && ln -s /etc/hosts ${TEST_FILE}`;
+          const root = yield* makeWorktreeEffect();
+          yield* runShellEffect(root, script, PROTECTED);
 
-        expect(yield* readEffect(root, TEST_FILE)).toBe(TEST_CONTENT);
-        expect(yield* isSymbolicLinkEffect(root, TEST_FILE)).toBe(false);
-      }),
+          expect(yield* readEffect(root, TEST_FILE)).toBe(TEST_CONTENT);
+          expect(yield* isSymbolicLinkEffect(root, TEST_FILE)).toBe(false);
+        })
     );
 
-    it.effect("AC#5: removing the protected entry re-enables the write (live, not inert)", () =>
-      Effect.gen(function* unguardedWrite() {
-        const guarded = yield* makeWorktreeEffect();
-        yield* runShellEffect(guarded, `printf 'HACKED' > ${AC_FILE}`, PROTECTED);
-        expect(yield* readEffect(guarded, AC_FILE)).toBe(AC_CONTENT);
+    test.effect(
+      "AC#5: removing the protected entry re-enables the write (live, not inert)",
+      () =>
+        Effect.gen(function* unguardedWrite() {
+          const guarded = yield* makeWorktreeEffect();
+          yield* runShellEffect(
+            guarded,
+            `printf 'HACKED' > ${AC_FILE}`,
+            PROTECTED
+          );
+          expect(yield* readEffect(guarded, AC_FILE)).toBe(AC_CONTENT);
 
-        const unguarded = yield* makeWorktreeEffect();
-        const result = yield* runShellEffect(unguarded, `printf 'HACKED' > ${AC_FILE}`, []);
-        expect(yield* readEffect(unguarded, AC_FILE)).toBe("HACKED");
-        expect(result.exitCode).toBe(0);
-        expect(result.stderr).not.toMatch(VIOLATION_RE);
-      }),
+          const unguarded = yield* makeWorktreeEffect();
+          const result = yield* runShellEffect(
+            unguarded,
+            `printf 'HACKED' > ${AC_FILE}`,
+            []
+          );
+          expect(yield* readEffect(unguarded, AC_FILE)).toBe("HACKED");
+          expect(result.exitCode).toBe(0);
+          expect(result.stderr).not.toMatch(VIOLATION_RE);
+        })
     );
   });
 });
 
-const loadAcceptanceStore = (root: string) => Effect.provide(loadBacklogTaskStoreEffect(root), RepoIoServiceLive);
+const loadAcceptanceStore = (root: string) =>
+  Effect.provide(loadBacklogTaskStoreEffect(root), RepoIoServiceLive);
 
 const protectedConfig = () =>
   parsePipelineConfigParts({
@@ -427,9 +492,14 @@ describe("filesystem.protected wiring", () => {
 
   it("AC#3: opencode permission map emits per-path deny for edit and write", () => {
     const definitions = opencodeAdapter.definitions(protectedConfig(), "/repo");
-    const agent = definitions.find((def) => def.path === ".opencode/agents/code-writer.md");
+    const agent = definitions.find(
+      (def) => def.path === ".opencode/agents/code-writer.md"
+    );
     expect(agent).toBeDefined();
-    const { permission } = parseWithSchema(agentPermissionSchema, matter(agent?.content ?? "").data);
+    const { permission } = parseWithSchema(
+      agentPermissionSchema,
+      matter(agent?.content ?? "").data
+    );
 
     const expected = {
       "*": "allow",
@@ -442,16 +512,20 @@ describe("filesystem.protected wiring", () => {
 });
 
 describe("gate/planner read access retained (AC#6)", () => {
-  it.layer(protectedPathFixtureLayer)((it) => {
-    it.effect("the acceptance store still reads criteria with protection configured", () =>
-      Effect.gen(function* readProtectedCriteria() {
-        const root = yield* makeWorktreeEffect();
-        const store = yield* loadAcceptanceStore(root);
-        const criteriaFileExists = yield* existsEffect(root, AC_FILE);
+  it.layer(protectedPathFixtureLayer)((test) => {
+    test.effect(
+      "the acceptance store still reads criteria with protection configured",
+      () =>
+        Effect.gen(function* readProtectedCriteria() {
+          const root = yield* makeWorktreeEffect();
+          const store = yield* loadAcceptanceStore(root);
+          const criteriaFileExists = yield* existsEffect(root, AC_FILE);
 
-        expect(criteriaFileExists).toBe(true);
-        expect(store.tasksById.get("PIPE-1")?.acceptanceCriteria).toEqual(["The widget renders"]);
-      }),
+          expect(criteriaFileExists).toBe(true);
+          expect(store.tasksById.get("PIPE-1")?.acceptanceCriteria).toEqual([
+            "The widget renders",
+          ]);
+        })
     );
   });
 });

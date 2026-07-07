@@ -4,9 +4,16 @@ import type { Command } from "commander";
 import { loadPipelineConfig } from "../config";
 import { renderGatewayConfig } from "../mcp/gateway-config";
 import { runGatewayDoctor } from "../mcp/gateway-doctor";
-import { localGatewayStatus, reconcileGateway, startLocalGateway } from "../mcp/gateway-reconcile";
+import {
+  localGatewayStatus,
+  reconcileGateway,
+  startLocalGateway,
+} from "../mcp/gateway-reconcile";
 import { configureGatewayHosts } from "../mcp/host-config";
-import type { GatewayHostScope, GatewayHostSelection } from "../mcp/host-config";
+import type {
+  GatewayHostScope,
+  GatewayHostSelection,
+} from "../mcp/host-config";
 import { formatDoctorResult } from "./format";
 
 interface GatewayConfigureHostFlags {
@@ -17,6 +24,10 @@ interface GatewayConfigureHostFlags {
 interface GatewayLocalStartFlags {
   detach?: boolean;
 }
+
+const writeOutput = (message: string): void => {
+  globalThis.console.log(message);
+};
 
 const parseGatewayHostScope = (value: string): GatewayHostScope => {
   if (value === "project" || value === "global") {
@@ -41,14 +52,17 @@ export const registerMcpGatewayCommands = (program: Command): void => {
 
   gatewayCommand
     .command("doctor")
-    .description("Check MCP gateway configuration and legacy direct MCP entries")
+    .description(
+      "Check MCP gateway configuration and legacy direct MCP entries"
+    )
     .action(async () => {
       const cwd = process.env.PIPELINE_TARGET_PATH ?? process.cwd();
       const config = loadPipelineConfig(cwd, {
         allowMissingLintFileReferences: true,
       });
       const result = await runGatewayDoctor(config, cwd);
-      console.log(formatDoctorResult(result));
+      writeOutput(formatDoctorResult(result));
+
       if (!result.passed) {
         throw new Error("MCP gateway doctor checks failed.");
       }
@@ -62,7 +76,7 @@ export const registerMcpGatewayCommands = (program: Command): void => {
       const config = loadPipelineConfig(cwd, {
         allowMissingLintFileReferences: true,
       });
-      console.log(renderGatewayConfig(config));
+      writeOutput(renderGatewayConfig(config));
     });
 
   gatewayCommand
@@ -72,13 +86,13 @@ export const registerMcpGatewayCommands = (program: Command): void => {
       new Option("--host <host>", "host config to update")
         .choices(["all", "opencode"])
         .default("all")
-        .argParser(parseGatewayHost),
+        .argParser(parseGatewayHost)
     )
     .addOption(
       new Option("--scope <scope>", "config scope to update")
         .choices(["project", "global"])
         .default("project")
-        .argParser(parseGatewayHostScope),
+        .argParser(parseGatewayHostScope)
     )
     .action((flags: GatewayConfigureHostFlags) => {
       const cwd = process.env.PIPELINE_TARGET_PATH ?? process.cwd();
@@ -90,15 +104,19 @@ export const registerMcpGatewayCommands = (program: Command): void => {
         host: flags.host ?? "all",
         scope: flags.scope ?? "project",
       });
-      console.log(
+      writeOutput(
         result
-          .map((item) =>
+          .map((entry) =>
             [
-              `${item.host}: ${item.path}`,
-              item.backupPath !== undefined && item.backupPath !== "" ? `backup=${item.backupPath}` : "backup=none",
-            ].join(" "),
+              `configured ${entry.host}: ${entry.path}`,
+              entry.backupPath !== undefined && entry.backupPath !== ""
+                ? `backup=${entry.backupPath}`
+                : "",
+            ]
+              .filter((part) => part !== "")
+              .join(" ")
           )
-          .join("\n"),
+          .join("\n")
       );
     });
 
@@ -111,15 +129,12 @@ export const registerMcpGatewayCommands = (program: Command): void => {
         allowMissingLintFileReferences: true,
       });
       const result = await reconcileGateway(config, cwd);
-      console.log(
+      writeOutput(
         [
+          `reconciled ${result.backendCount} MCP gateway backends`,
           `workspace=${result.workspacePath}`,
           `config=${result.configPath}`,
-          `backends=${result.backendCount}`,
-          result.readinessFailures.length > 0
-            ? `readiness_failures=${result.readinessFailures.join("; ")}`
-            : "readiness_failures=none",
-        ].join("\n"),
+        ].join("\n")
       );
     });
 
@@ -143,6 +158,6 @@ export const registerMcpGatewayCommands = (program: Command): void => {
     .description("Show local ToolHive MCP server status")
     .action(async () => {
       const cwd = process.env.PIPELINE_TARGET_PATH ?? process.cwd();
-      console.log(await localGatewayStatus(cwd));
+      writeOutput(await localGatewayStatus(cwd));
     });
 };

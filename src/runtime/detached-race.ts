@@ -1,9 +1,13 @@
 import { Effect, Exit, Fiber, Option } from "effect";
 
 const replayExit = <A, E>(exit: Exit.Exit<A, E>): Effect.Effect<A, E> =>
-  Exit.isSuccess(exit) ? Effect.succeed(exit.value) : Effect.failCause(exit.cause);
+  Exit.isSuccess(exit)
+    ? Effect.succeed(exit.value)
+    : Effect.failCause(exit.cause);
 
-const interruptInBackground = <A, E>(fiber: Fiber.Fiber<A, E>): Effect.Effect<void> =>
+const interruptInBackground = <A, E>(
+  fiber: Fiber.Fiber<A, E>
+): Effect.Effect<void> =>
   Effect.forkDetach(Fiber.interrupt(fiber), {
     startImmediately: true,
   }).pipe(Effect.asVoid);
@@ -16,7 +20,7 @@ const interruptInBackground = <A, E>(fiber: Fiber.Fiber<A, E>): Effect.Effect<vo
  */
 export const raceDetached = <A, E, R, A2, E2, R2>(
   source: Effect.Effect<A, E, R>,
-  policy: Effect.Effect<A2, E2, R2>,
+  policy: Effect.Effect<A2, E2, R2>
 ): Effect.Effect<A | A2, E | E2, R | R2> => {
   let sourceFiber: Option.Option<Fiber.Fiber<A, E>> = Option.none();
   let sourceWon = false;
@@ -29,15 +33,17 @@ export const raceDetached = <A, E, R, A2, E2, R2>(
       Effect.flatMap((exit) =>
         Effect.sync(() => {
           sourceWon = true;
-        }).pipe(Effect.andThen(replayExit(exit))),
-      ),
+        }).pipe(Effect.andThen(replayExit(exit)))
+      )
     );
     return yield* Effect.raceFirst(sourceResult, policy);
   }).pipe(
     Effect.ensuring(
       Effect.suspend(() =>
-        !sourceWon && Option.isSome(sourceFiber) ? interruptInBackground(sourceFiber.value) : Effect.void,
-      ),
-    ),
+        !sourceWon && Option.isSome(sourceFiber)
+          ? interruptInBackground(sourceFiber.value)
+          : Effect.void
+      )
+    )
   );
 };

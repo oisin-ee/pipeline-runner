@@ -49,13 +49,17 @@ describe("runtime context", () => {
   it("resolves workflow entrypoints and rejects schedule entrypoints", () => {
     const config = configWithWorkflow();
 
-    expect(resolveWorkflowSelection(config, undefined, "default-entry")).toBe("default");
-    expect(() => resolveWorkflowSelection(config, undefined, "nightly")).toThrow(
-      "Pipeline entrypoint 'nightly' generates schedule 'nightly-schedule'; run with --schedule <schedule.yaml> instead.",
+    expect(resolveWorkflowSelection(config, undefined, "default-entry")).toBe(
+      "default"
     );
-    expect(() => resolveWorkflowSelection(config, undefined, "missing")).toThrow(
-      "Unknown pipeline entrypoint 'missing'",
+    expect(() =>
+      resolveWorkflowSelection(config, undefined, "nightly")
+    ).toThrow(
+      "Pipeline entrypoint 'nightly' generates schedule 'nightly-schedule'; run with --schedule <schedule.yaml> instead."
     );
+    expect(() =>
+      resolveWorkflowSelection(config, undefined, "missing")
+    ).toThrow("Unknown pipeline entrypoint 'missing'");
   });
 
   it("normalizes an explicit maxParallelNodes as a positive integer", () => {
@@ -64,21 +68,21 @@ describe("runtime context", () => {
         config: configWithWorkflow(),
         maxParallelNodes: 2,
         task: "task",
-      }).maxParallelNodes,
+      }).maxParallelNodes
     ).toBe(2);
     expect(() =>
       createRuntimeContext({
         config: configWithWorkflow(),
         maxParallelNodes: 1.5,
         task: "task",
-      }),
+      })
     ).toThrow("maxParallelNodes must be a positive integer");
     expect(() =>
       createRuntimeContext({
         config: configWithWorkflow(),
         maxParallelNodes: -1,
         task: "task",
-      }),
+      })
     ).toThrow("maxParallelNodes must be a positive integer");
   });
 

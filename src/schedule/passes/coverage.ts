@@ -20,27 +20,40 @@ const DEFAULT_GENERATED_COVERAGE_PROFILE_PREFERENCE = [
 // parallel's own level (running after it completes), never inside it: parallel
 // children execute concurrently and do not honor inter-sibling needs, so a
 // coverage node placed among them would verify the implementation before it ran.
-const nodeNeedsImplementationCoverage = (config: PipelineConfig, node: WorkflowNode): boolean => {
+const nodeNeedsImplementationCoverage = (
+  config: PipelineConfig,
+  node: WorkflowNode
+): boolean => {
   if (isImplementationNode(config, node)) {
     return true;
   }
-  return node.kind === "parallel" && node.nodes.some((child) => nodeNeedsImplementationCoverage(config, child));
+  return (
+    node.kind === "parallel" &&
+    node.nodes.some((child) => nodeNeedsImplementationCoverage(config, child))
+  );
 };
 
-const generatedCoverageProfileId = (config: PipelineConfig): Option.Option<string> => {
+const generatedCoverageProfileId = (
+  config: PipelineConfig
+): Option.Option<string> => {
   const coverageProfiles = Object.entries(config.profiles)
-    .filter(([, profile]) => (profile.scheduling_roles ?? []).includes("coverage"))
+    .filter(([, profile]) =>
+      (profile.scheduling_roles ?? []).includes("coverage")
+    )
     .map(([id]) => id);
   if (coverageProfiles.length === 0) {
     return Option.none();
   }
   return Option.fromUndefinedOr(
-    DEFAULT_GENERATED_COVERAGE_PROFILE_PREFERENCE.find((id) => coverageProfiles.includes(id)) ??
-      coverageProfiles.toSorted()[0],
+    DEFAULT_GENERATED_COVERAGE_PROFILE_PREFERENCE.find((id) =>
+      coverageProfiles.includes(id)
+    ) ?? coverageProfiles.toSorted()[0]
   );
 };
 
-const generatedCoverageGates = (nodeId: string): NonNullable<WorkflowNode["gates"]> => [
+const generatedCoverageGates = (
+  nodeId: string
+): NonNullable<WorkflowNode["gates"]> => [
   { builtin: "typecheck", id: `${nodeId}-typecheck`, kind: "builtin" },
   { builtin: "test", id: `${nodeId}-tests`, kind: "builtin" },
   { builtin: "lint", id: `${nodeId}-lint`, kind: "builtin" },
@@ -57,13 +70,14 @@ const generatedCoverageGates = (nodeId: string): NonNullable<WorkflowNode["gates
 export const hasDownstreamCoverage = (
   config: PipelineConfig,
   nodeId: string,
-  index: Map<string, WorkflowNode[]>,
-): boolean => hasReachableDependent(nodeId, index, (node) => isCoverageNode(config, node));
+  index: Map<string, WorkflowNode[]>
+): boolean =>
+  hasReachableDependent(nodeId, index, (node) => isCoverageNode(config, node));
 
 const addNodeScopeImplementationCoverage = (
   config: PipelineConfig,
   nodes: WorkflowNode[],
-  coverageProfileId: string,
+  coverageProfileId: string
 ): WorkflowNode[] => {
   const index = dependentsByNeed(nodes);
   const uncovered = nodes
@@ -73,7 +87,11 @@ const addNodeScopeImplementationCoverage = (
     return nodes;
   }
   const usedIds = new Set(nodes.map((node) => node.id));
-  const coverageNodeId = uniqueGeneratedId("generated-coverage", usedIds, "generated-coverage");
+  const coverageNodeId = uniqueGeneratedId(
+    "generated-coverage",
+    usedIds,
+    "generated-coverage"
+  );
   return [
     ...nodes,
     {
@@ -89,15 +107,19 @@ const addNodeScopeImplementationCoverage = (
 const addWorkflowImplementationCoverage = (
   config: PipelineConfig,
   workflow: Workflow,
-  coverageProfileId: string,
+  coverageProfileId: string
 ): Workflow => ({
   ...workflow,
-  nodes: addNodeScopeImplementationCoverage(config, workflow.nodes, coverageProfileId),
+  nodes: addNodeScopeImplementationCoverage(
+    config,
+    workflow.nodes,
+    coverageProfileId
+  ),
 });
 
 export const addGeneratedImplementationCoverage = (
   config: PipelineConfig,
-  artifact: ScheduleArtifact,
+  artifact: ScheduleArtifact
 ): ScheduleArtifact => {
   const coverageProfileId = generatedCoverageProfileId(config);
   if (Option.isNone(coverageProfileId)) {
@@ -108,8 +130,12 @@ export const addGeneratedImplementationCoverage = (
     workflows: Object.fromEntries(
       Object.entries(artifact.workflows).map(([id, workflow]) => [
         id,
-        addWorkflowImplementationCoverage(config, workflow, coverageProfileId.value),
-      ]),
+        addWorkflowImplementationCoverage(
+          config,
+          workflow,
+          coverageProfileId.value
+        ),
+      ])
     ),
   };
 };

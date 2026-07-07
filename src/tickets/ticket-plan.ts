@@ -23,11 +23,12 @@ const localKeySchema = nonEmptyStringSchema.check(
       LOCAL_KEY_RE.test(value) ||
       "local keys must start with a lowercase letter and contain only lowercase letters, numbers, and hyphens",
     {
-      description: "Lowercase local ticket key with letters, numbers, and hyphens.",
+      description:
+        "Lowercase local ticket key with letters, numbers, and hyphens.",
       identifier: "TicketPlanLocalKey",
       title: "Ticket plan local key",
-    },
-  ),
+    }
+  )
 );
 
 const acceptanceCriterionSchema = struct({
@@ -77,18 +78,23 @@ const emptyTicketKeyValidation: TicketKeyValidation = {
   seenKeys: HashMap.empty<string, number>(),
 };
 
-class TicketPlanError extends Schema.TaggedErrorClass<TicketPlanError>()("TicketPlanError", {
-  message: Schema.String,
-}) {}
+class TicketPlanError extends Schema.TaggedErrorClass<TicketPlanError>()(
+  "TicketPlanError",
+  {
+    message: Schema.String,
+  }
+) {}
 
-const validateUniqueTicketKeys = (tickets: readonly TicketPlanTask[]): TicketKeyValidation =>
+const validateUniqueTicketKeys = (
+  tickets: readonly TicketPlanTask[]
+): TicketKeyValidation =>
   Arr.reduce(tickets, emptyTicketKeyValidation, (state, ticket, index) => {
     const duplicateIssue = Option.map(
       HashMap.get(state.seenKeys, ticket.key),
       (firstIndex): TicketPlanIssue => ({
         issue: `duplicate local ticket key '${ticket.key}' first used at tickets.${firstIndex}.key`,
         path: ["tickets", index, "key"],
-      }),
+      })
     );
     return {
       issues: [...state.issues, ...Arr.fromOption(duplicateIssue)],
@@ -98,7 +104,7 @@ const validateUniqueTicketKeys = (tickets: readonly TicketPlanTask[]): TicketKey
 
 const validateEpicKey = (
   epic: Option.Option<TicketPlanEpic>,
-  seenKeys: HashMap.HashMap<string, number>,
+  seenKeys: HashMap.HashMap<string, number>
 ): readonly TicketPlanIssue[] =>
   Option.match(epic, {
     onNone: () => [],
@@ -116,9 +122,9 @@ const validateEpicKey = (
 const validateTicketDependencies = (
   ticket: TicketPlanTask,
   ticketIndex: number,
-  seenKeys: HashMap.HashMap<string, number>,
+  seenKeys: HashMap.HashMap<string, number>
 ): readonly TicketPlanIssue[] =>
-  Arr.flatMap(ticket.depends_on, (dependencyKey, dependencyIndex) =>
+  Arr.flatMap((dependencyKey: string, dependencyIndex: number) =>
     HashMap.has(seenKeys, dependencyKey)
       ? []
       : [
@@ -126,14 +132,16 @@ const validateTicketDependencies = (
             issue: `unknown dependency key '${dependencyKey}'`,
             path: ["tickets", ticketIndex, "depends_on", dependencyIndex],
           },
-        ],
-  );
+        ]
+  )(ticket.depends_on);
 
 const validateLocalDependencies = (
   tickets: readonly TicketPlanTask[],
-  seenKeys: HashMap.HashMap<string, number>,
+  seenKeys: HashMap.HashMap<string, number>
 ): readonly TicketPlanIssue[] =>
-  Arr.flatMap(tickets, (ticket, ticketIndex) => validateTicketDependencies(ticket, ticketIndex, seenKeys));
+  Arr.flatMap((ticket: TicketPlanTask, ticketIndex: number) =>
+    validateTicketDependencies(ticket, ticketIndex, seenKeys)
+  )(tickets);
 
 const ticketPlanBaseSchema = struct({
   epic: Schema.optional(epicTaskSchema),
@@ -143,7 +151,9 @@ const ticketPlanBaseSchema = struct({
 export const ticketPlanSchema = ticketPlanBaseSchema.check(
   Schema.makeFilter(
     (plan) => {
-      const { issues: keyIssues, seenKeys } = validateUniqueTicketKeys(plan.tickets);
+      const { issues: keyIssues, seenKeys } = validateUniqueTicketKeys(
+        plan.tickets
+      );
       const issues = [
         ...keyIssues,
         ...validateEpicKey(Option.fromUndefinedOr(plan.epic), seenKeys),
@@ -155,21 +165,24 @@ export const ticketPlanSchema = ticketPlanBaseSchema.check(
       });
     },
     {
-      description: "Ticket plan keys must be unique and dependencies must resolve.",
+      description:
+        "Ticket plan keys must be unique and dependencies must resolve.",
       identifier: "TicketPlanGraphIntegrity",
       title: "Ticket plan graph integrity",
-    },
-  ),
+    }
+  )
 );
 
-export const parseTicketPlanEffect = (source: string): Effect.Effect<TicketPlan, TicketPlanError> =>
+export const parseTicketPlanEffect = (
+  source: string
+): Effect.Effect<TicketPlan, TicketPlanError> =>
   Effect.gen(function* effectBody() {
     const json = parseResultWithSchema(Schema.UnknownFromJsonString, source);
     if (!json.ok) {
       return yield* Effect.fail(
         new TicketPlanError({
           message: `Could not parse ticket plan JSON: ${errorMessage(json.error)}`,
-        }),
+        })
       );
     }
     const decoded = parseResultWithSchema(ticketPlanSchema, json.value, {
@@ -181,6 +194,6 @@ export const parseTicketPlanEffect = (source: string): Effect.Effect<TicketPlan,
     return yield* Effect.fail(
       new TicketPlanError({
         message: `Invalid ticket plan: ${formatSchemaIssues(decoded.issues)}`,
-      }),
+      })
     );
   });

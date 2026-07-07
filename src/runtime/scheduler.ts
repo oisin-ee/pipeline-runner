@@ -3,7 +3,11 @@ import { fromUndefinedOr, isSome, match, none, some } from "effect/Option";
 import type { Option } from "effect/Option";
 
 import { uniqueStrings } from "../strings";
-import type { PipelineRuntimeResult, RuntimeFailure, RuntimeNodeResult } from "./contracts";
+import type {
+  PipelineRuntimeResult,
+  RuntimeFailure,
+  RuntimeNodeResult,
+} from "./contracts";
 import type { RunJournal } from "./run-journal";
 
 export interface WorkflowScheduleNode {
@@ -54,13 +58,17 @@ export interface WorkflowSchedulerRunResult {
   outcome: PipelineRuntimeResult["outcome"];
 }
 
-type ActiveSchedulerState = Required<Pick<WorkflowSchedulerState, "blocked" | "completed">> &
+type ActiveSchedulerState = Required<
+  Pick<WorkflowSchedulerState, "blocked" | "completed">
+> &
   Omit<WorkflowSchedulerState, "blocked" | "completed">;
 type WorkflowNodeCategory = Option<string>;
 
 // A node fiber reports exactly one terminal outcome onto the completion queue:
 // either its result, or the error its runNode promise rejected with.
-type NodeOutcome = { kind: "ok"; result: RuntimeNodeResult } | { error: unknown; kind: "error" };
+type NodeOutcome =
+  | { kind: "ok"; result: RuntimeNodeResult }
+  | { error: unknown; kind: "error" };
 
 interface SchedulerContext {
   completions: Queue.Queue<NodeOutcome>;
@@ -72,19 +80,28 @@ interface SchedulerContext {
 
 // PIPE-83.10: journal interactions are factored out so the durability seam adds
 // no branches to the scheduler loop.
-const resumeFromJournal = (input: WorkflowSchedulerInput): RuntimeNodeResult[] =>
-  input.journal?.resumeCompleted() ?? [];
+const resumeFromJournal = (
+  input: WorkflowSchedulerInput
+): RuntimeNodeResult[] => input.journal?.resumeCompleted() ?? [];
 
-const recordToJournal = (input: WorkflowSchedulerInput, result: RuntimeNodeResult): void => {
+const recordToJournal = (
+  input: WorkflowSchedulerInput,
+  result: RuntimeNodeResult
+): void => {
   input.journal?.record(result);
 };
 
-const cancelledResult = (state: ActiveSchedulerState): WorkflowSchedulerRunResult => ({
+const cancelledResult = (
+  state: ActiveSchedulerState
+): WorkflowSchedulerRunResult => ({
   completed: state.completed,
   outcome: "CANCELLED",
 });
 
-const terminalResult = (state: ActiveSchedulerState, failure?: RuntimeFailure): WorkflowSchedulerRunResult => ({
+const terminalResult = (
+  state: ActiveSchedulerState,
+  failure?: RuntimeFailure
+): WorkflowSchedulerRunResult => ({
   completed: state.completed,
   failure,
   outcome: failure ? "FAIL" : "PASS",
@@ -94,19 +111,26 @@ const terminalResult = (state: ActiveSchedulerState, failure?: RuntimeFailure): 
 // reports its terminal outcome onto a completion queue. `Queue.take` replaces
 // the hand-rolled `Promise.race`, and structured concurrency interrupts the
 // in-flight fibers on cancellation or a node-level defect.
-const runNodeFiber = (ctx: SchedulerContext, nodeId: string): Effect.Effect<void> =>
+const runNodeFiber = (
+  ctx: SchedulerContext,
+  nodeId: string
+): Effect.Effect<void> =>
   Effect.tryPromise({
     catch: (error) => error,
     try: async () => await ctx.input.runNode(nodeId),
   }).pipe(
     Effect.matchEffect({
-      onFailure: (error) => Queue.offer(ctx.completions, { error, kind: "error" }),
-      onSuccess: (result) => Queue.offer(ctx.completions, { kind: "ok", result }),
-    }),
+      onFailure: (error) =>
+        Queue.offer(ctx.completions, { error, kind: "error" }),
+      onSuccess: (result) =>
+        Queue.offer(ctx.completions, { kind: "ok", result }),
+    })
   );
 
 // Nodes already completed or in flight — i.e. claimed, never re-launchable.
-const settledNodeIds = (context: Pick<WorkflowSchedulerState, "completed" | "running">): Set<string> => {
+const settledNodeIds = (
+  context: Pick<WorkflowSchedulerState, "completed" | "running">
+): Set<string> => {
   const ids = new Set((context.completed ?? []).map((result) => result.nodeId));
   for (const nodeId of context.running) {
     ids.add(nodeId);
@@ -126,17 +150,27 @@ export interface NodeReadinessInput {
   readonly completed?: RuntimeNodeResult[];
   readonly nodes: WorkflowScheduleNode[];
   readonly running?: string[];
-  readonly shouldContinueAfterNodeResult?: (result: RuntimeNodeResult) => boolean;
+  readonly shouldContinueAfterNodeResult?: (
+    result: RuntimeNodeResult
+  ) => boolean;
 }
 
 const workflowNodeCapacity = (context: WorkflowSchedulerState): number => {
-  const limit = context.failFast === true ? 1 : (context.maxParallelNodes ?? context.nodes.length);
+  const limit =
+    context.failFast === true
+      ? 1
+      : (context.maxParallelNodes ?? context.nodes.length);
   return Math.max(0, limit - context.running.length);
 };
 
-const categoryCap = (category: string, fanOut: FanOutWidth): number => fanOut.by_category[category] ?? fanOut.default;
+const categoryCap = (category: string, fanOut: FanOutWidth): number =>
+  fanOut.by_category[category] ?? fanOut.default;
 
-const claimNamedCategorySlot = (fanOut: FanOutWidth, counts: Map<string, number>, category: string): boolean => {
+const claimNamedCategorySlot = (
+  fanOut: FanOutWidth,
+  counts: Map<string, number>,
+  category: string
+): boolean => {
   const current = counts.get(category) ?? 0;
   if (current >= categoryCap(category, fanOut)) {
     return false;
@@ -150,23 +184,34 @@ const claimNamedCategorySlot = (fanOut: FanOutWidth, counts: Map<string, number>
  * `counts` when it can. Uncategorized nodes always may; a category at its cap
  * may not.
  */
-const claimCategorySlot = (fanOut: FanOutWidth, counts: Map<string, number>, category: WorkflowNodeCategory): boolean =>
+const claimCategorySlot = (
+  fanOut: FanOutWidth,
+  counts: Map<string, number>,
+  category: WorkflowNodeCategory
+): boolean =>
   match(category, {
     onNone: () => true,
     onSome: (name) => claimNamedCategorySlot(fanOut, counts, name),
   });
 
-const recordCategoryRun = (counts: Map<string, number>, category: WorkflowNodeCategory): void => {
+const recordCategoryRun = (
+  counts: Map<string, number>,
+  category: WorkflowNodeCategory
+): void => {
   match(category, {
-    onNone: () => {},
+    onNone: () => {
+      /* empty */
+    },
     onSome: (name) => {
       counts.set(name, (counts.get(name) ?? 0) + 1);
-      return;
     },
   });
 };
 
-const categoryRunCounts = (running: string[], categoryOf: Map<string, WorkflowNodeCategory>): Map<string, number> => {
+const categoryRunCounts = (
+  running: string[],
+  categoryOf: Map<string, WorkflowNodeCategory>
+): Map<string, number> => {
   const counts = new Map<string, number>();
   for (const nodeId of running) {
     recordCategoryRun(counts, categoryOf.get(nodeId) ?? none());
@@ -178,10 +223,13 @@ const cappedSelection = (
   ready: string[],
   capacity: number,
   state: WorkflowSchedulerState,
-  fanOut: FanOutWidth,
+  fanOut: FanOutWidth
 ): string[] => {
   const categoryOf = new Map(
-    state.nodes.map((node): [string, WorkflowNodeCategory] => [node.id, fromUndefinedOr(node.category)]),
+    state.nodes.map((node): [string, WorkflowNodeCategory] => [
+      node.id,
+      fromUndefinedOr(node.category),
+    ])
   );
   const counts = categoryRunCounts(state.running, categoryOf);
   const selected: string[] = [];
@@ -196,13 +244,19 @@ const cappedSelection = (
   return selected;
 };
 
-const isBlockingFailure = (result: RuntimeNodeResult, context: WorkflowSchedulerState): boolean =>
-  result.status === "failed" && !(context.shouldContinueAfterNodeResult?.(result) ?? false);
+const isBlockingFailure = (
+  result: RuntimeNodeResult,
+  context: WorkflowSchedulerState
+): boolean =>
+  result.status === "failed" &&
+  !(context.shouldContinueAfterNodeResult?.(result) ?? false);
 
 const orderedNodes = (nodes: WorkflowScheduleNode[]): WorkflowScheduleNode[] =>
   [...nodes].toSorted((a, b) => a.index - b.index);
 
-const initialSchedulerState = (input: WorkflowSchedulerInput): ActiveSchedulerState => ({
+const initialSchedulerState = (
+  input: WorkflowSchedulerInput
+): ActiveSchedulerState => ({
   blocked: [],
   completed: resumeFromJournal(input),
   failFast: input.failFast,
@@ -226,13 +280,17 @@ export const computeReadyNodeIds = (input: NodeReadinessInput): string[] => {
         if (result === undefined) {
           return false;
         }
-        return input.shouldContinueAfterNodeResult?.(result) ?? result.status !== "failed";
-      }),
+        return (
+          input.shouldContinueAfterNodeResult?.(result) ??
+          result.status !== "failed"
+        );
+      })
     )
     .map((node) => node.id);
 };
 
-const readyNodeIds = (context: WorkflowSchedulerState): string[] => computeReadyNodeIds(context);
+const readyNodeIds = (context: WorkflowSchedulerState): string[] =>
+  computeReadyNodeIds(context);
 
 /**
  * Choose which ready nodes to launch this tick within the global capacity and
@@ -241,7 +299,10 @@ const readyNodeIds = (context: WorkflowSchedulerState): string[] => computeReady
  * are bounded only by the global capacity. Without a fanOutWidth (e.g. in tests
  * or configs with no token_budget), this is the prior `slice(0, capacity)`.
  */
-const selectLaunchableNodes = (state: WorkflowSchedulerState, capacity: number): string[] => {
+const selectLaunchableNodes = (
+  state: WorkflowSchedulerState,
+  capacity: number
+): string[] => {
   const ready = readyNodeIds(state);
   return state.fanOutWidth === undefined
     ? ready.slice(0, capacity)
@@ -262,14 +323,19 @@ const launchReady = (ctx: SchedulerContext): Effect.Effect<void> =>
     }
   });
 
-const unstartedNodeIds = (context: Pick<WorkflowSchedulerState, "completed" | "nodes" | "running">): string[] => {
+const unstartedNodeIds = (
+  context: Pick<WorkflowSchedulerState, "completed" | "nodes" | "running">
+): string[] => {
   const settled = settledNodeIds(context);
   return orderedNodes(context.nodes)
     .map((node) => node.id)
     .filter((nodeId) => !settled.has(nodeId));
 };
 
-const applyFailFastSkip = (ctx: SchedulerContext, result: RuntimeNodeResult): void => {
+const applyFailFastSkip = (
+  ctx: SchedulerContext,
+  result: RuntimeNodeResult
+): void => {
   const reason = `skipped because workflow fail_fast stopped after node '${result.nodeId}' failed`;
   const skipped = unstartedNodeIds(ctx.state);
   ctx.state.blocked = uniqueStrings([...ctx.state.blocked, ...skipped]);
@@ -278,20 +344,24 @@ const applyFailFastSkip = (ctx: SchedulerContext, result: RuntimeNodeResult): vo
   }
 };
 
-const directDependents = (nodeId: string, nodes: WorkflowScheduleNode[]): string[] => {
+const directDependents = (
+  nodeId: string,
+  nodes: WorkflowScheduleNode[]
+): string[] => {
   const declared = nodes.find((node) => node.id === nodeId)?.dependents ?? [];
   const inferred = orderedNodes(nodes)
     .filter((node) => node.needs.includes(nodeId))
     .map((node) => node.id);
   const byId = new Map(orderedNodes(nodes).map((node) => [node.id, node]));
   return uniqueStrings([...declared, ...inferred]).toSorted(
-    (left, right) => (byId.get(left)?.index ?? 0) - (byId.get(right)?.index ?? 0),
+    (left, right) =>
+      (byId.get(left)?.index ?? 0) - (byId.get(right)?.index ?? 0)
   );
 };
 
 const unstartedBlockingDescendants = (
   nodeId: string,
-  context: Pick<WorkflowSchedulerState, "completed" | "nodes" | "running">,
+  context: Pick<WorkflowSchedulerState, "completed" | "nodes" | "running">
 ): string[] => {
   const unstarted = new Set(unstartedNodeIds(context));
   const descendants = new Set<string>();
@@ -320,7 +390,10 @@ const nodeRuntimeFailure = (node: RuntimeNodeResult): RuntimeFailure => ({
 // Fold one completed node into the run state (mutates ctx), mirroring the prior
 // loop body: record it, then on a blocking failure either fail-fast-skip the
 // rest or block its descendants.
-const applyCompletion = (ctx: SchedulerContext, result: RuntimeNodeResult): void => {
+const applyCompletion = (
+  ctx: SchedulerContext,
+  result: RuntimeNodeResult
+): void => {
   ctx.running.delete(result.nodeId);
   ctx.state.running = ctx.state.running.filter((id) => id !== result.nodeId);
   ctx.state.completed = [...ctx.state.completed, result];
@@ -337,18 +410,27 @@ const applyCompletion = (ctx: SchedulerContext, result: RuntimeNodeResult): void
   ctx.state.blocked = uniqueStrings([...ctx.state.blocked, ...blocked]);
 };
 
-const workflowServiceFailure = (error: unknown, gate: string): RuntimeFailure => {
+const workflowServiceFailure = (
+  error: unknown,
+  gate: string
+): RuntimeFailure => {
   const reason = error instanceof Error ? error.message : String(error);
   return { evidence: [reason], gate, reason };
 };
 
-const nodeErrorResult = (state: ActiveSchedulerState, error: unknown): WorkflowSchedulerRunResult => ({
+const nodeErrorResult = (
+  state: ActiveSchedulerState,
+  error: unknown
+): WorkflowSchedulerRunResult => ({
   completed: state.completed,
   failure: workflowServiceFailure(error, "workflow.node"),
   outcome: "FAIL",
 });
 
-const applyOutcome = (ctx: SchedulerContext, outcome: NodeOutcome): Effect.Effect<Option<WorkflowSchedulerRunResult>> =>
+const applyOutcome = (
+  ctx: SchedulerContext,
+  outcome: NodeOutcome
+): Effect.Effect<Option<WorkflowSchedulerRunResult>> =>
   Effect.gen(function* effectBody() {
     if (outcome.kind === "error") {
       yield* Fiber.interruptAll(ctx.running.values());
@@ -360,7 +442,9 @@ const applyOutcome = (ctx: SchedulerContext, outcome: NodeOutcome): Effect.Effec
 
 // One scheduler tick: stop if cancelled, launch newly-ready nodes within the
 // caps, then either drain (no fibers left) or await the next completion.
-const schedulerTick = (ctx: SchedulerContext): Effect.Effect<Option<WorkflowSchedulerRunResult>> =>
+const schedulerTick = (
+  ctx: SchedulerContext
+): Effect.Effect<Option<WorkflowSchedulerRunResult>> =>
   Effect.gen(function* effectBody() {
     if (ctx.input.isCancelled()) {
       yield* Fiber.interruptAll(ctx.running.values());
@@ -374,10 +458,16 @@ const schedulerTick = (ctx: SchedulerContext): Effect.Effect<Option<WorkflowSche
     return yield* applyOutcome(ctx, outcome);
   });
 
-const schedulerLoop = (ctx: SchedulerContext): Effect.Effect<WorkflowSchedulerRunResult> =>
-  Effect.flatMap(schedulerTick(ctx), (done) => (isSome(done) ? Effect.succeed(done.value) : schedulerLoop(ctx)));
+const schedulerLoop = (
+  ctx: SchedulerContext
+): Effect.Effect<WorkflowSchedulerRunResult> =>
+  Effect.flatMap(schedulerTick(ctx), (done) =>
+    isSome(done) ? Effect.succeed(done.value) : schedulerLoop(ctx)
+  );
 
-const schedulerProgram = (input: WorkflowSchedulerInput): Effect.Effect<WorkflowSchedulerRunResult> =>
+const schedulerProgram = (
+  input: WorkflowSchedulerInput
+): Effect.Effect<WorkflowSchedulerRunResult> =>
   Effect.gen(function* effectBody() {
     const ctx: SchedulerContext = {
       completions: yield* Queue.unbounded<NodeOutcome>(),
@@ -388,5 +478,7 @@ const schedulerProgram = (input: WorkflowSchedulerInput): Effect.Effect<Workflow
     return yield* schedulerLoop(ctx);
   });
 
-export const runWorkflowScheduler = async (input: WorkflowSchedulerInput): Promise<WorkflowSchedulerRunResult> =>
+export const runWorkflowScheduler = async (
+  input: WorkflowSchedulerInput
+): Promise<WorkflowSchedulerRunResult> =>
   await Effect.runPromise(schedulerProgram(input));

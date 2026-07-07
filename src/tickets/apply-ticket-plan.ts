@@ -4,7 +4,10 @@ import { parseBacklogTaskId } from "../backlog";
 import { BacklogService } from "../runtime/services/backlog-service";
 import type { BacklogCommandError } from "../runtime/services/backlog-service";
 import type { TicketPlan } from "./ticket-plan";
-import { formatBacklogCommand, ticketCreateArgs } from "./ticket-plan-command-args";
+import {
+  formatBacklogCommand,
+  ticketCreateArgs,
+} from "./ticket-plan-command-args";
 
 export interface ApplyTicketPlanOptions {
   readonly parentId?: string;
@@ -29,7 +32,7 @@ const formatCreatedIds = (createdIds: readonly string[]): string =>
 const commandFailure = (
   args: readonly string[],
   createdIds: readonly string[],
-  error: BacklogCommandError,
+  error: BacklogCommandError
 ): ApplyTicketPlanError =>
   new ApplyTicketPlanError({
     command: formatBacklogCommand(args),
@@ -42,12 +45,14 @@ const runCreateAndParseId = (
   args: readonly string[],
   worktreePath: string,
   backlog: typeof BacklogService.Service,
-  createdIds: string[],
+  createdIds: string[]
 ): Effect.Effect<string, ApplyTicketPlanError> =>
   Effect.gen(function* effectBody() {
     const stdout = yield* backlog
       .run(args, worktreePath)
-      .pipe(Effect.mapError((error) => commandFailure(args, createdIds, error)));
+      .pipe(
+        Effect.mapError((error) => commandFailure(args, createdIds, error))
+      );
     const taskId = parseBacklogTaskId(stdout);
     if (Option.isNone(taskId)) {
       return yield* Effect.fail(
@@ -56,7 +61,7 @@ const runCreateAndParseId = (
           createdIds,
           message: `could not parse created task id from Backlog output; created ids: ${formatCreatedIds(createdIds)}; failed command: ${formatBacklogCommand(args)}`,
           stdout,
-        }),
+        })
       );
     }
     createdIds.push(taskId.value);
@@ -68,7 +73,7 @@ const resolveParentId = (
   options: ApplyTicketPlanOptions,
   worktreePath: string,
   backlog: typeof BacklogService.Service,
-  createdIds: string[],
+  createdIds: string[]
 ): Effect.Effect<string, ApplyTicketPlanError> => {
   if (options.parentId !== undefined && options.parentId.length > 0) {
     return Effect.succeed(options.parentId);
@@ -77,11 +82,17 @@ const resolveParentId = (
     return Effect.fail(
       new ApplyTicketPlanError({
         createdIds,
-        message: "Cannot apply ticket plan without --parent because the plan does not include an epic.",
-      }),
+        message:
+          "Cannot apply ticket plan without --parent because the plan does not include an epic.",
+      })
     );
   }
-  return runCreateAndParseId(ticketCreateArgs(plan.epic), worktreePath, backlog, createdIds);
+  return runCreateAndParseId(
+    ticketCreateArgs(plan.epic),
+    worktreePath,
+    backlog,
+    createdIds
+  );
 };
 
 const createChildTickets = (
@@ -89,20 +100,24 @@ const createChildTickets = (
   parentId: string,
   worktreePath: string,
   backlog: typeof BacklogService.Service,
-  createdIds: string[],
+  createdIds: string[]
 ): Effect.Effect<Record<string, string>, ApplyTicketPlanError> =>
   Effect.gen(function* effectBody() {
-    const remaining = new Map(plan.tickets.map((ticket) => [ticket.key, ticket]));
+    const remaining = new Map(
+      plan.tickets.map((ticket) => [ticket.key, ticket])
+    );
     const taskIdsByKey: Record<string, string> = {};
     while (remaining.size > 0) {
-      const ready = [...remaining.values()].filter((ticket) => ticket.depends_on.every((key) => taskIdsByKey[key]));
+      const ready = [...remaining.values()].filter((ticket) =>
+        ticket.depends_on.every((key) => taskIdsByKey[key])
+      );
       if (ready.length === 0) {
         return yield* Effect.fail(
           new ApplyTicketPlanError({
             createdIds,
             message:
               "Cannot apply ticket plan because local dependency keys contain a cycle or unresolved prerequisite.",
-          }),
+          })
         );
       }
       for (const ticket of ready) {
@@ -111,7 +126,7 @@ const createChildTickets = (
           ticketCreateArgs(ticket, { dependencyIds, parentId }),
           worktreePath,
           backlog,
-          createdIds,
+          createdIds
         );
         taskIdsByKey[ticket.key] = taskId;
         remaining.delete(ticket.key);
@@ -123,12 +138,24 @@ const createChildTickets = (
 export const applyTicketPlanEffect = (
   plan: TicketPlan,
   worktreePath: string,
-  options: ApplyTicketPlanOptions,
+  options: ApplyTicketPlanOptions
 ): Effect.Effect<AppliedTicketPlan, ApplyTicketPlanError, BacklogService> =>
   Effect.gen(function* effectBody() {
     const backlog = yield* BacklogService;
     const createdIds: string[] = [];
-    const parentId = yield* resolveParentId(plan, options, worktreePath, backlog, createdIds);
-    const taskIdsByKey = yield* createChildTickets(plan, parentId, worktreePath, backlog, createdIds);
+    const parentId = yield* resolveParentId(
+      plan,
+      options,
+      worktreePath,
+      backlog,
+      createdIds
+    );
+    const taskIdsByKey = yield* createChildTickets(
+      plan,
+      parentId,
+      worktreePath,
+      backlog,
+      createdIds
+    );
     return { createdIds, parentId, taskIdsByKey };
   });

@@ -22,12 +22,16 @@ import type { GhRunner, GhTextOptions } from "./gh-checks";
 /** The slice of the subprocess runner the GhRunner depends on (injected in tests). */
 export type GhExec = (
   args: readonly string[],
-  options: { readonly env?: Readonly<Record<string, string>> },
+  options: { readonly env?: Readonly<Record<string, string>> }
 ) => Promise<{ readonly stdout: string }>;
 
 /** Default exec: invoke the real `gh` binary via execa, extending the parent env. */
 const defaultGhExec: GhExec = async (args, options) =>
-  await execa("gh", [...args], options.env === undefined ? {} : { env: options.env });
+  await execa(
+    "gh",
+    [...args],
+    options.env === undefined ? {} : { env: options.env }
+  );
 
 export interface GhRunnerOptions {
   /** Subprocess seam; defaults to the real `gh` execa runner. */
@@ -36,11 +40,14 @@ export interface GhRunnerOptions {
 
 /** Translate GhTextOptions.secretEnv into the execa env channel (never argv). */
 const envOption = (
-  options: Option.Option<GhTextOptions>,
+  options: Option.Option<GhTextOptions>
 ): {
   env?: Readonly<Record<string, string>>;
 } => {
-  const secretEnv = Option.flatMap(options, (value) => Option.fromNullishOr(value.secretEnv));
+  const secretEnv = Option.match(options, {
+    onNone: () => Option.none<Readonly<Record<string, string>>>(),
+    onSome: (value) => Option.fromNullishOr(value.secretEnv),
+  });
   if (Option.isNone(secretEnv)) {
     return {};
   }
@@ -49,7 +56,10 @@ const envOption = (
 
 const parseGhJson = (stdout: string): Effect.Effect<unknown, Error> =>
   Effect.try({
-    catch: (error) => new Error(`gh JSON parse failed: ${error instanceof Error ? error.message : String(error)}`),
+    catch: (error) =>
+      new Error(
+        `gh JSON parse failed: ${error instanceof Error ? error.message : String(error)}`
+      ),
     try: (): unknown => JSON.parse(stdout),
   });
 
@@ -58,7 +68,11 @@ const ghError = (args: readonly string[], error: unknown): Error => {
   return new Error(`gh ${args.join(" ")} failed: ${detail}`);
 };
 
-const runGh = (exec: GhExec, args: readonly string[], options?: GhTextOptions): Effect.Effect<string, Error> =>
+const runGh = (
+  exec: GhExec,
+  args: readonly string[],
+  options?: GhTextOptions
+): Effect.Effect<string, Error> =>
   Effect.tryPromise({
     catch: (error) => ghError(args, error),
     try: async () => await exec(args, envOption(Option.fromNullishOr(options))),
@@ -71,7 +85,8 @@ const runGh = (exec: GhExec, args: readonly string[], options?: GhTextOptions): 
 export const createGhRunner = (options: GhRunnerOptions = {}): GhRunner => {
   const exec = options.exec ?? defaultGhExec;
   return {
-    json: (args) => runGh(exec, args).pipe(Effect.flatMap((stdout) => parseGhJson(stdout))),
+    json: (args) =>
+      runGh(exec, args).pipe(Effect.flatMap((stdout) => parseGhJson(stdout))),
     text: (args, textOptions) => runGh(exec, args, textOptions),
   };
 };

@@ -17,6 +17,10 @@ export const opencodeAgentName = (profileId: string): string => {
   if (!profileId.startsWith(MOKA_PROFILE_PREFIX)) {
     return profileId;
   }
-  const displayName = profileId.slice(MOKA_PROFILE_PREFIX.length).split("-").map(opencodeAgentNamePart).join(" ");
+  const displayName = profileId
+    .slice(MOKA_PROFILE_PREFIX.length)
+    .split("-")
+    .map(opencodeAgentNamePart)
+    .join(" ");
   return `MoKa ${displayName}`;
 };

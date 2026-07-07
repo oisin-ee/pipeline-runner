@@ -10,7 +10,10 @@ import { executeAgentNode } from "./agent-node";
 
 const EXCEEDS_BUDGET_RE = /exceeds 50% of every available/iu;
 
-const agentExecutionContext = (node: PlannedWorkflowNode, executor: RuntimeContext["executor"]): RuntimeContext => {
+const agentExecutionContext = (
+  node: PlannedWorkflowNode,
+  executor: RuntimeContext["executor"]
+): RuntimeContext => {
   const topologicalOrder = [node];
   return {
     agentInvocations: [],
@@ -71,7 +74,10 @@ const agentExecutionContext = (node: PlannedWorkflowNode, executor: RuntimeConte
   };
 };
 
-const withRuntimeConfig = (context: RuntimeContext, config: Partial<RuntimeContext["config"]>): RuntimeContext => ({
+const withRuntimeConfig = (
+  context: RuntimeContext,
+  config: Partial<RuntimeContext["config"]>
+): RuntimeContext => ({
   ...context,
   config: { ...context.config, ...config },
 });
@@ -97,7 +103,8 @@ const openPullRequestNode = (): PlannedWorkflowNode => ({
   needs: ["writer"],
 });
 
-const opencodeText = (text: string): string => JSON.stringify({ part: { text, type: "text" } });
+const opencodeText = (text: string): string =>
+  JSON.stringify({ part: { text, type: "text" } });
 
 const promptFromPlan = (plan: RunnerLaunchPlan): string => {
   const dirIndex = plan.args.indexOf("--dir");
@@ -108,36 +115,44 @@ const promptFromPlan = (plan: RunnerLaunchPlan): string => {
   return prompt;
 };
 
+const successfulDoneExecutor = (): AgentResult => ({
+  exitCode: 0,
+  stdout: JSON.stringify({ part: { text: "done", type: "text" } }),
+});
+
+const successfulSessionExecutor = (): AgentResult => ({
+  exitCode: 0,
+  sessionId: "ses_writer",
+  stdout: JSON.stringify({
+    part: { text: "done", type: "text" },
+  }),
+});
+
 describe("runtime agent node", () => {
   it("records the opencode session id returned by the executor on node state", async () => {
     const node = agentNode();
-    const executor = (): AgentResult => ({
-      exitCode: 0,
-      sessionId: "ses_writer",
-      stdout: JSON.stringify({
-        part: { text: "done", type: "text" },
-      }),
-    });
-    const context = agentExecutionContext(node, executor);
+    const context = agentExecutionContext(node, successfulSessionExecutor);
 
     const result = await executeAgentNode(node, context, 1);
 
     expect(result.exitCode).toBe(0);
     expect(result.output).toBe("done");
-    expect(Option.getOrUndefined(context.nodeStateStore.getNodeState("writer"))?.sessionId).toBe("ses_writer");
+    expect(
+      Option.getOrUndefined(context.nodeStateStore.getNodeState("writer"))
+        ?.sessionId
+    ).toBe("ses_writer");
   });
 
   it("does not set a session id when the executor omits one", async () => {
     const node = agentNode();
-    const executor = (): AgentResult => ({
-      exitCode: 0,
-      stdout: JSON.stringify({ part: { text: "done", type: "text" } }),
-    });
-    const context = agentExecutionContext(node, executor);
+    const context = agentExecutionContext(node, successfulDoneExecutor);
 
     await executeAgentNode(node, context, 1);
 
-    expect(Option.getOrUndefined(context.nodeStateStore.getNodeState("writer"))?.sessionId).toBeUndefined();
+    expect(
+      Option.getOrUndefined(context.nodeStateStore.getNodeState("writer"))
+        ?.sessionId
+    ).toBeUndefined();
   });
 
   it("renders canonical task context with acceptance criteria", async () => {
@@ -166,7 +181,7 @@ describe("runtime agent node", () => {
         "Description: Description",
         "Acceptance criteria:",
         "- A: Do it",
-      ].join("\n"),
+      ].join("\n")
     );
   });
 
@@ -191,7 +206,9 @@ describe("runtime agent node", () => {
     await executeAgentNode(node, context, 1);
 
     expect(prompt).toContain("Deferred delivery checks:");
-    expect(prompt).toContain("Do not fail this node solely because a pull request does not exist yet.");
+    expect(prompt).toContain(
+      "Do not fail this node solely because a pull request does not exist yet."
+    );
   });
 
   it("keeps acceptance gate prompts responsible for downstream PR acceptance", async () => {
@@ -237,7 +254,9 @@ describe("runtime agent node", () => {
 
     await executeAgentNode(node, context, 1);
 
-    expect(prompt).toContain("Inherited dependency outputs:\n## setup\nsetup output");
+    expect(prompt).toContain(
+      "Inherited dependency outputs:\n## setup\nsetup output"
+    );
     expect(prompt).toContain("Dependency outputs:\n## direct\ndirect output");
   });
 
@@ -332,7 +351,11 @@ describe("executeAgentNode handoff derivation (PIPE-83.1)", () => {
     const node = agentNode();
     const executor = (plan: RunnerLaunchPlan): AgentResult => ({
       exitCode: 0,
-      stdout: opencodeText(plan.profileId?.endsWith(":handoff") === true ? "not json" : "real work happened"),
+      stdout: opencodeText(
+        plan.profileId?.endsWith(":handoff") === true
+          ? "not json"
+          : "real work happened"
+      ),
     });
     const context = withRuntimeConfig(agentExecutionContext(node, executor), {
       context_handoff: { enabled: true },
@@ -355,7 +378,10 @@ const budgetNode = (models: string[]): PlannedWorkflowNode =>
     profile: "moka-code-writer",
   }) as unknown as PlannedWorkflowNode;
 
-const tokenBudget = (windows: Record<string, number>, defaultWindow = 200_000): PipelineConfig["token_budget"] => ({
+const tokenBudget = (
+  windows: Record<string, number>,
+  defaultWindow = 200_000
+): PipelineConfig["token_budget"] => ({
   default_context_window: defaultWindow,
   fan_out_width: { by_category: {}, default: 4 },
   max_context_pct: 50,
@@ -383,13 +409,12 @@ describe("executeAgentNode token budget enforcement", () => {
 
   it("dispatches normally when the node fits within the cap", async () => {
     const node = budgetNode(["big"]);
-    const executor = (): AgentResult => ({
-      exitCode: 0,
-      stdout: JSON.stringify({ part: { text: "done", type: "text" } }),
-    });
-    const context = withRuntimeConfig(agentExecutionContext(node, executor), {
-      token_budget: tokenBudget({ big: 400_000 }),
-    });
+    const context = withRuntimeConfig(
+      agentExecutionContext(node, successfulDoneExecutor),
+      {
+        token_budget: tokenBudget({ big: 400_000 }),
+      }
+    );
 
     const result = await executeAgentNode(node, context, 1);
 
@@ -419,11 +444,18 @@ describe("executeAgentNode model fallback", () => {
 
     const result = await executeAgentNode(node, context, 1);
 
-    expect(tried).toEqual([Option.some("opencode-go/qwen3.7-max"), Option.some("openai/gpt-5.5")]);
+    expect(tried).toEqual([
+      Option.some("opencode-go/qwen3.7-max"),
+      Option.some("openai/gpt-5.5"),
+    ]);
     expect(result.exitCode).toBe(0);
     expect(result.output).toBe("implemented");
-    expect(result.evidence.join("\n")).toContain("model opencode-go/qwen3.7-max failed (infra exit 70");
-    expect(result.evidence.join("\n")).toContain("model selection: openai/gpt-5.5");
+    expect(result.evidence.join("\n")).toContain(
+      "model opencode-go/qwen3.7-max failed (infra exit 70"
+    );
+    expect(result.evidence.join("\n")).toContain(
+      "model selection: openai/gpt-5.5"
+    );
   });
 
   it("does not fall back on a genuine agent-task error (the model ran)", async () => {
@@ -456,7 +488,10 @@ describe("executeAgentNode model fallback", () => {
 
     const result = await executeAgentNode(node, context, 1);
 
-    expect(tried).toEqual([Option.some("opencode-go/qwen3.7-max"), Option.some("openai/gpt-5.5")]);
+    expect(tried).toEqual([
+      Option.some("opencode-go/qwen3.7-max"),
+      Option.some("openai/gpt-5.5"),
+    ]);
     expect(result.exitCode).toBe(INFRA_EXIT);
   });
 });

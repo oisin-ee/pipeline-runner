@@ -6,7 +6,10 @@ import { simpleGit } from "simple-git";
 
 import { normalizeRunnerRepositoryForSubmit } from "../../git-remote-url";
 import type { ParsedMokaBaseOptions } from "../../moka-submit";
-import type { RunnerRepositoryContext, RunnerRunIdentity } from "../../runner-command-contract";
+import type {
+  RunnerRepositoryContext,
+  RunnerRunIdentity,
+} from "../../runner-command-contract";
 
 interface MokaGitContext {
   baseBranch: string;
@@ -25,27 +28,44 @@ export interface MokaSubmitIoDependencies {
   resolveGitContext?: (worktreePath: string) => Promise<MokaGitContext>;
 }
 
-export const readScheduleFile = (dependencies: Pick<MokaSubmitIoDependencies, "readFile">, path: string): string => {
-  const readFile = dependencies.readFile ?? ((filePath: string) => readFileSync(filePath, "utf-8"));
+export const readScheduleFile = (
+  dependencies: Pick<MokaSubmitIoDependencies, "readFile">,
+  path: string
+): string => {
+  const readFile =
+    dependencies.readFile ??
+    ((filePath: string) => readFileSync(filePath, "utf-8"));
   return readFile(path);
 };
 
-const repositoryContext = (options: ParsedMokaBaseOptions, git: MokaGitContext): RunnerRepositoryContext =>
+const repositoryContext = (
+  options: ParsedMokaBaseOptions,
+  git: MokaGitContext
+): RunnerRepositoryContext =>
   normalizeRunnerRepositoryForSubmit(
     options.repository ?? {
       baseBranch: git.baseBranch,
       sha: git.sha,
       url: git.url,
-    },
+    }
   );
 
-const assertRepositoryCredentialConfiguration = (options: ParsedMokaBaseOptions): void => {
-  if (options.gitCredentialsSecretName === undefined || options.gitCredentialsSecretName.length === 0) {
-    throw new Error("gitCredentialsSecretName is required for runner git clone, fetch, and push operations");
+const assertRepositoryCredentialConfiguration = (
+  options: ParsedMokaBaseOptions
+): void => {
+  if (
+    options.gitCredentialsSecretName === undefined ||
+    options.gitCredentialsSecretName.length === 0
+  ) {
+    throw new Error(
+      "gitCredentialsSecretName is required for runner git clone, fetch, and push operations"
+    );
   }
 };
 
-const explicitSubmissionContext = (options: ParsedMokaBaseOptions): Option.Option<MokaSubmissionContext> => {
+const explicitSubmissionContext = (
+  options: ParsedMokaBaseOptions
+): Option.Option<MokaSubmissionContext> => {
   if (options.repository === undefined || options.run === undefined) {
     return Option.none();
   }
@@ -56,7 +76,11 @@ const explicitSubmissionContext = (options: ParsedMokaBaseOptions): Option.Optio
   });
 };
 
-const runContext = (options: ParsedMokaBaseOptions, git: MokaGitContext, runId: string): RunnerRunIdentity =>
+const runContext = (
+  options: ParsedMokaBaseOptions,
+  git: MokaGitContext,
+  runId: string
+): RunnerRunIdentity =>
   options.run ?? {
     id: runId,
     project: git.project,
@@ -64,7 +88,7 @@ const runContext = (options: ParsedMokaBaseOptions, git: MokaGitContext, runId: 
 
 const resolveGit = async (
   worktreePath: string,
-  dependencies: Pick<MokaSubmitIoDependencies, "resolveGitContext">,
+  dependencies: Pick<MokaSubmitIoDependencies, "resolveGitContext">
 ): Promise<MokaGitContext> => {
   if (dependencies.resolveGitContext !== undefined) {
     return await dependencies.resolveGitContext(worktreePath);
@@ -77,11 +101,14 @@ const resolveGit = async (
   ]);
   const url = remoteConfig.value;
   if (url === null || url.length === 0) {
-    throw new Error("Could not resolve git remote origin URL. Ensure the repository has a remote configured.");
+    throw new Error(
+      "Could not resolve git remote origin URL. Ensure the repository has a remote configured."
+    );
   }
   return {
     baseBranch: branchResult.current,
-    project: parseGitUrl(url).name.length > 0 ? parseGitUrl(url).name : "unknown",
+    project:
+      parseGitUrl(url).name.length > 0 ? parseGitUrl(url).name : "unknown",
     sha: sha.trim(),
     url,
   };
@@ -89,10 +116,12 @@ const resolveGit = async (
 
 const resolveRequiredGit = async (
   options: { worktreePath?: string },
-  dependencies: Pick<MokaSubmitIoDependencies, "resolveGitContext">,
+  dependencies: Pick<MokaSubmitIoDependencies, "resolveGitContext">
 ): Promise<MokaGitContext> => {
   if (options.worktreePath === undefined || options.worktreePath.length === 0) {
-    throw new Error("worktreePath is required when moka submit must resolve repository or run context");
+    throw new Error(
+      "worktreePath is required when moka submit must resolve repository or run context"
+    );
   }
   return await resolveGit(options.worktreePath, dependencies);
 };
@@ -100,7 +129,7 @@ const resolveRequiredGit = async (
 export const resolveSubmissionContext = async (
   options: ParsedMokaBaseOptions & { worktreePath?: string },
   dependencies: Pick<MokaSubmitIoDependencies, "resolveGitContext">,
-  runId: string,
+  runId: string
 ): Promise<MokaSubmissionContext> => {
   const explicitContext = explicitSubmissionContext(options);
   if (Option.isSome(explicitContext)) {

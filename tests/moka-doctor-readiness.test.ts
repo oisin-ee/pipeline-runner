@@ -3,7 +3,16 @@ import { dirname, join } from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const SECRET_FILE_NAMES = vi.hoisted(() => new Set(["auth.json", "credentials.json", "token"]));
+import { isRecord, isStringValue, parseJson } from "../src/safe-json";
+import {
+  isObjectValue,
+  stringValue,
+  taggedErrorClass,
+} from "../src/schema-boundary";
+
+const SECRET_FILE_NAMES = vi.hoisted(
+  () => new Set(["auth.json", "credentials.json", "token"])
+);
 
 interface DoctorExecaOptions {
   cwd?: string;
@@ -16,18 +25,21 @@ interface DoctorExecaResult {
   stdout: string;
 }
 
-type DoctorExecaMock = (command: string, args?: string[], options?: DoctorExecaOptions) => Promise<DoctorExecaResult>;
+type DoctorExecaMock = (
+  command: string,
+  args?: string[],
+  options?: DoctorExecaOptions
+) => Promise<DoctorExecaResult>;
 
-const { mockExeca } = vi.hoisted((): { mockExeca: ReturnType<typeof vi.fn<DoctorExecaMock>> } => ({
-  mockExeca: vi.fn<DoctorExecaMock>(),
-}));
+const { mockExeca } = vi.hoisted(
+  (): { mockExeca: ReturnType<typeof vi.fn<DoctorExecaMock>> } => ({
+    mockExeca: vi.fn<DoctorExecaMock>(),
+  })
+);
 
 vi.mock("execa", () => ({
   execa: mockExeca,
 }));
-
-import { isRecord, isStringValue, parseJson } from "../src/safe-json";
-import { isObjectValue, stringValue, taggedErrorClass } from "../src/schema-boundary";
 
 const DEFAULT_TEST_SKILLS = [
   "critique",
@@ -61,16 +73,19 @@ const SECRET_ARG_RE = /auth|credential|token/iu;
 const ORIGINAL_CI = process.env.CI;
 const ORIGINAL_HOME = process.env.HOME;
 const ORIGINAL_PIPELINE_TARGET_PATH = process.env.PIPELINE_TARGET_PATH;
-const ORIGINAL_FORBID_SECRET_READS = process.env.PIPELINE_TEST_FORBID_SECRET_READS;
+const ORIGINAL_FORBID_SECRET_READS =
+  process.env.PIPELINE_TEST_FORBID_SECRET_READS;
 
 class MokaDoctorReadinessTestError extends taggedErrorClass<MokaDoctorReadinessTestError>()(
   "MokaDoctorReadinessTestError",
   {
     message: stringValue(),
-  },
+  }
 ) {}
 
-const mokaDoctorReadinessTestError = (message: string): MokaDoctorReadinessTestError =>
+const mokaDoctorReadinessTestError = (
+  message: string
+): MokaDoctorReadinessTestError =>
   new MokaDoctorReadinessTestError({ message });
 
 interface CliCapture {
@@ -93,7 +108,16 @@ interface DoctorJsonReport {
   warnings?: DoctorJsonCheck[];
 }
 
-const hasPathname = (value: unknown): value is { pathname: unknown } => isObjectValue(value) && "pathname" in value;
+type ReadFileSyncPath = string | Buffer | URL | number;
+
+interface NodeFsMockModule {
+  [key: string]: unknown;
+  default?: unknown;
+  readFileSync: (path: ReadFileSyncPath, options?: unknown) => string | Buffer;
+}
+
+const hasPathname = (value: unknown): value is { pathname: unknown } =>
+  isObjectValue(value) && "pathname" in value;
 
 const normalizeReadPath = (path: unknown): string => {
   if (isStringValue(path)) {
@@ -106,20 +130,22 @@ const normalizeReadPath = (path: unknown): string => {
 };
 
 vi.mock("node:fs", async () => {
-  const actual = await vi.importActual<typeof import("node:fs")>("node:fs");
+  const actual = await vi.importActual<NodeFsMockModule>("node:fs");
   const readOriginalFile = actual.readFileSync.bind(actual);
-  const readFileSync = vi.fn(
-    (path: Parameters<typeof actual.readFileSync>[0], options?: Parameters<typeof actual.readFileSync>[1]) => {
-      const pathText = normalizeReadPath(path);
-      if (
-        process.env.PIPELINE_TEST_FORBID_SECRET_READS === "1" &&
-        SECRET_FILE_NAMES.has(pathText.split("/").pop() ?? "")
-      ) {
-        throw mokaDoctorReadinessTestError(`doctor must not read secret file: ${pathText}`);
-      }
-      return options === undefined ? readOriginalFile(path) : readOriginalFile(path, options);
-    },
-  );
+  const readFileSync = vi.fn((path: ReadFileSyncPath, options?: unknown) => {
+    const pathText = normalizeReadPath(path);
+    if (
+      process.env.PIPELINE_TEST_FORBID_SECRET_READS === "1" &&
+      SECRET_FILE_NAMES.has(pathText.split("/").pop() ?? "")
+    ) {
+      throw mokaDoctorReadinessTestError(
+        `doctor must not read secret file: ${pathText}`
+      );
+    }
+    return options === undefined
+      ? readOriginalFile(path)
+      : readOriginalFile(path, options);
+  });
 
   return {
     ...actual,
@@ -128,7 +154,11 @@ vi.mock("node:fs", async () => {
   };
 });
 
-const execaResult = async (stdout: string): Promise<DoctorExecaResult> => ({ exitCode: 0, stderr: "", stdout });
+const execaResult = (stdout: string): DoctorExecaResult => ({
+  exitCode: 0,
+  stderr: "",
+  stdout,
+});
 
 const doctorJsonCheck = (value: unknown): DoctorJsonCheck[] => {
   if (!isRecord(value)) {
@@ -170,7 +200,11 @@ const findCheck = (report: DoctorJsonReport, name: string): DoctorJsonCheck => {
 
 const opencodeVersionWasChecked = (): boolean =>
   mockExeca.mock.calls.some(
-    ([command, args]) => command === "opencode" && Array.isArray(args) && args.length === 1 && args[0] === "--version",
+    ([command, args]) =>
+      command === "opencode" &&
+      Array.isArray(args) &&
+      args.length === 1 &&
+      args[0] === "--version"
   );
 
 const opencodeSecretCommands = (): string[][] =>
@@ -179,7 +213,11 @@ const opencodeSecretCommands = (): string[][] =>
     .map(([, args]) => (Array.isArray(args) ? args.map(String) : []))
     .filter((args) => args.some((arg) => SECRET_ARG_RE.test(arg)));
 
-const writeProjectFile = async (root: string, relativePath: string, content: string): Promise<void> => {
+const writeProjectFile = async (
+  root: string,
+  relativePath: string,
+  content: string
+): Promise<void> => {
   const fullPath = join(root, relativePath);
   const fileSystem = await import("node:fs/promises");
   await fileSystem.mkdir(dirname(fullPath), { recursive: true });
@@ -198,9 +236,21 @@ const removePath = async (path: string): Promise<void> => {
 
 const writeCredentialFiles = async (root: string): Promise<void> => {
   await Promise.all([
-    writeProjectFile(root, ".opencode/auth.json", JSON.stringify({ token: SECRET_SENTINEL })),
-    writeProjectFile(root, ".config/opencode/auth.json", JSON.stringify({ token: SECRET_SENTINEL })),
-    writeProjectFile(root, ".config/opencode/credentials.json", SECRET_SENTINEL),
+    writeProjectFile(
+      root,
+      ".opencode/auth.json",
+      JSON.stringify({ token: SECRET_SENTINEL })
+    ),
+    writeProjectFile(
+      root,
+      ".config/opencode/auth.json",
+      JSON.stringify({ token: SECRET_SENTINEL })
+    ),
+    writeProjectFile(
+      root,
+      ".config/opencode/credentials.json",
+      SECRET_SENTINEL
+    ),
     writeProjectFile(root, ".config/opencode/token", SECRET_SENTINEL),
   ]);
 };
@@ -221,22 +271,25 @@ const writeHeadlessPermissionRisk = async (root: string): Promise<void> => {
       "",
       "This fixture intentionally requires an interactive permission prompt.",
       "",
-    ].join("\n"),
+    ].join("\n")
   );
 };
 
 const writeMockSkills = async (root: string): Promise<void> => {
   const skills: Record<string, unknown> = {};
-  const lock: { skills: Record<string, unknown>; version: number } = { skills, version: 1 };
+  const lock: { skills: Record<string, unknown>; version: number } = {
+    skills,
+    version: 1,
+  };
   await Promise.all(
     DEFAULT_TEST_SKILLS.map(async (skill) => {
       skills[skill] = { source: "mock" };
       await writeProjectFile(
         root,
         join(".agents", "skills", skill, "SKILL.md"),
-        `---\nname: ${skill}\ndescription: Mock ${skill} skill.\n---\n\n# ${skill}\n`,
+        `---\nname: ${skill}\ndescription: Mock ${skill} skill.\n---\n\n# ${skill}\n`
       );
-    }),
+    })
   );
   await writeProjectFile(root, "skills-lock.json", `${JSON.stringify(lock)}\n`);
 };
@@ -245,15 +298,16 @@ const writeMockAgentRepo = async (root: string): Promise<void> => {
   await Promise.all([
     writeProjectFile(root, "hooks/claude-code/hooks/check.sh", "#!/bin/sh\n"),
     writeProjectFile(root, "hooks/codex/hooks/check.sh", "#!/bin/sh\n"),
-    writeProjectFile(root, "hooks/opencode/plugin/agent-hooks.ts", "export const AgentHooks = async () => ({})\n"),
+    writeProjectFile(
+      root,
+      "hooks/opencode/plugin/agent-hooks.ts",
+      "export const AgentHooks = async () => ({})\n"
+    ),
     writeProjectFile(root, "rules/00-test.md", "# Test Rule\n"),
   ]);
 };
 
-const writeMockRules = async (home: string | void): Promise<void> => {
-  if (home === undefined || home === "") {
-    throw mokaDoctorReadinessTestError("Mock rulesync expected HOME_DIR.");
-  }
+const writeMockRules = async (home: string): Promise<void> => {
   await Promise.all([
     writeProjectFile(home, ".claude/CLAUDE.md", "claude rules\n"),
     writeProjectFile(home, ".codex/AGENTS.md", "codex rules\n"),
@@ -262,57 +316,111 @@ const writeMockRules = async (home: string | void): Promise<void> => {
   ]);
 };
 
+interface DoctorExecaHandler {
+  matches: (command: string, args: string[]) => boolean;
+  run: (
+    command: string,
+    args: string[],
+    options?: DoctorExecaOptions
+  ) => DoctorExecaResult | Promise<DoctorExecaResult>;
+}
+
+const argsText = (args: string[]): string => args.join(" ");
+
+const defaultDoctorExecaHandlers: DoctorExecaHandler[] = [
+  {
+    matches: (command, args) =>
+      command === "npx" && args.includes("skills") && args.includes("add"),
+    run: async (_command, _args, options) => {
+      await writeMockSkills(options?.cwd ?? process.cwd());
+      return execaResult("skills installed");
+    },
+  },
+  {
+    matches: (command, args) =>
+      command === "npx" &&
+      args.includes("rulesync@8.30.1") &&
+      args.includes("generate") &&
+      !args.includes("--dry-run"),
+    run: async (_command, _args, options) => {
+      const home = options?.env?.HOME_DIR;
+      if (home === undefined || home === "") {
+        throw mokaDoctorReadinessTestError("Mock rulesync expected HOME_DIR.");
+      }
+      await writeMockRules(home);
+      return execaResult("rules generated");
+    },
+  },
+  {
+    matches: (command, args) =>
+      command === "gh" &&
+      args.slice(0, 3).join(" ") === "repo clone oisin-ee/agent",
+    run: async (_command, args) => {
+      const target = args.at(3);
+      if (target === undefined || target === "") {
+        throw mokaDoctorReadinessTestError(
+          "Mock agent clone expected target path."
+        );
+      }
+      await writeMockAgentRepo(target);
+      return execaResult("agent cloned");
+    },
+  },
+  {
+    matches: (command, args) =>
+      command === "opencode" && argsText(args) === "--version",
+    run: () => execaResult("opencode 1.2.3"),
+  },
+  {
+    matches: (command, args) =>
+      command === "opencode" &&
+      (args.includes("agent") || args.includes("agents")),
+    run: () => execaResult(JSON.stringify(MOCK_VISIBLE_MOKA_AGENTS)),
+  },
+  {
+    matches: (_command, args) => argsText(args) === "--version",
+    run: (command) => execaResult(`${command} 1.0.0`),
+  },
+];
+
 const defaultDoctorExecaMock = async (
   command: string,
   args: string[] = [],
-  options?: DoctorExecaOptions,
+  options?: DoctorExecaOptions
 ): Promise<DoctorExecaResult> => {
-  if (command === "npx" && args.includes("skills") && args.includes("add")) {
-    await writeMockSkills(options?.cwd ?? process.cwd());
-    return await execaResult("skills installed");
+  const handler = defaultDoctorExecaHandlers.find((candidate) =>
+    candidate.matches(command, args)
+  );
+  if (handler !== undefined) {
+    return await handler.run(command, args, options);
   }
-  if (
-    command === "npx" &&
-    args.includes("rulesync@8.30.1") &&
-    args.includes("generate") &&
-    !args.includes("--dry-run")
-  ) {
-    await writeMockRules(options?.env?.HOME_DIR);
-    return await execaResult("rules generated");
-  }
-  if (command === "gh" && args.slice(0, 3).join(" ") === "repo clone oisin-ee/agent") {
-    await writeMockAgentRepo(args[3]);
-    return await execaResult("agent cloned");
-  }
-  if (command === "opencode" && args.join(" ") === "--version") {
-    return await execaResult("opencode 1.2.3");
-  }
-  if (command === "opencode" && (args.includes("agent") || args.includes("agents"))) {
-    return await execaResult(JSON.stringify(MOCK_VISIBLE_MOKA_AGENTS));
-  }
-  if (args.join(" ") === "--version") {
-    return await execaResult(`${command} 1.0.0`);
-  }
-  return await execaResult("ok");
+  return execaResult("ok");
 };
 
 const restoreEnv = (key: string, value: NodeJS.ProcessEnv[string]): void => {
   if (value === undefined) {
-    delete process.env[key];
+    Reflect.deleteProperty(process.env, key);
     return;
   }
   process.env[key] = value;
 };
 
-const runCliInTarget = async (dir: string, args: string[], env: Record<string, string> = {}): Promise<CliCapture> => {
+const runCliInTarget = async (
+  dir: string,
+  args: string[],
+  env: Record<string, string> = {}
+): Promise<CliCapture> => {
   const { runCli } = await import("../src/index");
   const original = new Map(
-    ["CI", "HOME", "PIPELINE_TARGET_PATH", "PIPELINE_TEST_FORBID_SECRET_READS"].map(
-      (key) => [key, process.env[key]] as const,
-    ),
+    [
+      "CI",
+      "HOME",
+      "PIPELINE_TARGET_PATH",
+      "PIPELINE_TEST_FORBID_SECRET_READS",
+    ].map((key) => [key, process.env[key]] as const)
   );
   const log = vi.spyOn(console, "log").mockImplementation(() => {});
-  const error = vi.spyOn(console, "error").mockImplementation(() => {});
+  const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
   let thrown: unknown;
   try {
     process.env.HOME = dir;
@@ -329,9 +437,11 @@ const runCliInTarget = async (dir: string, args: string[], env: Record<string, s
     }
   }
   const stdout = log.mock.calls.map(([message]) => String(message)).join("\n");
-  const stderr = error.mock.calls.map(([message]) => String(message)).join("\n");
+  const stderr = errorSpy.mock.calls
+    .map(([message]) => String(message))
+    .join("\n");
   log.mockRestore();
-  error.mockRestore();
+  errorSpy.mockRestore();
   return { stderr, stdout, thrown };
 };
 
@@ -353,7 +463,10 @@ describe("moka doctor run readiness", () => {
     restoreEnv("CI", ORIGINAL_CI);
     restoreEnv("HOME", ORIGINAL_HOME);
     restoreEnv("PIPELINE_TARGET_PATH", ORIGINAL_PIPELINE_TARGET_PATH);
-    restoreEnv("PIPELINE_TEST_FORBID_SECRET_READS", ORIGINAL_FORBID_SECRET_READS);
+    restoreEnv(
+      "PIPELINE_TEST_FORBID_SECRET_READS",
+      ORIGINAL_FORBID_SECRET_READS
+    );
   });
 
   it("doctor --json reports local run readiness and does not fail on warnings", async () => {
@@ -375,7 +488,9 @@ describe("moka doctor run readiness", () => {
       expect(report.passed).toBe(true);
       expect(report.blockers).toEqual([]);
       expect(report.warnings).toEqual(
-        expect.arrayContaining([expect.objectContaining({ name: "headless-permissions" })]),
+        expect.arrayContaining([
+          expect.objectContaining({ name: "headless-permissions" }),
+        ])
       );
 
       expect(findCheck(report, "opencode")).toMatchObject({ passed: true });
@@ -403,9 +518,13 @@ describe("moka doctor run readiness", () => {
     try {
       await prepareInitializedProject(dir);
       await writeHeadlessPermissionRisk(dir);
-      const missingOpencodeMock: DoctorExecaMock = async (command, args, options) => {
+      const missingOpencodeMock: DoctorExecaMock = async (
+        command,
+        args,
+        options
+      ) => {
         if (command === "opencode" && args?.join(" ") === "--version") {
-          throw { shortMessage: "opencode missing" };
+          throw mokaDoctorReadinessTestError("opencode missing");
         }
         return await defaultDoctorExecaMock(command, args, options);
       };
@@ -424,13 +543,17 @@ describe("moka doctor run readiness", () => {
             detail: expect.stringContaining("opencode missing"),
             name: "opencode",
           }),
-        ]),
+        ])
       );
       expect(report.warnings).toEqual(
-        expect.arrayContaining([expect.objectContaining({ name: "headless-permissions" })]),
+        expect.arrayContaining([
+          expect.objectContaining({ name: "headless-permissions" }),
+        ])
       );
       expect(report.blockers).not.toEqual(
-        expect.arrayContaining([expect.objectContaining({ name: "headless-permissions" })]),
+        expect.arrayContaining([
+          expect.objectContaining({ name: "headless-permissions" }),
+        ])
       );
     } finally {
       await removePath(dir);

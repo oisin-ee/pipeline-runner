@@ -1,4 +1,11 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
@@ -21,17 +28,34 @@ const tempDir = (): string => {
   return dir;
 };
 
-const filePermissionMode = (path: string): string => (statSync(path).mode % 0o1000).toString(8).padStart(3, "0");
+const filePermissionMode = (path: string): string =>
+  (statSync(path).mode % 0o1000).toString(8).padStart(3, "0");
 
 describe("prepareOpencodeCredentials", () => {
   it("writes broker auth + codex provider + opencode baseURL and drops the legacy multi-auth plugin", () => {
     const fixture = tempDir();
     const codexConfigPath = join(fixture, "home", ".codex", "config.toml");
-    const opencodeAuthPath = join(fixture, "home", ".local", "share", "opencode", "auth.json");
-    const opencodeConfigPath = join(fixture, "home", ".config", "opencode", "opencode.json");
+    const opencodeAuthPath = join(
+      fixture,
+      "home",
+      ".local",
+      "share",
+      "opencode",
+      "auth.json"
+    );
+    const opencodeConfigPath = join(
+      fixture,
+      "home",
+      ".config",
+      "opencode",
+      "opencode.json"
+    );
 
     mkdirSync(dirname(codexConfigPath), { recursive: true });
-    writeFileSync(codexConfigPath, ['model = "gpt-5.5"', "", "[features]", "hooks = true", ""].join("\n"));
+    writeFileSync(
+      codexConfigPath,
+      ['model = "gpt-5.5"', "", "[features]", "hooks = true", ""].join("\n")
+    );
     mkdirSync(dirname(opencodeAuthPath), { recursive: true });
     writeFileSync(opencodeAuthPath, "{}\n", { mode: 0o644 });
     mkdirSync(dirname(opencodeConfigPath), { recursive: true });
@@ -40,11 +64,14 @@ describe("prepareOpencodeCredentials", () => {
       `${JSON.stringify(
         {
           model: "openai/gpt-5.5-medium",
-          plugin: ["@prevalentware/opencode-goal-plugin", "oc-codex-multi-auth@6.3.2"],
+          plugin: [
+            "@prevalentware/opencode-goal-plugin",
+            "oc-codex-multi-auth@6.3.2",
+          ],
         },
         null,
-        2,
-      )}\n`,
+        2
+      )}\n`
     );
 
     const result = prepareOpencodeCredentials({
@@ -52,7 +79,9 @@ describe("prepareOpencodeCredentials", () => {
       brokerPaths: { codexConfigPath, opencodeAuthPath, opencodeConfigPath },
     });
 
-    expect(result.brokerConfigured.toSorted()).toEqual(["auth.json", "config.toml", "opencode.json"].toSorted());
+    expect(result.brokerConfigured.toSorted()).toEqual(
+      ["auth.json", "config.toml", "opencode.json"].toSorted()
+    );
 
     expect(JSON.parse(readFileSync(opencodeAuthPath, "utf-8"))).toEqual({
       openai: { key: "sk-maa-test", type: "api" },
@@ -67,10 +96,16 @@ describe("prepareOpencodeCredentials", () => {
     expect(codexConfig).toContain('env_key = "BROKER_API_KEY"');
     expect(codexConfig).toContain('wire_api = "responses"');
 
-    const opencodeConfig = JSON.parse(readFileSync(opencodeConfigPath, "utf-8"));
-    expect(opencodeConfig.provider.openai.options.baseURL).toBe("https://broker.test/v1");
+    const opencodeConfig = JSON.parse(
+      readFileSync(opencodeConfigPath, "utf-8")
+    );
+    expect(opencodeConfig.provider.openai.options.baseURL).toBe(
+      "https://broker.test/v1"
+    );
     expect(opencodeConfig.provider.openai.options.store).toBe(false);
-    expect(opencodeConfig.plugin).toEqual(["@prevalentware/opencode-goal-plugin"]);
+    expect(opencodeConfig.plugin).toEqual([
+      "@prevalentware/opencode-goal-plugin",
+    ]);
     expect(opencodeConfig.model).toBe("openai/gpt-5.5-medium");
   });
 

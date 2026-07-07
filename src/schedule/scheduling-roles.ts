@@ -8,7 +8,11 @@ type WorkflowNode = PipelineConfig["workflows"][string]["nodes"][number];
  * implementation/coverage role policy used by schedule generation and
  * validation.
  */
-const hasSchedulingRole = (config: PipelineConfig, node: WorkflowNode, role: SchedulingRole): boolean => {
+const hasSchedulingRole = (
+  config: PipelineConfig,
+  node: WorkflowNode,
+  role: SchedulingRole
+): boolean => {
   if (node.kind !== "agent") {
     return false;
   }
@@ -16,13 +20,20 @@ const hasSchedulingRole = (config: PipelineConfig, node: WorkflowNode, role: Sch
   return (profile.scheduling_roles ?? []).includes(role);
 };
 
-export const isImplementationNode = (config: PipelineConfig, node: WorkflowNode): boolean =>
-  hasSchedulingRole(config, node, "implementation");
+export const isImplementationNode = (
+  config: PipelineConfig,
+  node: WorkflowNode
+): boolean => hasSchedulingRole(config, node, "implementation");
 
-export const isCoverageNode = (config: PipelineConfig, node: WorkflowNode): boolean =>
-  hasSchedulingRole(config, node, "coverage");
+export const isCoverageNode = (
+  config: PipelineConfig,
+  node: WorkflowNode
+): boolean => hasSchedulingRole(config, node, "coverage");
 
-const isWorkspaceWriteProfile = (config: PipelineConfig, profileId: string): boolean =>
+const isWorkspaceWriteProfile = (
+  config: PipelineConfig,
+  profileId: string
+): boolean =>
   config.profiles[profileId]?.filesystem?.mode === "workspace-write";
 
 /**
@@ -33,12 +44,17 @@ const isWorkspaceWriteProfile = (config: PipelineConfig, profileId: string): boo
  * when any descendant is. Single source of truth for both schedule normalization
  * (the drain-merge integration pass) and validation.
  */
-export const isWriteCapableParallelChild = (config: PipelineConfig, node: WorkflowNode): boolean => {
+export const isWriteCapableParallelChild = (
+  config: PipelineConfig,
+  node: WorkflowNode
+): boolean => {
   if (node.kind === "command") {
     return true;
   }
   if (node.kind === "parallel") {
-    return node.nodes.some((child) => isWriteCapableParallelChild(config, child));
+    return node.nodes.some((child) =>
+      isWriteCapableParallelChild(config, child)
+    );
   }
   if (node.kind === "agent") {
     return isWorkspaceWriteProfile(config, node.profile);

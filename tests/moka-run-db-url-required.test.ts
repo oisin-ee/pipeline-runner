@@ -4,7 +4,12 @@ import { join } from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import type { generateScheduleArtifactInMemory } from "../src/planning/generate";
 import { restoreEnv, runMokaCliInTarget } from "./run-control-test-helpers";
+
+interface PlanningGenerateModule {
+  generateScheduleArtifactInMemory: typeof generateScheduleArtifactInMemory;
+}
 
 const ORIGINAL_HOME = process.env.HOME;
 const ORIGINAL_PIPELINE_TARGET_PATH = process.env.PIPELINE_TARGET_PATH;
@@ -16,7 +21,7 @@ const mockState = vi.hoisted(() => ({
 }));
 
 vi.mock("../src/pipeline-runtime", () => ({
-  runPipelineFromConfig: vi.fn(async () => {
+  runPipelineFromConfig: vi.fn(() => {
     mockState.runtimeCalls += 1;
     return {
       agentInvocations: [],
@@ -35,11 +40,11 @@ vi.mock("../src/pipeline-runtime", () => ({
 }));
 
 vi.mock("../src/planning/generate", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../src/planning/generate")>();
+  const actual = await importOriginal<PlanningGenerateModule>();
 
   return {
     ...actual,
-    generateScheduleArtifactInMemory: vi.fn(async () => {
+    generateScheduleArtifactInMemory: vi.fn(() => {
       mockState.scheduleCalls += 1;
       return {
         yaml: [

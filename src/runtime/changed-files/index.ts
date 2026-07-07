@@ -1,1 +1,1 @@
-export * from "./changed-files";
+export { diffChangedFiles, snapshotChangedFiles } from "./changed-files";

@@ -1,4 +1,11 @@
-import { globSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import {
+  globSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { dirname, isAbsolute, relative, resolve } from "node:path";
 
 import { Option } from "effect";
@@ -51,7 +58,9 @@ interface ProtectedSnapshotEntry {
  * Keeping the pattern → action shaping here makes the protected set a single
  * owner rather than two ad-hoc maps.
  */
-export const protectedPermissionOverlay = (patterns: readonly string[]): Record<string, "deny"> =>
+export const protectedPermissionOverlay = (
+  patterns: readonly string[]
+): Record<string, "deny"> =>
   Object.fromEntries(patterns.map((pattern) => [pattern, "deny"]));
 
 const restoreEntry = (entry: ProtectedSnapshotEntry): void => {
@@ -80,7 +89,9 @@ const regularFileBytes = (absPath: string): Option.Option<Buffer> => {
   }
 };
 
-const verifyEntry = (entry: ProtectedSnapshotEntry): Option.Option<ProtectedPathViolation> => {
+const verifyEntry = (
+  entry: ProtectedSnapshotEntry
+): Option.Option<ProtectedPathViolation> => {
   const current = regularFileBytes(entry.absPath);
   if (Option.isNone(current)) {
     restoreEntry(entry);
@@ -93,7 +104,9 @@ const verifyEntry = (entry: ProtectedSnapshotEntry): Option.Option<ProtectedPath
   return Option.some({ kind: "modified", path: entry.relPath });
 };
 
-const verifyAndRestoreSnapshot = (snapshot: readonly ProtectedSnapshotEntry[]): ProtectedPathViolation[] => {
+const verifyAndRestoreSnapshot = (
+  snapshot: readonly ProtectedSnapshotEntry[]
+): ProtectedPathViolation[] => {
   const violations: ProtectedPathViolation[] = [];
   for (const entry of snapshot) {
     const violation = verifyEntry(entry);
@@ -109,7 +122,10 @@ const isWithinRoot = (root: string, absPath: string): boolean => {
   return rel.length > 0 && !rel.startsWith("..") && !isAbsolute(rel);
 };
 
-const snapshotEntry = (root: string, match: string): Option.Option<ProtectedSnapshotEntry> => {
+const snapshotEntry = (
+  root: string,
+  match: string
+): Option.Option<ProtectedSnapshotEntry> => {
   const absPath = resolve(root, match);
   if (!isWithinRoot(root, absPath)) {
     return Option.none();
@@ -125,7 +141,10 @@ const snapshotEntry = (root: string, match: string): Option.Option<ProtectedSnap
   });
 };
 
-const snapshotProtectedFiles = (worktreePath: string, patterns: readonly string[]): ProtectedSnapshotEntry[] => {
+const snapshotProtectedFiles = (
+  worktreePath: string,
+  patterns: readonly string[]
+): ProtectedSnapshotEntry[] => {
   if (patterns.length === 0) {
     return [];
   }
@@ -147,8 +166,13 @@ const snapshotProtectedFiles = (worktreePath: string, patterns: readonly string[
  * guard that can later revert any tampering. Configuring no patterns yields a
  * no-op guard (no globbing, no filesystem reads).
  */
-export const createProtectedPathGuard = (worktreePath: string, patterns?: readonly string[]): ProtectedPathGuard => {
-  const safePatterns = (patterns ?? []).filter((pattern) => pattern.trim().length > 0);
+export const createProtectedPathGuard = (
+  worktreePath: string,
+  patterns?: readonly string[]
+): ProtectedPathGuard => {
+  const safePatterns = (patterns ?? []).filter(
+    (pattern) => pattern.trim().length > 0
+  );
   const snapshot = snapshotProtectedFiles(worktreePath, safePatterns);
   return {
     patterns: safePatterns,

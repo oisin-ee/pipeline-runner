@@ -2,9 +2,15 @@ import type { PlannedWorkflowNode } from "../../planning/compile";
 import type { HookBinding, RuntimeFailure } from "../contracts";
 import { emitRuntimeHookResult, emitRuntimeHookStarted } from "./events";
 import { executeHookFunction } from "./execution";
-import type { HookExecutionInput, HookInvocationResultEvent, RuntimeHookInvocationResult } from "./types";
+import type {
+  HookExecutionInput,
+  HookInvocationResultEvent,
+  RuntimeHookInvocationResult,
+} from "./types";
 
-const failedHookEvent = (failure: RuntimeFailure): HookInvocationResultEvent => ({
+const failedHookEvent = (
+  failure: RuntimeFailure
+): HookInvocationResultEvent => ({
   failure,
   reason: failure.reason,
   status: "failed",
@@ -12,14 +18,18 @@ const failedHookEvent = (failure: RuntimeFailure): HookInvocationResultEvent => 
 
 const passedHookEvent = (): HookInvocationResultEvent => ({ status: "passed" });
 
-const invocationResultEvent = (result: RuntimeHookInvocationResult): HookInvocationResultEvent =>
+const invocationResultEvent = (
+  result: RuntimeHookInvocationResult
+): HookInvocationResultEvent =>
   result.failure ? failedHookEvent(result.failure) : passedHookEvent();
 
 const resolveHookInvocationResult = async (
-  execute: () => Promise<RuntimeHookInvocationResult> | RuntimeHookInvocationResult,
+  execute: () =>
+    | Promise<RuntimeHookInvocationResult>
+    | RuntimeHookInvocationResult,
   binding: HookBinding,
   setInvocationResult: (result: RuntimeHookInvocationResult) => void,
-  node?: PlannedWorkflowNode,
+  node?: PlannedWorkflowNode
 ): Promise<HookInvocationResultEvent> => {
   try {
     const invocationResult = await execute();
@@ -40,7 +50,9 @@ const resolveHookInvocationResult = async (
   }
 };
 
-export const runHookInvocation = async (input: HookExecutionInput): Promise<RuntimeHookInvocationResult> => {
+export const runHookInvocation = async (
+  input: HookExecutionInput
+): Promise<RuntimeHookInvocationResult> => {
   let invocationResult: RuntimeHookInvocationResult = {};
   emitRuntimeHookStarted(input.context, input.binding, input.node);
   const resultEvent = await resolveHookInvocationResult(
@@ -49,8 +61,10 @@ export const runHookInvocation = async (input: HookExecutionInput): Promise<Runt
     (result) => {
       invocationResult = result;
     },
-    input.node,
+    input.node
   );
   emitRuntimeHookResult(input.context, input.binding, resultEvent, input.node);
-  return resultEvent.failure ? { ...invocationResult, failure: resultEvent.failure } : invocationResult;
+  return resultEvent.failure
+    ? { ...invocationResult, failure: resultEvent.failure }
+    : invocationResult;
 };

@@ -18,7 +18,9 @@ const extractedStringOption = (value: unknown): Option<string> => {
     return none();
   }
   if (typeof value !== "string") {
-    throw new TypeError("jsonLineValues extractor must return string, undefined, or Option<string>");
+    throw new TypeError(
+      "jsonLineValues extractor must return string, undefined, or Option<string>"
+    );
   }
   if (value.length === 0) {
     return none();
@@ -26,7 +28,10 @@ const extractedStringOption = (value: unknown): Option<string> => {
   return some(value);
 };
 
-export const jsonLineValues = (text: string, extract: JsonLineExtractor): string[] => {
+export const jsonLineValues = (
+  text: string,
+  extract: JsonLineExtractor
+): string[] => {
   const values: string[] = [];
   for (const line of text.split(LINE_RE)) {
     const trimmed = line.trim();
@@ -34,7 +39,9 @@ export const jsonLineValues = (text: string, extract: JsonLineExtractor): string
       continue;
     }
     try {
-      const extracted = extractedStringOption(extract(parseJson(trimmed, "runner JSON event")));
+      const extracted = extractedStringOption(
+        extract(parseJson(trimmed, "runner JSON event"))
+      );
       if (isSome(extracted)) {
         values.push(extracted.value);
       }

@@ -1,6 +1,8 @@
 import { Effect } from "effect";
+import * as Schema from "effect/Schema";
 import { describe, expect, it, vi } from "vitest";
 
+import { parsePipelineConfigParts } from "../config";
 import type { PipelineConfig } from "../config";
 import type { MokaSubmitInput, MokaSubmitResult } from "../moka-submit";
 import type { RunnerEventRecord } from "../runner-command-contract";
@@ -16,9 +18,31 @@ import type { GhRunner, PrResolution } from "./gh-checks";
 // which every test replaces with an injected seam, so it is never read here.
 // ---------------------------------------------------------------------------
 
-const UNUSED_CONFIG = {} as PipelineConfig; // quality-gate:allow test fixture: config is never read because every test injects the submit seam
+const UNUSED_CONFIG: PipelineConfig = parsePipelineConfigParts({
+  pipeline: `
+version: 1
+default_workflow: default
+workflows:
+  default:
+    nodes: []
+`,
+  profiles: "version: 1\n",
+  runners: "version: 1\n",
+});
 
-const context = (overrides: Partial<LoopControllerContext> = {}): LoopControllerContext => ({
+class ControllerDepsTestError extends Schema.TaggedErrorClass<ControllerDepsTestError>()(
+  "ControllerDepsTestError",
+  {
+    message: Schema.String,
+  }
+) {}
+
+const controllerDepsTestError = (message: string): ControllerDepsTestError =>
+  new ControllerDepsTestError({ message });
+
+const context = (
+  overrides: Partial<LoopControllerContext> = {}
+): LoopControllerContext => ({
   baseBranch: "main",
   brokerAuth: {
     secretKey: "api-key",
@@ -57,7 +81,7 @@ const submitResult = (workflowName: string): MokaSubmitResult => ({
 
 /** A gh runner whose json returns queued responses; records every json call. */
 const scriptedGh = (
-  responses: Record<string, unknown>,
+  responses: Record<string, unknown>
 ): {
   gh: GhRunner;
   jsonArgs: string[][];
@@ -67,8 +91,12 @@ const scriptedGh = (
     json: (args) => {
       jsonArgs.push([...args]);
       const key = args.join(" ");
-      const match = Object.entries(responses).find(([prefix]) => key.startsWith(prefix));
-      return match ? Effect.succeed(match[1]) : Effect.fail(new Error(`no scripted json for ${key}`));
+      const match = Object.entries(responses).find(([prefix]) =>
+        key.startsWith(prefix)
+      );
+      return match
+        ? Effect.succeed(match[1])
+        : Effect.fail(controllerDepsTestError(`no scripted json for ${key}`));
     },
     text: () => Effect.succeed(""),
   };
@@ -96,7 +124,7 @@ describe("buildControllerDeps — submitRun forwarding", () => {
         headBranch: "moka/run/run-A",
         repositorySha: "moka/run/run-A",
         ticketId: "PIPE-1",
-      }),
+      })
     );
 
     expect(result).toEqual({
@@ -104,7 +132,7 @@ describe("buildControllerDeps — submitRun forwarding", () => {
       workflowName: "moka-loop-child-xyz",
     });
     expect(submits).toHaveLength(1);
-    const submit = submits[0];
+    const [submit] = submits;
     expect(submit.delivery).toEqual({
       mode: "update-existing-pr",
       pullRequest: true,
@@ -128,7 +156,9 @@ describe("buildControllerDeps — submitRun forwarding", () => {
       },
     });
 
-    await Effect.runPromise(deps.submitRun({ deliveryMode: "create-new-pr", ticketId: "PIPE-2" }));
+    await Effect.runPromise(
+      deps.submitRun({ deliveryMode: "create-new-pr", ticketId: "PIPE-2" })
+    );
 
     expect(submits[0]?.delivery).toEqual({
       mode: "create-new-pr",
@@ -154,7 +184,9 @@ describe("buildControllerDeps — classifyChecks widening", () => {
 
     expect(signal).toBe("merged");
     // Only the pr view call — no `pr checks` follow-up once merged.
-    expect(jsonArgs.map((a) => a.join(" "))).toEqual(["pr view 42 --json state"]);
+    expect(jsonArgs.map((a) => a.join(" "))).toEqual([
+      "pr view 42 --json state",
+    ]);
   });
 
   it("falls through to classifyRequiredChecks when not merged", async () => {
@@ -194,15 +226,19 @@ describe("buildControllerDeps — emit envelope and mapping", () => {
       },
     });
 
-    await Effect.runPromise(deps.emit({ projectId: "demo", strategy: "bfs", type: "loop.start" }));
+    await Effect.runPromise(
+      deps.emit({ projectId: "demo", strategy: "bfs", type: "loop.start" })
+    );
     await Effect.runPromise(
       deps.emit({
         loopState: "running",
         ticketId: "PIPE-1",
         type: "loop.node.transition",
-      }),
+      })
     );
-    await Effect.runPromise(deps.emit({ blocked: 0, passed: 1, type: "loop.finish" }));
+    await Effect.runPromise(
+      deps.emit({ blocked: 0, passed: 1, type: "loop.finish" })
+    );
 
     expect(posted.map((r) => r.sequence)).toEqual([1, 2, 3]);
     expect(posted.every((r) => r.runId === "loop-run-1")).toBe(true);
@@ -230,22 +266,36 @@ describe("buildControllerDeps — emit envelope and mapping", () => {
     const fetchMock = vi.fn(
       async () =>
         await Promise.resolve(
-          new Response(fetchMock.mock.calls.length <= RUNNER_EVENT_SINK_RETRY_POLICY.maxRetries ? "retry me" : "", {
-            status: fetchMock.mock.calls.length <= RUNNER_EVENT_SINK_RETRY_POLICY.maxRetries ? 503 : 200,
-          }),
-        ),
+          new Response(
+            fetchMock.mock.calls.length <=
+              RUNNER_EVENT_SINK_RETRY_POLICY.maxRetries
+              ? "retry me"
+              : "",
+            {
+              status:
+                fetchMock.mock.calls.length <=
+                RUNNER_EVENT_SINK_RETRY_POLICY.maxRetries
+                  ? 503
+                  : 200,
+            }
+          )
+        )
     );
     const originalFetch = globalThis.fetch;
     globalThis.fetch = fetchMock;
     try {
       const deps = buildControllerDeps(context());
 
-      await Effect.runPromise(deps.emit({ projectId: "demo", strategy: "bfs", type: "loop.start" }));
+      await Effect.runPromise(
+        deps.emit({ projectId: "demo", strategy: "bfs", type: "loop.start" })
+      );
     } finally {
       globalThis.fetch = originalFetch;
     }
 
-    expect(fetchMock).toHaveBeenCalledTimes(RUNNER_EVENT_SINK_RETRY_POLICY.maxRetries + 1);
+    expect(fetchMock).toHaveBeenCalledTimes(
+      RUNNER_EVENT_SINK_RETRY_POLICY.maxRetries + 1
+    );
   });
 
   it("maps a graph snapshot through the DTO schema", async () => {
@@ -261,11 +311,15 @@ describe("buildControllerDeps — emit envelope and mapping", () => {
       batches: [["PIPE-1"]],
       dangling: [],
       edges: [],
-      nodes: [{ id: "PIPE-1", loopState: "queued", status: "To Do", title: "One" }],
+      nodes: [
+        { id: "PIPE-1", loopState: "queued", status: "To Do", title: "One" },
+      ],
     };
-    await Effect.runPromise(deps.emit({ snapshot, type: "loop.graph.snapshot" }));
+    await Effect.runPromise(
+      deps.emit({ snapshot, type: "loop.graph.snapshot" })
+    );
 
-    const record = posted[0];
+    const [record] = posted;
     expect(record.type).toBe("loop.graph.snapshot");
     if (record.type === "loop.graph.snapshot") {
       expect(record.loopGraphSnapshot.nodes[0]?.id).toBe("PIPE-1");

@@ -20,7 +20,7 @@ export type FactoryExec = (
     readonly cwd?: string;
     /** Extra env merged onto the child's inherited environment (e.g. copier's github.com credential). */
     readonly env?: Readonly<Record<string, string>>;
-  },
+  }
 ) => Promise<{ readonly stdout: string }>;
 
 export type FactoryGit = (cwd: string, args: string[]) => Promise<string>;
@@ -31,12 +31,15 @@ const defaultFactoryExec: FactoryExec = async (command, args, options) =>
   // extendEnv defaults to true, so options.env is merged onto process.env for
   // the child only (and inherited by grandchildren — copier's git subprocess).
   await execa(command, [...args], {
-    ...(options?.cwd !== undefined && options.cwd.length > 0 ? { cwd: options.cwd } : {}),
+    ...(options?.cwd !== undefined && options.cwd.length > 0
+      ? { cwd: options.cwd }
+      : {}),
     ...(options?.env === undefined ? {} : { env: options.env }),
     stdin: "ignore",
   });
 
-const defaultFactoryGit: FactoryGit = async (cwd, args) => await runAuthenticatedGit(cwd, args);
+const defaultFactoryGit: FactoryGit = async (cwd, args) =>
+  await runAuthenticatedGit(cwd, args);
 
 export interface FactorySeams {
   readonly exec?: FactoryExec;
@@ -50,9 +53,15 @@ export interface ResolvedFactorySeams {
   readonly log: FactoryLog;
 }
 
-export const resolveFactorySeams = (seams: FactorySeams = {}): ResolvedFactorySeams => ({
+export const resolveFactorySeams = (
+  seams: FactorySeams = {}
+): ResolvedFactorySeams => ({
   exec: seams.exec ?? defaultFactoryExec,
   git: seams.git ?? defaultFactoryGit,
   // Lane progress lines ARE the runner Job log — the acceptance-evidence channel.
-  log: seams.log ?? (() => undefined),
+  log:
+    seams.log ??
+    (() => {
+      /* empty */
+    }),
 });

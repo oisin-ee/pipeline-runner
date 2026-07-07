@@ -3,7 +3,10 @@ import { join } from "node:path";
 import { Effect } from "effect";
 
 import type { PipelineConfig } from "../config";
-import { RepoIoService, runRepoIoSync } from "../runtime/services/repo-io-service";
+import {
+  RepoIoService,
+  runRepoIoSync,
+} from "../runtime/services/repo-io-service";
 
 type McpGatewayConfig = NonNullable<PipelineConfig["mcp_gateway"]>;
 type McpGatewayBackend = McpGatewayConfig["backends"][string];
@@ -70,7 +73,7 @@ interface RepoLocalBackendSpecOptions {
 
 const backendPathExists = (
   path: string,
-  exists: ((path: string) => boolean) | void,
+  exists?: (path: string) => boolean
 ): Effect.Effect<boolean, unknown, RepoIoService> => {
   if (exists !== undefined) {
     return Effect.sync(() => exists(path));
@@ -83,19 +86,21 @@ const backendPathExists = (
 
 const workspacePathForBackend = (
   backend: McpGatewayBackend,
-  options: Pick<RepoLocalBackendSpecOptions, "cwd" | "env">,
+  options: Pick<RepoLocalBackendSpecOptions, "cwd" | "env">
 ): string => {
   if (backend.workspace_path_source !== "PIPELINE_TARGET_PATH") {
     return options.cwd;
   }
   const pipelineTargetPath = options.env.PIPELINE_TARGET_PATH;
-  return pipelineTargetPath !== undefined && pipelineTargetPath !== "" ? pipelineTargetPath : options.cwd;
+  return pipelineTargetPath !== undefined && pipelineTargetPath !== ""
+    ? pipelineTargetPath
+    : options.cwd;
 };
 
 const repoLocalBackendSpecEffect = (
   id: string,
   backend: McpGatewayBackend,
-  options: RepoLocalBackendSpecOptions,
+  options: RepoLocalBackendSpecOptions
 ): Effect.Effect<RepoLocalBackendSpec, unknown, RepoIoService> =>
   Effect.gen(function* effectBody() {
     const workspacePath = workspacePathForBackend(backend, options);
@@ -136,7 +141,7 @@ const repoLocalBackendSpecEffect = (
 
 const resolveRepoLocalBackendSpecsEffect = (
   config: PipelineConfig,
-  options: ResolveRepoLocalBackendSpecsOptions,
+  options: ResolveRepoLocalBackendSpecsOptions
 ): Effect.Effect<RepoLocalBackendSpec[], unknown, RepoIoService> =>
   Effect.gen(function* effectBody() {
     const gateway = config.mcp_gateway;
@@ -151,12 +156,13 @@ const resolveRepoLocalBackendSpecsEffect = (
             cwd: options.cwd,
             env: options.env ?? process.env,
             exists: options.exists,
-          }),
-        ),
+          })
+        )
     );
   });
 
 export const resolveRepoLocalBackendSpecs = (
   config: PipelineConfig,
-  options: ResolveRepoLocalBackendSpecsOptions,
-): RepoLocalBackendSpec[] => runRepoIoSync(resolveRepoLocalBackendSpecsEffect(config, options));
+  options: ResolveRepoLocalBackendSpecsOptions
+): RepoLocalBackendSpec[] =>
+  runRepoIoSync(resolveRepoLocalBackendSpecsEffect(config, options));

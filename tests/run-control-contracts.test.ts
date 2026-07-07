@@ -114,14 +114,26 @@ describe("run-control contracts", () => {
     expect(safeParseMokaRunEvent(runStatusEvent).ok).toBe(true);
     expect(safeParseMokaRunEvent(nodeStatusEvent).ok).toBe(true);
 
-    expect(safeParseMokaRunEvent({ ...runStatusEvent, nodeId: "extra" }).ok).toBe(false);
-    expect(safeParseMokaRunEvent({ ...nodeStatusEvent, detail: "extra" }).ok).toBe(false);
-    expect(safeParseMokaRunEvent({ ...nodeStatusEvent, nodeId: "" }).ok).toBe(false);
+    expect(
+      safeParseMokaRunEvent({ ...runStatusEvent, nodeId: "extra" }).ok
+    ).toBe(false);
+    expect(
+      safeParseMokaRunEvent({ ...nodeStatusEvent, detail: "extra" }).ok
+    ).toBe(false);
+    expect(safeParseMokaRunEvent({ ...nodeStatusEvent, nodeId: "" }).ok).toBe(
+      false
+    );
     expect(safeParseMokaRunEvent({ ...runStatusEvent, at: "" }).ok).toBe(false);
-    expect(safeParseMokaRunEvent({ ...runStatusEvent, status: "done" }).ok).toBe(false);
-    expect(safeParseMokaRunEvent({ ...runStatusEvent, type: "log" }).ok).toBe(false);
-    expect(() => parseMokaRunEvent({ ...runStatusEvent, nodeId: "extra" })).toThrow();
-    expectTypeOf<MokaRunEvent>().toMatchTypeOf<
+    expect(
+      safeParseMokaRunEvent({ ...runStatusEvent, status: "done" }).ok
+    ).toBe(false);
+    expect(safeParseMokaRunEvent({ ...runStatusEvent, type: "log" }).ok).toBe(
+      false
+    );
+    expect(() =>
+      parseMokaRunEvent({ ...runStatusEvent, nodeId: "extra" })
+    ).toThrow();
+    expectTypeOf<MokaRunEvent>().toExtend<
       | { at: string; status: MokaRunStatus; type: "run.status" }
       | {
           at: string;
@@ -163,26 +175,36 @@ describe("run-control contracts", () => {
     expect(parseMokaRunManifest(manifest)).toEqual(manifest);
     expect(safeParseMokaRunManifest(manifest).ok).toBe(true);
 
-    expect(safeParseMokaRunManifest({ ...manifest, extra: true }).ok).toBe(false);
+    expect(safeParseMokaRunManifest({ ...manifest, extra: true }).ok).toBe(
+      false
+    );
     expect(safeParseMokaRunManifest({ ...manifest, runId: "" }).ok).toBe(false);
-    expect(safeParseMokaRunManifest({ ...manifest, target: "cluster" }).ok).toBe(false);
-    expect(safeParseMokaRunManifest({ ...manifest, effort: "slow" }).ok).toBe(false);
-    expect(safeParseMokaRunManifest({ ...manifest, mode: "read-write" }).ok).toBe(false);
-    expect(safeParseMokaRunManifest({ ...manifest, status: "done" }).ok).toBe(false);
+    expect(
+      safeParseMokaRunManifest({ ...manifest, target: "cluster" }).ok
+    ).toBe(false);
+    expect(safeParseMokaRunManifest({ ...manifest, effort: "slow" }).ok).toBe(
+      false
+    );
+    expect(
+      safeParseMokaRunManifest({ ...manifest, mode: "read-write" }).ok
+    ).toBe(false);
+    expect(safeParseMokaRunManifest({ ...manifest, status: "done" }).ok).toBe(
+      false
+    );
     expect(
       safeParseMokaRunManifest({
         ...manifest,
         nodes: { "test-writer": "done" },
-      }).ok,
+      }).ok
     ).toBe(false);
     expect(
       safeParseMokaRunManifest({
         ...manifest,
         events: [{ type: "run.status" }],
-      }).ok,
+      }).ok
     ).toBe(false);
     expect(() => parseMokaRunManifest({ ...manifest, extra: true })).toThrow();
-    expectTypeOf<MokaRunManifest>().toMatchTypeOf<{
+    expectTypeOf<MokaRunManifest>().toExtend<{
       effort: RunEffort;
       events: MokaRunEvent[];
       mode: RunMode;

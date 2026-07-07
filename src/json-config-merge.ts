@@ -11,18 +11,26 @@ const JSON_FORMAT_OPTIONS = {
   tabSize: 2,
 };
 
-export type JsonRecordParseResult = { ok: true; value: Record<string, unknown> } | { errors: ParseError[]; ok: false };
+export type JsonRecordParseResult =
+  | { ok: true; value: Record<string, unknown> }
+  | { errors: ParseError[]; ok: false };
 
-export const applyJsonEdit = (content: string, path: (number | string)[], value: unknown): string => {
+export const applyJsonEdit = (
+  content: string,
+  path: (number | string)[],
+  value: unknown
+): string => {
   const edits = modify(content, path, value, {
     formattingOptions: JSON_FORMAT_OPTIONS,
   });
   return applyEdits(content, edits);
 };
 
-export const formatJson = (value: unknown): string => `${JSON.stringify(value, null, 2)}\n`;
+export const formatJson = (value: unknown): string =>
+  `${JSON.stringify(value, null, 2)}\n`;
 
-export const ensureTrailingNewline = (value: string): string => (value.endsWith("\n") ? value : `${value}\n`);
+export const ensureTrailingNewline = (value: string): string =>
+  value.endsWith("\n") ? value : `${value}\n`;
 
 export const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
@@ -54,7 +62,7 @@ export const setIfMissing = (
   content: string,
   parsed: Record<string, unknown>,
   path: (number | string)[],
-  value: unknown,
+  value: unknown
 ): string => {
   if (value === undefined || hasPath(parsed, path)) {
     return content;

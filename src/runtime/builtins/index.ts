@@ -1,1 +1,1 @@
-export * from "./builtins";
+export { executeBuiltin } from "./builtins";

@@ -1,4 +1,10 @@
-import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  writeFileSync,
+} from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
@@ -9,7 +15,11 @@ import { replaceClaudeUserMcpServers } from "../claude-user-config";
 import { mergeCodexConfig } from "../codex-config";
 import type { PipelineConfig } from "../config";
 import { PipelineMcpGatewayError } from "./gateway-error";
-import { renderClaudeGatewayMcpServers, renderCodexGatewayConfig, renderOpenCodeGatewayConfig } from "./host-renderers";
+import {
+  renderClaudeGatewayMcpServers,
+  renderCodexGatewayConfig,
+  renderOpenCodeGatewayConfig,
+} from "./host-renderers";
 
 export type GatewayHost = "opencode" | "claude-code" | "codex";
 export type GatewayHostSelection = "all" | GatewayHost;
@@ -31,33 +41,54 @@ export interface GatewayConfigureHostOptions {
 const selectedGatewayHosts = (host: GatewayHostSelection): GatewayHost[] =>
   host === "all" ? ["opencode", "claude-code", "codex"] : [host];
 
+const textOrEmpty = (value: OptionalText): string => value ?? "";
+
 interface GatewayHostConfigAdapter {
   configureContent: (config: PipelineConfig, current: OptionalText) => string;
   path: (scope: GatewayHostScope, cwd: string) => string;
 }
 
-const opencodeGatewayConfigPath = (scope: GatewayHostScope, cwd: string): string => {
+const opencodeGatewayConfigPath = (
+  scope: GatewayHostScope,
+  cwd: string
+): string => {
   if (scope === "project") {
     return join(cwd, ".opencode", "opencode.json");
   }
   return join(
-    process.env.OPENCODE_CONFIG_DIR ?? join(process.env.XDG_CONFIG_HOME ?? join(homedir(), ".config"), "opencode"),
-    "opencode.json",
+    process.env.OPENCODE_CONFIG_DIR ??
+      join(
+        process.env.XDG_CONFIG_HOME ?? join(homedir(), ".config"),
+        "opencode"
+      ),
+    "opencode.json"
   );
 };
 
-const claudeGatewayConfigPath = (scope: GatewayHostScope, cwd: string): string => {
+const claudeGatewayConfigPath = (
+  scope: GatewayHostScope,
+  cwd: string
+): string => {
   if (scope === "project") {
     return join(cwd, ".mcp.json");
   }
-  return join(dirname(process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), ".claude")), ".claude.json");
+  return join(
+    dirname(process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), ".claude")),
+    ".claude.json"
+  );
 };
 
-const codexGatewayConfigPath = (scope: GatewayHostScope, cwd: string): string => {
+const codexGatewayConfigPath = (
+  scope: GatewayHostScope,
+  cwd: string
+): string => {
   if (scope === "project") {
     return join(cwd, ".codex", "config.toml");
   }
-  return join(process.env.CODEX_HOME ?? join(homedir(), ".codex"), "config.toml");
+  return join(
+    process.env.CODEX_HOME ?? join(homedir(), ".codex"),
+    "config.toml"
+  );
 };
 
 const GATEWAY_HOST_CONFIGS: Record<GatewayHost, GatewayHostConfigAdapter> = {
@@ -67,17 +98,20 @@ const GATEWAY_HOST_CONFIGS: Record<GatewayHost, GatewayHostConfigAdapter> = {
         {
           mcpServers: renderClaudeGatewayMcpServers(config),
         },
-        current,
+        current
       );
       if (!merged.ok) {
-        throw new PipelineMcpGatewayError("Cannot parse Claude Code user config.");
+        throw new PipelineMcpGatewayError(
+          "Cannot parse Claude Code user config."
+        );
       }
       return merged.content;
     },
     path: claudeGatewayConfigPath,
   },
   codex: {
-    configureContent: (config, current) => mergeCodexConfig(current, renderCodexGatewayConfig(config)),
+    configureContent: (config, current) =>
+      mergeCodexConfig(textOrEmpty(current), renderCodexGatewayConfig(config)),
     path: codexGatewayConfigPath,
   },
   opencode: {
@@ -97,7 +131,7 @@ const backupIfExists = (path: string): Option<string> => {
 
 export const configureGatewayHosts = (
   config: PipelineConfig,
-  options: GatewayConfigureHostOptions,
+  options: GatewayConfigureHostOptions
 ): GatewayHostConfigResult[] =>
   selectedGatewayHosts(options.host).map((host) => {
     const adapter = GATEWAY_HOST_CONFIGS[host];

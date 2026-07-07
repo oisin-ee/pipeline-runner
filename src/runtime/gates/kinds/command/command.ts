@@ -14,9 +14,11 @@ export const evaluateCommandGate = async (
   gateId: string,
   nodeId: string,
   context: CommandExecutionContext,
-  executor: CommandExecutorService,
+  executor: CommandExecutorService
 ): Promise<RuntimeGateResult> => {
-  const result = await Effect.runPromise(executor.execute(gate.command, context, { timeout: gate.timeout_ms }));
+  const result = await Effect.runPromise(
+    executor.execute(gate.command, context, { timeout: gate.timeout_ms })
+  );
   const expected = gate.expect_exit_code ?? 0;
   return {
     evidence: result.evidence,
@@ -24,6 +26,9 @@ export const evaluateCommandGate = async (
     kind: gate.kind,
     nodeId,
     passed: result.exitCode === expected,
-    reason: result.exitCode === expected ? undefined : `expected exit ${expected}, got ${result.exitCode}`,
+    reason:
+      result.exitCode === expected
+        ? undefined
+        : `expected exit ${expected}, got ${result.exitCode}`,
   };
 };

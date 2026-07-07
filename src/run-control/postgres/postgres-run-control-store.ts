@@ -17,7 +17,11 @@ import {
   parseRunMode,
   parseRunTarget,
 } from "../contracts";
-import type { MokaRunControlEvent, MokaRunEvent, MokaRunManifest } from "../contracts";
+import type {
+  MokaRunControlEvent,
+  MokaRunEvent,
+  MokaRunManifest,
+} from "../contracts";
 import type {
   CreateRunRequest,
   PublishScheduleRequest,
@@ -30,8 +34,16 @@ import type {
   WriteNodeArtifactRequest,
 } from "../run-control-store";
 import { publishScheduleManifest } from "../store-manifest";
-import type { NodeArtifactReference, RunControlStatusPaths } from "../store-types";
-import { runControlEvent, runControlNodeArtifact, runControlNodeSession, runControlRun } from "./schema";
+import type {
+  NodeArtifactReference,
+  RunControlStatusPaths,
+} from "../store-types";
+import {
+  runControlEvent,
+  runControlNodeArtifact,
+  runControlNodeSession,
+  runControlRun,
+} from "./schema";
 
 /**
  * PIPE-91.11: Postgres-backed {@link RunControlStore}. It mirrors the PIPE-91.4
@@ -62,7 +74,9 @@ const openClient = (dbUrl: string): postgres.Sql =>
  * {@link migratePostgresSubstrate} (shared with the durable store, lock-guarded
  * for concurrent callers).
  */
-export const migratePostgresRunControlStore = async (dbUrl: string): Promise<void> => {
+export const migratePostgresRunControlStore = async (
+  dbUrl: string
+): Promise<void> => {
   await migratePostgresSubstrate(dbUrl);
 };
 
@@ -76,15 +90,21 @@ const statusPaths = (runId: string): RunControlStatusPaths => {
 };
 
 const buildBaseManifest = (input: CreateRunRequest): MokaRunManifest => {
-  const nodes = Object.fromEntries(input.nodeIds.map((nodeId) => [nodeId, "queued" as const]));
+  const nodes = Object.fromEntries(
+    input.nodeIds.map((nodeId) => [nodeId, "queued" as const])
+  );
   return parseMokaRunManifest({
     effort: parseRunEffort(input.effort),
     events: [],
     mode: parseRunMode(input.mode),
     nodes,
     runId: input.runId,
-    ...(input.schedule !== undefined && input.schedule.length > 0 ? { schedule: input.schedule } : {}),
-    staleDetection: parseRunControlStaleDetection(input.staleDetection ?? DEFAULT_RUN_CONTROL_STALE_DETECTION),
+    ...(input.schedule !== undefined && input.schedule.length > 0
+      ? { schedule: input.schedule }
+      : {}),
+    staleDetection: parseRunControlStaleDetection(
+      input.staleDetection ?? DEFAULT_RUN_CONTROL_STALE_DETECTION
+    ),
     status: "queued",
     target: parseRunTarget(input.target),
   });
@@ -95,13 +115,19 @@ const buildBaseManifest = (input: CreateRunRequest): MokaRunManifest => {
  * `readRun`/`listRuns` share. Mirrors the file store's replay: heartbeats are
  * dropped from the manifest's `events`, run/node status events advance state.
  */
-const replayManifest = (base: MokaRunManifest, events: MokaRunControlEvent[]): MokaRunManifest => {
-  const statusEvents = events.filter((event): event is MokaRunEvent => event.type !== "run.heartbeat");
+const replayManifest = (
+  base: MokaRunManifest,
+  events: MokaRunControlEvent[]
+): MokaRunManifest => {
+  const statusEvents = events.filter(
+    (event): event is MokaRunEvent => event.type !== "run.heartbeat"
+  );
   const nodes = { ...base.nodes };
-  let status = base.status;
+  let { status } = base;
   for (const event of statusEvents) {
     if (event.type === "run.status") {
-      status = event.status;
+      const { status: eventStatus } = event;
+      status = eventStatus;
     } else {
       nodes[event.nodeId] = event.status;
     }
@@ -117,9 +143,18 @@ const replayManifest = (base: MokaRunManifest, events: MokaRunControlEvent[]): M
 const dbEffect = <T>(run: () => Promise<T>): Effect.Effect<T, unknown> =>
   Effect.tryPromise({ catch: (error) => error, try: run });
 
-const loadBaseManifest = (db: RunControlDb, runId: string): Effect.Effect<Option.Option<MokaRunManifest>, unknown> =>
+const loadBaseManifest = (
+  db: RunControlDb,
+  runId: string
+): Effect.Effect<Option.Option<MokaRunManifest>, unknown> =>
   Effect.gen(function* effectBody() {
-    const rows = yield* dbEffect(() => db.select().from(runControlRun).where(eq(runControlRun.runId, runId)).limit(1));
+    const rows = yield* dbEffect(() =>
+      db
+        .select()
+        .from(runControlRun)
+        .where(eq(runControlRun.runId, runId))
+        .limit(1)
+    );
     const row = rows.at(0);
     if (row === undefined) {
       return Option.none();
@@ -131,15 +166,22 @@ const loadBaseManifest = (db: RunControlDb, runId: string): Effect.Effect<Option
     return Option.some(manifest);
   });
 
-const ensureRunExists = (db: RunControlDb, runId: string): Effect.Effect<void, unknown> =>
+const ensureRunExists = (
+  db: RunControlDb,
+  runId: string
+): Effect.Effect<void, unknown> =>
   Effect.gen(function* effectBody() {
     const base = yield* loadBaseManifest(db, runId);
-    if (Option.isNone(base)) {
-      return yield* Effect.fail(new Error(`Run ${runId} does not exist.`));
-    }
+    yield* Option.match(base, {
+      onNone: () => Effect.fail(new Error(`Run ${runId} does not exist.`)),
+      onSome: () => Effect.void,
+    });
   });
 
-const createRun = (db: RunControlDb, input: CreateRunRequest): Effect.Effect<MokaRunManifest, unknown> =>
+const createRun = (
+  db: RunControlDb,
+  input: CreateRunRequest
+): Effect.Effect<MokaRunManifest, unknown> =>
   Effect.gen(function* effectBody() {
     const manifest = yield* Effect.try({
       catch: (error) => error,
@@ -149,7 +191,12 @@ const createRun = (db: RunControlDb, input: CreateRunRequest): Effect.Effect<Mok
     // Idempotent upsert: DO NOTHING on conflict preserves the existing row and
     // its event log. Both `moka submit` and `runner-lifecycle workflow.start`
     // may call createRun for the same runId; the first writer wins atomically.
-    yield* dbEffect(() => db.insert(runControlRun).values({ manifest, runId: manifest.runId }).onConflictDoNothing());
+    yield* dbEffect(() =>
+      db
+        .insert(runControlRun)
+        .values({ manifest, runId: manifest.runId })
+        .onConflictDoNothing()
+    );
 
     // Read back the BASE manifest only (no event replay) — may be the row
     // just inserted or the pre-existing one when the insert was a no-op due to
@@ -160,7 +207,9 @@ const createRun = (db: RunControlDb, input: CreateRunRequest): Effect.Effect<Mok
     // the run's current live state.
     const existing = yield* loadBaseManifest(db, manifest.runId);
     if (Option.isNone(existing)) {
-      return yield* Effect.fail(new Error(`Run ${manifest.runId} not found after createRun upsert.`));
+      return yield* Effect.fail(
+        new Error(`Run ${manifest.runId} not found after createRun upsert.`)
+      );
     }
     return existing.value;
   });
@@ -168,7 +217,7 @@ const createRun = (db: RunControlDb, input: CreateRunRequest): Effect.Effect<Mok
 const updateRunManifest = (
   db: RunControlDb,
   runId: string,
-  update: (manifest: MokaRunManifest) => MokaRunManifest,
+  update: (manifest: MokaRunManifest) => MokaRunManifest
 ): Effect.Effect<MokaRunManifest, unknown> =>
   Effect.gen(function* effectBody() {
     const base = yield* loadBaseManifest(db, runId);
@@ -179,18 +228,30 @@ const updateRunManifest = (
       catch: (error) => error,
       try: () => update(base.value),
     });
-    yield* dbEffect(() => db.update(runControlRun).set({ manifest: updated }).where(eq(runControlRun.runId, runId)));
+    yield* dbEffect(() =>
+      db
+        .update(runControlRun)
+        .set({ manifest: updated })
+        .where(eq(runControlRun.runId, runId))
+    );
     return updated;
   });
 
-const loadEvents = (db: RunControlDb, runIds: string[]): Effect.Effect<Map<string, MokaRunControlEvent[]>, unknown> =>
+const loadEvents = (
+  db: RunControlDb,
+  runIds: string[]
+): Effect.Effect<Map<string, MokaRunControlEvent[]>, unknown> =>
   Effect.gen(function* effectBody() {
     const grouped = new Map<string, MokaRunControlEvent[]>();
     if (runIds.length === 0) {
       return grouped;
     }
     const rows = yield* dbEffect(() =>
-      db.select().from(runControlEvent).where(inArray(runControlEvent.runId, runIds)).orderBy(asc(runControlEvent.seq)),
+      db
+        .select()
+        .from(runControlEvent)
+        .where(inArray(runControlEvent.runId, runIds))
+        .orderBy(asc(runControlEvent.seq))
     );
     for (const row of rows) {
       const event = parseMokaRunEvent(row.event);
@@ -208,7 +269,7 @@ const readRun = (db: RunControlDb, runId: string) =>
   Effect.gen(function* effectBody() {
     const base = yield* loadBaseManifest(db, runId);
     if (Option.isNone(base)) {
-      return;
+      return Option.getOrUndefined(Option.none<MokaRunManifest>());
     }
     const events = yield* loadEvents(db, [runId]);
     return yield* Effect.try({
@@ -217,28 +278,47 @@ const readRun = (db: RunControlDb, runId: string) =>
     });
   });
 
-const listRuns = (db: RunControlDb): Effect.Effect<MokaRunManifest[], unknown> =>
+const listRuns = (
+  db: RunControlDb
+): Effect.Effect<MokaRunManifest[], unknown> =>
   Effect.gen(function* effectBody() {
-    const rows = yield* dbEffect(() => db.select().from(runControlRun).orderBy(asc(runControlRun.runId)));
+    const rows = yield* dbEffect(() =>
+      db.select().from(runControlRun).orderBy(asc(runControlRun.runId))
+    );
     if (rows.length === 0) {
       return [];
     }
     const events = yield* loadEvents(
       db,
-      rows.map((row) => row.runId),
+      rows.map((row) => row.runId)
     );
     return yield* Effect.try({
       catch: (error) => error,
-      try: () => rows.map((row) => replayManifest(parseMokaRunManifest(row.manifest), events.get(row.runId) ?? [])),
+      try: () =>
+        rows.map((row) =>
+          replayManifest(
+            parseMokaRunManifest(row.manifest),
+            events.get(row.runId) ?? []
+          )
+        ),
     });
   });
 
-const requireNonEmpty = (label: string, value: string): Effect.Effect<string, unknown> =>
-  value.length > 0 ? Effect.succeed(value) : Effect.fail(new Error(`${label} must be a non-empty string.`));
+const requireNonEmpty = (
+  label: string,
+  value: string
+): Effect.Effect<string, unknown> =>
+  value.length > 0
+    ? Effect.succeed(value)
+    : Effect.fail(new Error(`${label} must be a non-empty string.`));
 
-const requireRunId = (runId: string): Effect.Effect<string, unknown> => requireNonEmpty("runId", runId);
+const requireRunId = (runId: string): Effect.Effect<string, unknown> =>
+  requireNonEmpty("runId", runId);
 
-const publishSchedule = (db: RunControlDb, input: PublishScheduleRequest): Effect.Effect<MokaRunManifest, unknown> =>
+const publishSchedule = (
+  db: RunControlDb,
+  input: PublishScheduleRequest
+): Effect.Effect<MokaRunManifest, unknown> =>
   Effect.gen(function* effectBody() {
     const runId = yield* requireRunId(input.runId);
     yield* updateRunManifest(db, runId, (manifest) =>
@@ -246,7 +326,7 @@ const publishSchedule = (db: RunControlDb, input: PublishScheduleRequest): Effec
         manifest,
         nodeIds: input.nodeIds,
         schedule: input.schedule,
-      }),
+      })
     );
     // Unlike createRun's "return unchanged on no-op", publishSchedule is a
     // state transition whose caller expects the full current picture --
@@ -259,7 +339,10 @@ const publishSchedule = (db: RunControlDb, input: PublishScheduleRequest): Effec
     return replayed;
   });
 
-const recordEvent = (db: RunControlDb, input: RecordEventRequest): Effect.Effect<void, unknown> =>
+const recordEvent = (
+  db: RunControlDb,
+  input: RecordEventRequest
+): Effect.Effect<void, unknown> =>
   Effect.gen(function* effectBody() {
     const runId = yield* requireRunId(input.runId);
     const event = yield* Effect.try({
@@ -270,7 +353,10 @@ const recordEvent = (db: RunControlDb, input: RecordEventRequest): Effect.Effect
     yield* dbEffect(() => db.insert(runControlEvent).values({ event, runId }));
   });
 
-const updateRunStatus = (db: RunControlDb, input: UpdateRunStatusRequest): Effect.Effect<void, unknown> =>
+const updateRunStatus = (
+  db: RunControlDb,
+  input: UpdateRunStatusRequest
+): Effect.Effect<void, unknown> =>
   recordEvent(db, {
     event: {
       at: input.at,
@@ -280,7 +366,10 @@ const updateRunStatus = (db: RunControlDb, input: UpdateRunStatusRequest): Effec
     runId: input.runId,
   });
 
-const updateNodeStatus = (db: RunControlDb, input: UpdateNodeStatusRequest): Effect.Effect<void, unknown> =>
+const updateNodeStatus = (
+  db: RunControlDb,
+  input: UpdateNodeStatusRequest
+): Effect.Effect<void, unknown> =>
   recordEvent(db, {
     event: {
       at: input.at,
@@ -293,7 +382,7 @@ const updateNodeStatus = (db: RunControlDb, input: UpdateNodeStatusRequest): Eff
 
 const updateRunController = (
   db: RunControlDb,
-  input: UpdateRunControllerRequest,
+  input: UpdateRunControllerRequest
 ): Effect.Effect<MokaRunManifest, unknown> =>
   Effect.gen(function* effectBody() {
     const runId = yield* requireRunId(input.runId);
@@ -301,21 +390,28 @@ const updateRunController = (
       parseMokaRunManifest({
         ...manifest,
         controller: parseMokaRunController(input.controller),
-      }),
+      })
     );
   });
 
-const updateNodeSession = (db: RunControlDb, input: UpdateNodeSessionRequest): Effect.Effect<void, unknown> =>
+const updateNodeSession = (
+  db: RunControlDb,
+  input: UpdateNodeSessionRequest
+): Effect.Effect<void, unknown> =>
   Effect.gen(function* effectBody() {
     const runId = yield* requireRunId(input.runId);
     const nodeId = yield* requireNonEmpty("nodeId", input.nodeId);
     const sessionId = yield* requireNonEmpty("sessionId", input.sessionId);
     const base = yield* loadBaseManifest(db, runId);
-    if (Option.isNone(base)) {
-      return yield* Effect.fail(new Error(`Run ${runId} does not exist.`));
-    }
-    if (!(nodeId in base.value.nodes)) {
-      return yield* Effect.fail(new Error(`Node ${nodeId} does not exist in run ${runId}.`));
+    const manifest = yield* Option.match(base, {
+      onNone: () => Effect.fail(new Error(`Run ${runId} does not exist.`)),
+      onSome: Effect.succeed,
+    });
+    if (!(nodeId in manifest.nodes)) {
+      yield* Effect.fail(
+        new Error(`Node ${nodeId} does not exist in run ${runId}.`)
+      );
+      return;
     }
     yield* dbEffect(() =>
       db
@@ -324,13 +420,13 @@ const updateNodeSession = (db: RunControlDb, input: UpdateNodeSessionRequest): E
         .onConflictDoUpdate({
           set: { sessionId },
           target: [runControlNodeSession.runId, runControlNodeSession.nodeId],
-        }),
+        })
     );
   });
 
 const writeNodeArtifact = (
   db: RunControlDb,
-  input: WriteNodeArtifactRequest,
+  input: WriteNodeArtifactRequest
 ): Effect.Effect<NodeArtifactReference, unknown> =>
   Effect.gen(function* effectBody() {
     const runId = yield* requireRunId(input.runId);
@@ -352,13 +448,19 @@ const writeNodeArtifact = (
             content: input.content,
             contentType: input.contentType ?? null,
           },
-          target: [runControlNodeArtifact.runId, runControlNodeArtifact.nodeId, runControlNodeArtifact.name],
-        }),
+          target: [
+            runControlNodeArtifact.runId,
+            runControlNodeArtifact.nodeId,
+            runControlNodeArtifact.name,
+          ],
+        })
     );
     return { path: `moka_run_control/${runId}/nodes/${nodeId}/${name}` };
   });
 
-export const postgresRunControlStore = (dbUrl: string): PostgresRunControlStore => {
+export const postgresRunControlStore = (
+  dbUrl: string
+): PostgresRunControlStore => {
   const client = openClient(dbUrl);
   const db = drizzle(client);
 

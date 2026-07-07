@@ -1,3 +1,4 @@
+import * as Option from "effect/Option";
 import { stringify } from "yaml";
 
 import type { PipelineConfig } from "../config";
@@ -43,11 +44,59 @@ export interface ToolHiveWorkload {
   url?: string;
 }
 
+interface RepoLocalBackendFields {
+  args: string[];
+  command: string;
+  cwd?: string;
+  enabled: boolean;
+  env?: Record<string, string>;
+  mount?: RepoLocalBackendSpec["mount"];
+}
+
+interface ToolHiveWorkloadFields {
+  transport?: string;
+  url?: string;
+  workloadName?: string;
+}
+
+const repoLocalBackendFields = (
+  id: string,
+  backend: McpGatewayBackend,
+  repoLocalBackend: Option.Option<RepoLocalBackendSpec>
+): RepoLocalBackendFields =>
+  Option.match(repoLocalBackend, {
+    onNone: () => ({
+      args: [],
+      command: id,
+      enabled: backend.required,
+    }),
+    onSome: (backendSpec) => ({
+      args: backendSpec.args,
+      command: backendSpec.command,
+      cwd: backendSpec.cwd,
+      enabled: backendSpec.enabled,
+      env: backendSpec.env,
+      mount: backendSpec.mount,
+    }),
+  });
+
+const toolHiveWorkloadFields = (
+  workload: Option.Option<ToolHiveWorkload>
+): ToolHiveWorkloadFields =>
+  Option.match(workload, {
+    onNone: () => ({}),
+    onSome: (value) => ({
+      transport: value.transport,
+      url: value.url,
+      workloadName: value.name,
+    }),
+  });
+
 const toolHiveBackend = (
   id: string,
   backend: McpGatewayBackend,
-  repoLocalBackend: RepoLocalBackendSpec | void,
-  workload: ToolHiveWorkload | void,
+  repoLocalBackend: Option.Option<RepoLocalBackendSpec>,
+  workload: Option.Option<ToolHiveWorkload>
 ): ToolHiveVmcpBackend => {
   if (backend.locality !== "repo-local") {
     return {
@@ -56,38 +105,39 @@ const toolHiveBackend = (
       name: id,
       required: backend.required,
       toolPrefixes: backend.tool_prefixes,
-      transport: workload?.transport,
+      ...toolHiveWorkloadFields(workload),
       type: "entry",
-      url: workload?.url,
-      workloadName: workload?.name,
     };
   }
+  const backendFields = repoLocalBackendFields(id, backend, repoLocalBackend);
   return {
-    args: repoLocalBackend?.args ?? [],
-    command: repoLocalBackend?.command ?? id,
-    cwd: repoLocalBackend?.cwd,
-    enabled: repoLocalBackend?.enabled ?? backend.required,
-    env: repoLocalBackend?.env,
+    ...backendFields,
     locality: backend.locality,
-    mount: repoLocalBackend?.mount,
     name: id,
     required: backend.required,
     toolPrefixes: backend.tool_prefixes,
-    transport: workload?.transport,
+    ...toolHiveWorkloadFields(workload),
     type: "stdio",
-    url: workload?.url,
-    workloadName: workload?.name,
   };
 };
 
-const matchingWorkload = (backendId: string, workloads: ToolHiveWorkload[]): ToolHiveWorkload | void => {
+const matchingWorkload = (
+  backendId: string,
+  workloads: ToolHiveWorkload[]
+): Option.Option<ToolHiveWorkload> => {
   const expectedPackageOwnedName = `oisin-pipeline-${backendId}`;
-  return workloads.find((workload) => workload.name === backendId || workload.name === expectedPackageOwnedName);
+  return Option.fromUndefinedOr(
+    workloads.find(
+      (workload) =>
+        workload.name === backendId ||
+        workload.name === expectedPackageOwnedName
+    )
+  );
 };
 
 export const renderToolHiveVmcpInventory = (
   config: PipelineConfig,
-  options: RenderToolHiveVmcpInventoryOptions = {},
+  options: RenderToolHiveVmcpInventoryOptions = {}
 ): ToolHiveVmcpInventory => {
   const gateway = config.mcp_gateway;
   if (gateway === undefined) {
@@ -97,11 +147,18 @@ export const renderToolHiveVmcpInventory = (
       yaml: stringify({ backends: [], group: "default", provider: "toolhive" }),
     };
   }
-  const repoLocalBackends = new Map((options.repoLocalBackends ?? []).map((backend) => [backend.id, backend]));
+  const repoLocalBackends = new Map(
+    (options.repoLocalBackends ?? []).map((backend) => [backend.id, backend])
+  );
   const toolHiveWorkloads = options.toolHiveWorkloads ?? [];
   const backends = Object.entries(gateway.backends)
     .map(([id, backend]) =>
-      toolHiveBackend(id, backend, repoLocalBackends.get(id), matchingWorkload(id, toolHiveWorkloads)),
+      toolHiveBackend(
+        id,
+        backend,
+        Option.fromUndefinedOr(repoLocalBackends.get(id)),
+        matchingWorkload(id, toolHiveWorkloads)
+      )
     )
     .toSorted((left, right) => left.name.localeCompare(right.name));
   const group = gateway.default_profile ?? "default";
@@ -117,8 +174,12 @@ export const renderToolHiveVmcpInventory = (
       },
       backends: backends.map((backend) => ({
         name: backend.name,
-        ...(backend.transport !== undefined && backend.transport !== "" ? { transport: backend.transport } : {}),
-        ...(backend.url !== undefined && backend.url !== "" ? { url: backend.url } : {}),
+        ...(backend.transport !== undefined && backend.transport !== ""
+          ? { transport: backend.transport }
+          : {}),
+        ...(backend.url !== undefined && backend.url !== ""
+          ? { url: backend.url }
+          : {}),
       })),
       groupRef: group,
       incomingAuth: {

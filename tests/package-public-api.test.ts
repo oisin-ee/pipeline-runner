@@ -29,8 +29,8 @@ const packDryRunOutput = Schema.Tuple([
       Schema.Array(
         struct({
           path: Schema.String,
-        }),
-      ),
+        })
+      )
     ),
   }),
 ]);
@@ -93,10 +93,6 @@ beforeAll(async () => {
   joinPath = join;
 });
 
-afterEach(async () => {
-  await Promise.all(tempDirs.splice(0).map(removePath));
-});
-
 const readText = async (path: string): Promise<string> => {
   const { readFile } = await import("node:fs/promises");
   return await readFile(path, "utf-8");
@@ -117,6 +113,10 @@ const removePath = async (path: string): Promise<void> => {
   await rm(path, { force: true, recursive: true });
 };
 
+afterEach(async () => {
+  await Promise.all(tempDirs.splice(0).map(removePath));
+});
+
 const makeTempDir = async (prefix: string): Promise<string> => {
   const [{ mkdtemp }, { tmpdir }, { join }] = await Promise.all([
     import("node:fs/promises"),
@@ -126,7 +126,8 @@ const makeTempDir = async (prefix: string): Promise<string> => {
   return await mkdtemp(join(tmpdir(), prefix));
 };
 
-const encodeJson = (value: unknown): string => Schema.encodeUnknownSync(unknownJsonString)(value);
+const encodeJson = (value: unknown): string =>
+  Schema.encodeUnknownSync(unknownJsonString)(value);
 
 const jsonStringLiteral = (value: string): string =>
   Schema.encodeUnknownSync(Schema.fromJsonString(Schema.String))(value);
@@ -135,19 +136,34 @@ const writeJson = async (path: string, value: unknown): Promise<void> => {
   await writeText(path, `${encodeJson(value)}\n`);
 };
 
-const parseJsonWithSchema = <S extends Schema.ConstraintDecoder<unknown>>(schema: S, source: string): S["Type"] =>
-  parseWithSchema(Schema.fromJsonString(schema), source);
+const parseJsonWithSchema = <S extends Schema.ConstraintDecoder<unknown>>(
+  schema: S,
+  source: string
+): S["Type"] => parseWithSchema(Schema.fromJsonString(schema), source);
+
+const runChecked = async (
+  command: string,
+  args: string[],
+  options: { cwd: string }
+): Promise<string> => {
+  const result = await execa(command, args, { cwd: options.cwd });
+  return result.stdout;
+};
 
 const tempConsumerApp = async (): Promise<string> => {
   const dir = await makeTempDir("pipeline-public-api-consumer-");
   tempDirs.push(dir);
   const [{ filename }] = parseJsonWithSchema(
     packOutput,
-    await runChecked("nub", ["pack", "--ignore-scripts", "--json", "--pack-destination", dir], { cwd: process.cwd() }),
+    await runChecked(
+      "nub",
+      ["pack", "--ignore-scripts", "--json", "--pack-destination", dir],
+      { cwd: process.cwd() }
+    )
   );
   const { packageManager } = parseJsonWithSchema(
     rootPackageManagerSchema,
-    await readText(joinPath(process.cwd(), "package.json")),
+    await readText(joinPath(process.cwd(), "package.json"))
   );
   await copyFile(joinPath(process.cwd(), ".npmrc"), joinPath(dir, ".npmrc"));
 
@@ -173,20 +189,32 @@ const tempConsumerApp = async (): Promise<string> => {
     },
     include: ["usage.ts"],
   });
-  await runChecked("nub", ["install", "--ignore-scripts", "--no-frozen-lockfile", "--node-linker", "hoisted"], {
-    cwd: dir,
-  });
+  await runChecked(
+    "nub",
+    [
+      "install",
+      "--ignore-scripts",
+      "--no-frozen-lockfile",
+      "--node-linker",
+      "hoisted",
+    ],
+    {
+      cwd: dir,
+    }
+  );
 
   return dir;
 };
 
-const runChecked = async (command: string, args: string[], options: { cwd: string }): Promise<string> => {
-  const result = await execa(command, args, { cwd: options.cwd });
-  return result.stdout;
-};
-
-const expectCommandToFail = async (command: string, args: string[], options: { cwd: string }): Promise<string> => {
-  const result = await execa(command, args, { cwd: options.cwd, reject: false });
+const expectCommandToFail = async (
+  command: string,
+  args: string[],
+  options: { cwd: string }
+): Promise<string> => {
+  const result = await execa(command, args, {
+    cwd: options.cwd,
+    reject: false,
+  });
   expect(result.exitCode).not.toBe(0);
   return [result.stdout, result.stderr].filter(Boolean).join("\n");
 };
@@ -199,7 +227,10 @@ const packJson = (output: string): string => {
 
 describe("package public app-facing API", () => {
   it("pins the package export map and CLI bin surface before structural cleanup", async () => {
-    const packageJson = parseJsonWithSchema(packageJsonSchema, await readText(joinPath(process.cwd(), "package.json")));
+    const packageJson = parseJsonWithSchema(
+      packageJsonSchema,
+      await readText(joinPath(process.cwd(), "package.json"))
+    );
 
     expect(packageJson.bin).toEqual({ moka: "dist/index.js" });
     expect(packageJson.exports).toEqual(EXPECTED_PUBLIC_EXPORTS);
@@ -214,9 +245,16 @@ describe("package public app-facing API", () => {
 
     // Skills are installed by the shared agent harness into host dirs, so the
     // package must not ship skill bodies.
-    expect(packedPaths.some((path) => path.startsWith(".agents/skills/"))).toBe(false);
+    expect(packedPaths.some((path) => path.startsWith(".agents/skills/"))).toBe(
+      false
+    );
     // The package still owns and ships its runtime config defaults.
-    expect(packedPaths).toEqual(expect.arrayContaining(["defaults/pipeline.yaml", "defaults/profiles.yaml"]));
+    expect(packedPaths).toEqual(
+      expect.arrayContaining([
+        "defaults/pipeline.yaml",
+        "defaults/profiles.yaml",
+      ])
+    );
   }, 30_000);
 
   it("documents stable app-facing config, planner, and runtime imports", async () => {
@@ -566,12 +604,16 @@ void parsedPayload;
 void runnerManifest;
 void staticSubmitOptions;
 void dynamicSubmitOptions;
-`,
+`
     );
 
-    await runChecked(joinPath(process.cwd(), "node_modules", ".bin", "tsc"), ["--noEmit", "-p", "tsconfig.json"], {
-      cwd: consumer,
-    });
+    await runChecked(
+      joinPath(process.cwd(), "node_modules", ".bin", "tsc"),
+      ["--noEmit", "-p", "tsconfig.json"],
+      {
+        cwd: consumer,
+      }
+    );
   }, 30_000);
 
   it("does not expose nullable or missing runtime config affordances from the public config API", async () => {
@@ -587,13 +629,13 @@ void dynamicSubmitOptions;
 
 	void tryLoadPipelineConfig;
 	void new PipelineConfigError("PIPELINE_CONFIG_MISSING", "missing");
-	`,
+	`
     );
 
     const output = await expectCommandToFail(
       joinPath(process.cwd(), "node_modules", ".bin", "tsc"),
       ["--noEmit", "-p", "tsconfig.json"],
-      { cwd: consumer },
+      { cwd: consumer }
     );
 
     expect(output).toMatch(MISSING_CONFIG_AFFORDANCE_RE);
@@ -650,7 +692,7 @@ if (typeof Schema.decodeUnknownSync(mokaSubmitOptionsSchema) !== "function") {
 if (typeof Schema.decodeUnknownSync(mokaSubmitResultSchema) !== "function") {
   throw new PublicApiSmokeError("moka submit result schema was not exported");
 }
-`,
+`
     );
 
     await runChecked("node", ["runtime-smoke.mjs"], {

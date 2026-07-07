@@ -14,10 +14,14 @@ export interface CliOutputBuffers {
   stdout: string[];
 }
 
-export const runPath = (workspaceRoot: string, runId: string, ...parts: string[]): string =>
-  join(workspaceRoot, ".pipeline", "runs", runId, ...parts);
+export const runPath = (
+  workspaceRoot: string,
+  runId: string,
+  ...parts: string[]
+): string => join(workspaceRoot, ".pipeline", "runs", runId, ...parts);
 
-export const readJson = (path: string): unknown => JSON.parse(readFileSync(path, "utf-8"));
+export const readJson = (path: string): unknown =>
+  JSON.parse(readFileSync(path, "utf-8"));
 
 export const readJsonl = (path: string): unknown[] => {
   if (!existsSync(path)) {
@@ -35,7 +39,7 @@ export const writeJson = (path: string, value: unknown): void => {
 
 export const restoreEnv = (key: string, value: string | undefined): void => {
   if (value === undefined) {
-    delete process.env[key];
+    Reflect.deleteProperty(process.env, key);
     return;
   }
   process.env[key] = value;
@@ -51,24 +55,33 @@ export const runMokaCliInTarget = async (input: {
   const log = vi.spyOn(console, "log").mockImplementation((...messages) => {
     input.buffers.stdout.push(`${messages.map(String).join(" ")}\n`);
   });
-  const error = vi.spyOn(console, "error").mockImplementation((...messages) => {
-    input.buffers.stderr.push(`${messages.map(String).join(" ")}\n`);
-  });
+  const stderr = vi
+    .spyOn(console, "error")
+    .mockImplementation((...messages) => {
+      input.buffers.stderr.push(`${messages.map(String).join(" ")}\n`);
+    });
   let thrown: unknown;
 
   try {
     process.env.PIPELINE_TARGET_PATH = input.workspaceRoot;
     const program = createCliProgram();
     program.configureOutput({
-      writeErr: (value) => input.buffers.stderr.push(value),
-      writeOut: (value) => input.buffers.stdout.push(value),
+      writeErr: (value) => {
+        input.buffers.stderr.push(value);
+      },
+      writeOut: (value) => {
+        input.buffers.stdout.push(value);
+      },
     });
-    await program.parseAsync(["node", "/repo/node_modules/.bin/moka", ...input.args], { from: "node" });
+    await program.parseAsync(
+      ["node", "/repo/node_modules/.bin/moka", ...input.args],
+      { from: "node" }
+    );
   } catch (error) {
     thrown = error;
   } finally {
     log.mockRestore();
-    error.mockRestore();
+    stderr.mockRestore();
     restoreEnv("PIPELINE_TARGET_PATH", input.originalPipelineTargetPath);
   }
 

@@ -21,38 +21,46 @@ import type {
 
 describe("runtime contracts", () => {
   it("exposes runtime domain types without importing the public facade", () => {
-    expectTypeOf<PipelineRuntimeOptions>().toMatchTypeOf<{
+    expectTypeOf<PipelineRuntimeOptions>().toExtend<{
       task: string;
     }>();
-    expectTypeOf<PipelineRuntimeResult["outcome"]>().toEqualTypeOf<"CANCELLED" | "FAIL" | "PASS">();
-    expectTypeOf<PipelineRuntimeEvent>().toMatchTypeOf<{ type: string }>();
-    expectTypeOf<RuntimeFailure>().toMatchTypeOf<{
+    expectTypeOf<PipelineRuntimeResult["outcome"]>().toEqualTypeOf<
+      "CANCELLED" | "FAIL" | "PASS"
+    >();
+    expectTypeOf<PipelineRuntimeEvent>().toExtend<{ type: string }>();
+    expectTypeOf<RuntimeFailure>().toExtend<{
       evidence: string[];
       gate: string;
       reason: string;
     }>();
     expectTypeOf<RuntimeGateResult["passed"]>().toEqualTypeOf<boolean>();
-    expectTypeOf<RuntimeGateResult["unmet"]>().toEqualTypeOf<UnmetCriterion[] | undefined>();
+    expectTypeOf<RuntimeGateResult["unmet"]>().toEqualTypeOf<
+      UnmetCriterion[] | undefined
+    >();
     expectTypeOf<UnmetCriterion>().toEqualTypeOf<{
       criterion: string;
       evidence: string[];
       reason: string;
     }>();
-    expectTypeOf<RuntimeNodeResult["status"]>().toEqualTypeOf<"failed" | "passed">();
+    expectTypeOf<RuntimeNodeResult["status"]>().toEqualTypeOf<
+      "failed" | "passed"
+    >();
   });
 
   it("exposes internal runtime configuration aliases for split modules", () => {
-    expectTypeOf<GateSpec>().toMatchTypeOf<{ kind: string }>();
+    expectTypeOf<GateSpec>().toExtend<{ kind: string }>();
     expectTypeOf<AcceptanceGateSpec["kind"]>().toEqualTypeOf<"acceptance">();
     expectTypeOf<ArtifactGateSpec["kind"]>().toEqualTypeOf<"artifact">();
     expectTypeOf<BuiltinGateSpec["kind"]>().toEqualTypeOf<"builtin">();
-    expectTypeOf<ChangedFilesGateSpec["kind"]>().toEqualTypeOf<"changed_files">();
+    expectTypeOf<
+      ChangedFilesGateSpec["kind"]
+    >().toEqualTypeOf<"changed_files">();
     expectTypeOf<CommandGateSpec["kind"]>().toEqualTypeOf<"command">();
     expectTypeOf<VerdictGateSpec["kind"]>().toEqualTypeOf<"verdict">();
-    expectTypeOf<HookBinding>().toMatchTypeOf<{
+    expectTypeOf<HookBinding>().toExtend<{
       function: string;
       id: string;
     }>();
-    expectTypeOf<HookFunctionSpec>().toMatchTypeOf<{ kind: string }>();
+    expectTypeOf<HookFunctionSpec>().toExtend<{ kind: string }>();
   });
 });

@@ -7,7 +7,10 @@ export class FileSystemService extends Context.Service<
   {
     readonly exists: (path: string) => Effect.Effect<boolean>;
     readonly readText: (path: string) => Effect.Effect<string, unknown>;
-    readonly writeText: (path: string, contents: string) => Effect.Effect<void, unknown>;
+    readonly writeText: (
+      path: string,
+      contents: string
+    ) => Effect.Effect<void, unknown>;
   }
 >()("FileSystemService") {}
 
@@ -29,7 +32,7 @@ export const FileSystemServiceLive = Layer.succeed(FileSystemService, {
 
 export const runFileSystemSync = <A, E>(
   program: Effect.Effect<A, E, FileSystemService>,
-  layer: typeof FileSystemServiceLive,
+  layer: typeof FileSystemServiceLive
 ): A => {
   const exit = Effect.runSyncExit(Effect.provide(program, layer));
   switch (exit._tag) {

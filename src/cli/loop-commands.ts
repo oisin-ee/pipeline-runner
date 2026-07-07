@@ -15,14 +15,18 @@ interface LoopControllerEntrypointFlags {
   strategy?: string;
 }
 
-const buildLoopSubmitInput = (options: LoopCommandOptions): Parameters<typeof runLoopSubmit>[0] => {
+const buildLoopSubmitInput = (
+  options: LoopCommandOptions
+): Parameters<typeof runLoopSubmit>[0] => {
   const cwd = process.env.PIPELINE_TARGET_PATH ?? process.cwd();
   const config = loadPipelineConfig(cwd, {
     allowMissingLintFileReferences: true,
   });
   const globalConfig = loadMokaGlobalConfig();
   if (globalConfig === null) {
-    throw new Error("momokaya.submit.brokerAuth is required for moka loop submit");
+    throw new Error(
+      "momokaya.submit.brokerAuth is required for moka loop submit"
+    );
   }
   const { momokaya } = globalConfig;
   return {
@@ -42,18 +46,25 @@ const buildLoopSubmitInput = (options: LoopCommandOptions): Parameters<typeof ru
 export const registerLoopCommand = (program: Command): void => {
   program
     .command("loop")
-    .description("Submit a long-running cloud controller that drains the backlog ticket-by-ticket")
+    .description(
+      "Submit a long-running cloud controller that drains the backlog ticket-by-ticket"
+    )
     .addOption(
       new Option("--strategy <strategy>", "ready-ticket selection strategy")
         .choices(["priority", "bfs", "dfs"])
-        .default("priority"),
+        .default("priority")
     )
     .option("--root <epic-id>", "restrict traversal to this epic subtree")
-    .option("--max-remediation-attempts <n>", "bounded fix-up submits before a PR is declared blocked")
-    .option("--merge-timeout <n>", "bounded merge polls before an indeterminate PR is declared blocked")
+    .option(
+      "--max-remediation-attempts <n>",
+      "bounded fix-up submits before a PR is declared blocked"
+    )
+    .option(
+      "--merge-timeout <n>",
+      "bounded merge polls before an indeterminate PR is declared blocked"
+    )
     .action(async (options: LoopCommandOptions) => {
-      const result = await runLoopSubmit(buildLoopSubmitInput(options));
-      console.log(`Loop controller submitted: ${result.workflowName} in ${result.namespace}`);
+      await runLoopSubmit(buildLoopSubmitInput(options));
     });
 
   program
@@ -63,7 +74,7 @@ export const registerLoopCommand = (program: Command): void => {
     .addOption(
       new Option("--strategy <strategy>", "ready-ticket selection strategy")
         .choices(["priority", "bfs", "dfs"])
-        .default("priority"),
+        .default("priority")
     )
     .option("--root <epic-id>", "restrict traversal to this epic subtree")
     .option("--max-remediation-attempts <n>", "bounded fix-up submits")

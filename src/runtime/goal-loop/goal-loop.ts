@@ -10,26 +10,40 @@ import {
   recordGoalStateContinuationAttempt,
 } from "../goal-state/goal-state";
 import type { PipelineGoalState } from "../goal-state/goal-state";
-import { GoalLoopService, GoalLoopServiceLive } from "../services/goal-loop-service";
+import {
+  GoalLoopService,
+  GoalLoopServiceLive,
+} from "../services/goal-loop-service";
 import type {
   GoalLoopContinuationInput as GoalLoopContinuationInputType,
   GoalLoopOptions,
   GoalLoopResult,
 } from "../services/goal-loop-service";
-import { exactNextRequirement, renderContinuationPrompt } from "./continuation-prompt";
+import {
+  exactNextRequirement,
+  renderContinuationPrompt,
+} from "./continuation-prompt";
 
-export type { GoalLoopOptions, GoalLoopResult } from "../services/goal-loop-service";
+export type {
+  GoalLoopOptions,
+  GoalLoopResult,
+} from "../services/goal-loop-service";
 
-const isValidMaxContinuations = (value: number): boolean => Number.isInteger(value) && value >= 0;
+const isValidMaxContinuations = (value: number): boolean =>
+  Number.isInteger(value) && value >= 0;
 
-const assertValidMaxContinuations = (options: GoalLoopOptions): GoalLoopOptions => {
+const assertValidMaxContinuations = (
+  options: GoalLoopOptions
+): GoalLoopOptions => {
   if (isValidMaxContinuations(options.maxContinuations)) {
     return options;
   }
   throw new Error("maxContinuations must be a non-negative integer");
 };
 
-const validateGoalLoopOptions = (options: GoalLoopOptions): Effect.Effect<GoalLoopOptions, unknown> =>
+const validateGoalLoopOptions = (
+  options: GoalLoopOptions
+): Effect.Effect<GoalLoopOptions, unknown> =>
   Effect.try({
     catch: (error) => error,
     try: () => assertValidMaxContinuations(options),
@@ -38,7 +52,7 @@ const validateGoalLoopOptions = (options: GoalLoopOptions): Effect.Effect<GoalLo
 const maxContinuationsResult = (
   state: PipelineGoalState,
   prompts: string[],
-  options: GoalLoopOptions,
+  options: GoalLoopOptions
 ): Option.Option<GoalLoopResult> =>
   state.continuationAttempts.length >= options.maxContinuations
     ? Option.some({
@@ -56,7 +70,10 @@ const renderGoalContinuationPrompt = (state: PipelineGoalState): string =>
     state,
   });
 
-const noProgressResult = (state: PipelineGoalState, prompts: string[]): GoalLoopResult => {
+const noProgressResult = (
+  state: PipelineGoalState,
+  prompts: string[]
+): GoalLoopResult => {
   const reason = "same failure repeated without new changed files or evidence";
   return {
     attempts: state.continuationAttempts.length,
@@ -81,11 +98,17 @@ export const createGoalContinuationLaunchPlan = (input: {
     worktreePath: input.worktreePath,
   });
 
-type TerminalResultHandler = (state: PipelineGoalState, prompts: string[]) => Option.Option<GoalLoopResult>;
+type TerminalResultHandler = (
+  state: PipelineGoalState,
+  prompts: string[]
+) => Option.Option<GoalLoopResult>;
 
 const nullTerminalResult = (): Option.Option<GoalLoopResult> => Option.none();
 
-const missingEvidenceResult = (state: PipelineGoalState, prompts: string[]): GoalLoopResult => {
+const missingEvidenceResult = (
+  state: PipelineGoalState,
+  prompts: string[]
+): GoalLoopResult => {
   const reason = "missing deterministic verifier or acceptance evidence";
   return {
     attempts: state.continuationAttempts.length,
@@ -96,7 +119,10 @@ const missingEvidenceResult = (state: PipelineGoalState, prompts: string[]): Goa
   };
 };
 
-const passResult = (state: PipelineGoalState, prompts: string[]): GoalLoopResult => {
+const passResult = (
+  state: PipelineGoalState,
+  prompts: string[]
+): GoalLoopResult => {
   if (!goalStateCompletionEvidence(state).passed) {
     return missingEvidenceResult(state, prompts);
   }
@@ -109,7 +135,10 @@ const passResult = (state: PipelineGoalState, prompts: string[]): GoalLoopResult
   };
 };
 
-const blockedResult = (state: PipelineGoalState, prompts: string[]): GoalLoopResult => ({
+const blockedResult = (
+  state: PipelineGoalState,
+  prompts: string[]
+): GoalLoopResult => ({
   attempts: state.continuationAttempts.length,
   prompts,
   reason: state.blockedReasons.at(-1) ?? "goal blocked",
@@ -117,7 +146,11 @@ const blockedResult = (state: PipelineGoalState, prompts: string[]): GoalLoopRes
   terminalState: "blocked",
 });
 
-const cancelledResult = (state: PipelineGoalState, prompts: string[], reason: string): GoalLoopResult => ({
+const cancelledResult = (
+  state: PipelineGoalState,
+  prompts: string[],
+  reason: string
+): GoalLoopResult => ({
   attempts: state.continuationAttempts.length,
   prompts,
   reason,
@@ -128,7 +161,7 @@ const cancelledResult = (state: PipelineGoalState, prompts: string[], reason: st
 const cancellationTerminalResult = (
   state: PipelineGoalState,
   prompts: string[],
-  shouldCancel?: () => boolean,
+  shouldCancel?: () => boolean
 ): Option.Option<GoalLoopResult> => {
   if (shouldCancel?.() === true) {
     return Option.some(cancelledResult(state, prompts, "goal loop cancelled"));
@@ -137,29 +170,42 @@ const cancellationTerminalResult = (
 };
 
 const TERMINAL_RESULT_HANDLERS: Partial<
-  Record<NonNullable<PipelineGoalState["terminalOutcome"]>, TerminalResultHandler>
+  Record<
+    NonNullable<PipelineGoalState["terminalOutcome"]>,
+    TerminalResultHandler
+  >
 > = {
   BLOCKED: (state, prompts) => Option.some(blockedResult(state, prompts)),
-  CANCELLED: (state, prompts) => Option.some(cancelledResult(state, prompts, "goal cancelled")),
+  CANCELLED: (state, prompts) =>
+    Option.some(cancelledResult(state, prompts, "goal cancelled")),
   PASS: (state, prompts) => Option.some(passResult(state, prompts)),
 };
 
-const terminalResultHandler = (outcome: PipelineGoalState["terminalOutcome"]): TerminalResultHandler =>
+const terminalResultHandler = (
+  outcome: PipelineGoalState["terminalOutcome"]
+): TerminalResultHandler =>
   TERMINAL_RESULT_HANDLERS[outcome ?? "FAIL"] ?? nullTerminalResult;
 
-const outcomeTerminalResult = (state: PipelineGoalState, prompts: string[]): Option.Option<GoalLoopResult> =>
+const outcomeTerminalResult = (
+  state: PipelineGoalState,
+  prompts: string[]
+): Option.Option<GoalLoopResult> =>
   terminalResultHandler(state.terminalOutcome)(state, prompts);
 
 const terminalResult = (
   state: PipelineGoalState,
   prompts: string[],
-  shouldCancel?: () => boolean,
+  shouldCancel?: () => boolean
 ): Option.Option<GoalLoopResult> => {
   const cancellation = cancellationTerminalResult(state, prompts, shouldCancel);
-  return Option.isSome(cancellation) ? cancellation : outcomeTerminalResult(state, prompts);
+  return Option.isSome(cancellation)
+    ? cancellation
+    : outcomeTerminalResult(state, prompts);
 };
 
-const latestGateReason = (latestGate?: PipelineGoalState["gateFailures"][number]): Option.Option<string> => {
+const latestGateReason = (
+  latestGate?: PipelineGoalState["gateFailures"][number]
+): Option.Option<string> => {
   if (latestGate === undefined) {
     return Option.none();
   }
@@ -180,16 +226,29 @@ const continuationReason = (state: PipelineGoalState): string => {
     return gateReason.value;
   }
   const verifierFailureReason = verifierReason(state);
-  return Option.isSome(verifierFailureReason) ? verifierFailureReason.value : "goal incomplete";
+  return Option.isSome(verifierFailureReason)
+    ? verifierFailureReason.value
+    : "goal incomplete";
 };
 
-const promptPathField = (value: Option.Option<string>): { promptPath?: string } =>
-  Option.isSome(value) && value.value.length > 0 ? { promptPath: value.value } : {};
+const promptPathField = (
+  value: Option.Option<string>
+): { promptPath?: string } =>
+  Option.isSome(value) && value.value.length > 0
+    ? { promptPath: value.value }
+    : {};
 
-const verifierNodeIdField = (value: Option.Option<string>): { verifierNodeId?: string } =>
-  Option.isSome(value) && value.value.length > 0 ? { verifierNodeId: value.value } : {};
+const verifierNodeIdField = (
+  value: Option.Option<string>
+): { verifierNodeId?: string } =>
+  Option.isSome(value) && value.value.length > 0
+    ? { verifierNodeId: value.value }
+    : {};
 
-const stateWithContinuationAttempt = (state: PipelineGoalState, promptPath: Option.Option<string>): PipelineGoalState =>
+const stateWithContinuationAttempt = (
+  state: PipelineGoalState,
+  promptPath: Option.Option<string>
+): PipelineGoalState =>
   recordGoalStateContinuationAttempt(state, {
     ...promptPathField(promptPath),
     reason: continuationReason(state),
@@ -200,7 +259,7 @@ const continuationInput = (
   attempt: number,
   prompt: string,
   state: PipelineGoalState,
-  promptPath: Option.Option<string>,
+  promptPath: Option.Option<string>
 ): GoalLoopContinuationInputType => ({
   attempt,
   prompt,
@@ -211,17 +270,22 @@ const continuationInput = (
 const runGoalContinuationEffect = (
   options: GoalLoopOptions,
   state: PipelineGoalState,
-  prompts: string[],
+  prompts: string[]
 ): Effect.Effect<PipelineGoalState, unknown, GoalLoopService> =>
   Effect.gen(function* effectBody() {
     const service = yield* GoalLoopService;
     const attempt = state.continuationAttempts.length + 1;
     const prompt = renderGoalContinuationPrompt(state);
-    const promptPath = yield* service.writePrompt(options.writePrompt, attempt, prompt, state);
+    const promptPath = yield* service.writePrompt(
+      options.writePrompt,
+      attempt,
+      prompt,
+      state
+    );
     prompts.push(prompt);
     return yield* service.runContinuation(
       options.runContinuation,
-      continuationInput(attempt, prompt, state, promptPath),
+      continuationInput(attempt, prompt, state, promptPath)
     );
   });
 
@@ -232,7 +296,9 @@ interface ProgressSignature {
 }
 
 const progressSignature = (state: PipelineGoalState): ProgressSignature => {
-  const failedAcceptance = state.acceptance.filter((item) => item.verdict === "FAIL");
+  const failedAcceptance = state.acceptance.filter(
+    (item) => item.verdict === "FAIL"
+  );
   return {
     changedFiles: state.changedFiles.join("\0"),
     evidence: [
@@ -244,7 +310,10 @@ const progressSignature = (state: PipelineGoalState): ProgressSignature => {
   };
 };
 
-const isNoProgress = (before: ProgressSignature, after: ProgressSignature): boolean =>
+const isNoProgress = (
+  before: ProgressSignature,
+  after: ProgressSignature
+): boolean =>
   before.failure.length > 0 &&
   before.failure === after.failure &&
   before.changedFiles === after.changedFiles &&
@@ -254,7 +323,7 @@ const postContinuationResult = (
   nextState: PipelineGoalState,
   beforeProgress: ProgressSignature,
   prompts: string[],
-  shouldCancel?: () => boolean,
+  shouldCancel?: () => boolean
 ): Option.Option<GoalLoopResult> => {
   const terminal = terminalResult(nextState, prompts, shouldCancel);
   if (Option.isSome(terminal)) {
@@ -268,7 +337,7 @@ const postContinuationResult = (
 const continueGoalLoop = (
   options: GoalLoopOptions,
   state: PipelineGoalState,
-  prompts: string[],
+  prompts: string[]
 ): Effect.Effect<GoalLoopResult, unknown, GoalLoopService> =>
   Effect.gen(function* effectBody() {
     const terminal = terminalResult(state, prompts, options.shouldCancel);
@@ -281,14 +350,27 @@ const continueGoalLoop = (
     }
     const beforeProgress = progressSignature(state);
     const nextState = yield* runGoalContinuationEffect(options, state, prompts);
-    const postContinuation = postContinuationResult(nextState, beforeProgress, prompts, options.shouldCancel);
+    const postContinuation = postContinuationResult(
+      nextState,
+      beforeProgress,
+      prompts,
+      options.shouldCancel
+    );
     return Option.isSome(postContinuation)
       ? postContinuation.value
       : yield* continueGoalLoop(options, nextState, prompts);
   });
 
-const runBoundedGoalLoopEffect = (options: GoalLoopOptions): Effect.Effect<GoalLoopResult, unknown, GoalLoopService> =>
-  Effect.flatMap(validateGoalLoopOptions(options), () => continueGoalLoop(options, options.initialState, []));
+const runBoundedGoalLoopEffect = (
+  options: GoalLoopOptions
+): Effect.Effect<GoalLoopResult, unknown, GoalLoopService> =>
+  Effect.flatMap(validateGoalLoopOptions(options), () =>
+    continueGoalLoop(options, options.initialState, [])
+  );
 
-export const runBoundedGoalLoop = async (options: GoalLoopOptions): Promise<GoalLoopResult> =>
-  await Effect.runPromise(Effect.provide(runBoundedGoalLoopEffect(options), GoalLoopServiceLive));
+export const runBoundedGoalLoop = async (
+  options: GoalLoopOptions
+): Promise<GoalLoopResult> =>
+  await Effect.runPromise(
+    Effect.provide(runBoundedGoalLoopEffect(options), GoalLoopServiceLive)
+  );

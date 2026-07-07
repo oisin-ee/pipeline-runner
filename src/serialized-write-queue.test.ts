@@ -1,85 +1,108 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "@effect/vitest";
+import * as Effect from "effect/Effect";
+import * as Fiber from "effect/Fiber";
+import * as Schema from "effect/Schema";
 
 import { createSerializedWriteQueue } from "./serialized-write-queue";
 
-const tick = async () => await new Promise((resolve) => setTimeout(resolve, 0));
+class TestPromiseError extends Schema.TaggedErrorClass<TestPromiseError>()(
+  "TestPromiseError",
+  { cause: Schema.Unknown }
+) {}
 
-const deferred = (): { promise: Promise<void>; resolve: () => void } => {
-  let resolve: () => void = () => {
-    // replaced synchronously below
-  };
-  const promise = new Promise<void>((done) => {
-    resolve = done;
+const RELEASED = "released";
+
+const testPromise = <A>(
+  promise: Promise<A>
+): Effect.Effect<A, TestPromiseError> =>
+  Effect.tryPromise({
+    catch: (cause) => new TestPromiseError({ cause }),
+    try: async () => {
+      const result = await promise;
+      return result;
+    },
   });
-  return { promise, resolve };
-};
+
+const tick = testPromise(Promise.resolve(RELEASED));
+
+const deferred = () => Promise.withResolvers<typeof RELEASED>();
 
 describe("serialized write queue", () => {
-  it("runs enqueued writes in FIFO order", async () => {
-    const queue = createSerializedWriteQueue();
-    const firstWrite = deferred();
-    const order: string[] = [];
+  it.effect("runs enqueued writes in FIFO order", () =>
+    Effect.gen(function* testBody() {
+      const queue = createSerializedWriteQueue();
+      const firstWrite = deferred();
+      const order: string[] = [];
 
-    queue.enqueue(async () => {
-      order.push("first:start");
-      await firstWrite.promise;
-      order.push("first:end");
-    });
-    queue.enqueue(() => {
-      order.push("second");
-    });
+      queue.enqueue(async () => {
+        order.push("first:start");
+        await firstWrite.promise;
+        order.push("first:end");
+      });
+      queue.enqueue(() => {
+        order.push("second");
+      });
 
-    await tick();
-    expect(order).toEqual(["first:start"]);
+      yield* tick;
+      expect(order).toEqual(["first:start"]);
 
-    firstWrite.resolve();
-    await queue.flush();
+      firstWrite.resolve(RELEASED);
+      yield* testPromise(queue.flush());
 
-    expect(order).toEqual(["first:start", "first:end", "second"]);
-  });
+      expect(order).toEqual(["first:start", "first:end", "second"]);
+    })
+  );
 
-  it("waits for pending writes during flush", async () => {
-    const queue = createSerializedWriteQueue();
-    const write = deferred();
-    let flushed = false;
+  it.effect("waits for pending writes during flush", () =>
+    Effect.gen(function* testBody() {
+      const queue = createSerializedWriteQueue();
+      const write = deferred();
+      let flushed = false;
 
-    queue.enqueue(async () => {
-      await write.promise;
-    });
-    const flush = queue.flush().then(() => {
-      flushed = true;
-    });
+      queue.enqueue(async () => {
+        await write.promise;
+      });
+      const flush = async (): Promise<void> => {
+        await queue.flush();
+        flushed = true;
+      };
+      const flushFiber = yield* Effect.forkScoped(testPromise(flush()));
 
-    await tick();
-    expect(flushed).toBe(false);
+      yield* tick;
+      expect(flushed).toBe(false);
 
-    write.resolve();
-    await flush;
+      write.resolve(RELEASED);
+      yield* Fiber.join(flushFiber);
 
-    expect(flushed).toBe(true);
-  });
+      expect(flushed).toBe(true);
+    })
+  );
 
-  it("continues accepting writes after a failed write", async () => {
-    const queue = createSerializedWriteQueue();
-    const failure = new Error("write failed");
-    const order: string[] = [];
+  it.effect("continues accepting writes after a failed write", () =>
+    Effect.gen(function* testBody() {
+      const queue = createSerializedWriteQueue();
+      const failure = new Error("write failed");
+      const failedWrite = deferred();
+      const order: string[] = [];
 
-    queue.enqueue(() => {
-      order.push("first");
-      throw failure;
-    });
-    queue.enqueue(() => {
-      order.push("second");
-    });
+      queue.enqueue(async () => {
+        order.push("first");
+        await failedWrite.promise;
+      });
+      failedWrite.reject(failure);
+      queue.enqueue(() => {
+        order.push("second");
+      });
 
-    await expect(queue.flush()).rejects.toBe(failure);
-    expect(order).toEqual(["first", "second"]);
+      yield* testPromise(expect(queue.flush()).rejects.toBe(failure));
+      expect(order).toEqual(["first", "second"]);
 
-    queue.enqueue(() => {
-      order.push("third");
-    });
+      queue.enqueue(() => {
+        order.push("third");
+      });
 
-    await expect(queue.flush()).resolves.toBeUndefined();
-    expect(order).toEqual(["first", "second", "third"]);
-  });
+      yield* testPromise(expect(queue.flush()).resolves.toBeUndefined());
+      expect(order).toEqual(["first", "second", "third"]);
+    })
+  );
 });

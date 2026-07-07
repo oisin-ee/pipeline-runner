@@ -57,7 +57,7 @@ const artifactWith = (nodes: unknown[]) =>
       version: 1,
       workflows: { root: { nodes } },
     }),
-    "test-schedule.yaml",
+    "test-schedule.yaml"
   );
 
 const greenChild = (id: string) => ({
@@ -94,12 +94,17 @@ describe("integrateParallelWriteFanout", () => {
       {
         id: "green",
         kind: "parallel",
-        nodes: [greenChild("green-a"), { id: "rev", kind: "agent", profile: "reviewer" }],
+        nodes: [
+          greenChild("green-a"),
+          { id: "rev", kind: "agent", profile: "reviewer" },
+        ],
       },
     ]);
 
     const result = integrateParallelWriteFanout(config(), artifact);
-    expect(result.workflows.root.nodes.some((n) => n.kind === "builtin")).toBe(false);
+    expect(result.workflows.root.nodes.some((n) => n.kind === "builtin")).toBe(
+      false
+    );
   });
 
   it("does not add a second drain-merge when one is already downstream", () => {
@@ -119,7 +124,7 @@ describe("integrateParallelWriteFanout", () => {
 
     const result = integrateParallelWriteFanout(config(), artifact);
     const merges = result.workflows.root.nodes.filter(
-      (node) => node.kind === "builtin" && node.builtin === "drain-merge",
+      (node) => node.kind === "builtin" && node.builtin === "drain-merge"
     );
     expect(merges).toHaveLength(1);
   });

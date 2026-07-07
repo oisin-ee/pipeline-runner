@@ -1,4 +1,9 @@
-import { isNumberValue, isRecord, isStringValue, parseJsonResult } from "./safe-json";
+import {
+  isNumberValue,
+  isRecord,
+  isStringValue,
+  parseJsonResult,
+} from "./safe-json";
 
 export interface JscpdDuplicateViolation {
   file: string;
@@ -19,10 +24,14 @@ const jscpdFileLocation = (file: unknown): JscpdFileLocation => {
   return isNumberValue(file.start) ? { line: file.start, name } : { name };
 };
 
-const jscpdDuplicateFile = (duplicate: unknown, key: "firstFile" | "secondFile"): unknown =>
-  isRecord(duplicate) ? duplicate[key] : undefined;
+const jscpdDuplicateFile = (
+  duplicate: unknown,
+  key: "firstFile" | "secondFile"
+): unknown => (isRecord(duplicate) ? duplicate[key] : undefined);
 
-const jscpdDuplicateViolation = (duplicate: unknown): JscpdDuplicateViolation => {
+const jscpdDuplicateViolation = (
+  duplicate: unknown
+): JscpdDuplicateViolation => {
   const firstFile = jscpdDuplicateFile(duplicate, "firstFile");
   const secondFile = jscpdDuplicateFile(duplicate, "secondFile");
   const firstLocation = jscpdFileLocation(firstFile);
@@ -34,8 +43,13 @@ const jscpdDuplicateViolation = (duplicate: unknown): JscpdDuplicateViolation =>
   };
 };
 
-export const parseJscpdDuplicateViolations = (output: string): JscpdDuplicateViolation[] => {
+export const parseJscpdDuplicateViolations = (
+  output: string
+): JscpdDuplicateViolation[] => {
   const parsed = parseJsonResult(output, "jscpd output");
-  const duplicates = isRecord(parsed.value) && Array.isArray(parsed.value.duplicates) ? parsed.value.duplicates : [];
+  const duplicates =
+    isRecord(parsed.value) && Array.isArray(parsed.value.duplicates)
+      ? parsed.value.duplicates
+      : [];
   return duplicates.map(jscpdDuplicateViolation);
 };

@@ -1,10 +1,17 @@
 import { afterEach, describe, expect, it } from "vitest";
 
 import { parsePipelineConfigParts } from "../../config";
-import type { PlannedWorkflowNode, WorkflowExecutionPlan } from "../../planning/compile";
+import type {
+  PlannedWorkflowNode,
+  WorkflowExecutionPlan,
+} from "../../planning/compile";
 import { createDependencyGraph } from "../../planning/graph";
 import type { RuntimeObservabilityEvent } from "../actor-ids";
-import type { PipelineRuntimeEvent, RuntimeContext, RuntimeFailure } from "../contracts";
+import type {
+  PipelineRuntimeEvent,
+  RuntimeContext,
+  RuntimeFailure,
+} from "../contracts";
 import { NodeStateStore } from "../node-state-store";
 import { dispatchHooks } from "./hooks";
 
@@ -28,7 +35,7 @@ const directHookRuntimeContext = (
   node: PlannedWorkflowNode,
   observability: RuntimeObservabilityEvent[],
   reporterEvents: PipelineRuntimeEvent[],
-  override?: Partial<RuntimeContext>,
+  override?: Partial<RuntimeContext>
 ): RuntimeContext => {
   const config = parsePipelineConfigParts({
     pipeline: `
@@ -84,9 +91,13 @@ runners: {}
     },
     hookResults: new Map(),
     nodeStateStore: new NodeStateStore(),
-    observability: (event) => observability.push(event),
+    observability: (event) => {
+      observability.push(event);
+    },
     plan,
-    reporter: (event) => reporterEvents.push(event),
+    reporter: (event) => {
+      reporterEvents.push(event);
+    },
     runId: "run-direct",
     task: "exercise direct hook invocation",
     workflowId: "direct-hooks",
@@ -95,8 +106,13 @@ runners: {}
   };
 };
 
-const reporterHookEvents = (events: PipelineRuntimeEvent[]): Extract<PipelineRuntimeEvent, { hookId: string }>[] =>
-  events.filter((event): event is Extract<PipelineRuntimeEvent, { hookId: string }> => "hookId" in event);
+const reporterHookEvents = (
+  events: PipelineRuntimeEvent[]
+): Extract<PipelineRuntimeEvent, { hookId: string }>[] =>
+  events.filter(
+    (event): event is Extract<PipelineRuntimeEvent, { hookId: string }> =>
+      "hookId" in event
+  );
 
 describe("runtime hooks", () => {
   it("dispatches hooks directly while preserving failure and observability contracts", async () => {
@@ -109,9 +125,18 @@ describe("runtime hooks", () => {
     };
     const observability: RuntimeObservabilityEvent[] = [];
     const reporterEvents: PipelineRuntimeEvent[] = [];
-    const context = directHookRuntimeContext(node, observability, reporterEvents);
+    const context = directHookRuntimeContext(
+      node,
+      observability,
+      reporterEvents
+    );
 
-    const failure = await dispatchHooks(context, "node.finish", undefined, node);
+    const failure = await dispatchHooks(
+      context,
+      "node.finish",
+      undefined,
+      node
+    );
 
     const expectedFailure: RuntimeFailure = {
       evidence: ["command hooks are disabled"],
@@ -181,7 +206,11 @@ describe("runtime hooks", () => {
     };
     const observability: RuntimeObservabilityEvent[] = [];
     const reporterEvents: PipelineRuntimeEvent[] = [];
-    const baseContext = directHookRuntimeContext(node, observability, reporterEvents);
+    const baseContext = directHookRuntimeContext(
+      node,
+      observability,
+      reporterEvents
+    );
     const context: RuntimeContext = {
       ...baseContext,
       config: {
@@ -217,10 +246,18 @@ describe("runtime hooks", () => {
       },
     };
 
-    const failure = await dispatchHooks(context, "node.finish", undefined, node, "quality");
+    const failure = await dispatchHooks(
+      context,
+      "node.finish",
+      undefined,
+      node,
+      "quality"
+    );
 
     expect(failure).toMatchObject({ gate: "matching" });
-    expect(reporterHookEvents(reporterEvents).map((event) => event.hookId)).toEqual(["matching", "matching"]);
+    expect(
+      reporterHookEvents(reporterEvents).map((event) => event.hookId)
+    ).toEqual(["matching", "matching"]);
   });
 
   it("builds command hook env from passthrough and explicit values during dispatch", async () => {
@@ -235,16 +272,21 @@ describe("runtime hooks", () => {
     };
     const observability: RuntimeObservabilityEvent[] = [];
     const reporterEvents: PipelineRuntimeEvent[] = [];
-    const baseContext = directHookRuntimeContext(node, observability, reporterEvents, {
-      hookPolicy: {
-        allowCommandHooks: true,
-        allowUntrustedCommandHooks: true,
-        env: { GLOBAL_ONLY: "1" },
-        envPassthrough: ["PATH"],
-        outputLimitBytes: 4096,
-        timeoutMs: 1000,
-      },
-    });
+    const baseContext = directHookRuntimeContext(
+      node,
+      observability,
+      reporterEvents,
+      {
+        hookPolicy: {
+          allowCommandHooks: true,
+          allowUntrustedCommandHooks: true,
+          env: { GLOBAL_ONLY: "1" },
+          envPassthrough: ["PATH"],
+          outputLimitBytes: 4096,
+          timeoutMs: 1000,
+        },
+      }
+    );
     const envHook: RuntimeContext["config"]["hooks"]["functions"][string] = {
       command: [
         process.execPath,
@@ -294,7 +336,12 @@ describe("runtime hooks", () => {
       },
     };
 
-    const failure = await dispatchHooks(context, "node.finish", undefined, node);
+    const failure = await dispatchHooks(
+      context,
+      "node.finish",
+      undefined,
+      node
+    );
 
     expect(failure).toBeNull();
     expect(context.hookResults.get("env")?.outputs).toEqual({
@@ -315,12 +362,21 @@ describe("runtime hooks", () => {
     };
     const observability: RuntimeObservabilityEvent[] = [];
     const reporterEvents: PipelineRuntimeEvent[] = [];
-    const context = directHookRuntimeContext(node, observability, reporterEvents);
+    const context = directHookRuntimeContext(
+      node,
+      observability,
+      reporterEvents
+    );
     const abortController = new AbortController();
     abortController.abort();
     context.signal = abortController.signal;
 
-    const failure = await dispatchHooks(context, "node.finish", undefined, node);
+    const failure = await dispatchHooks(
+      context,
+      "node.finish",
+      undefined,
+      node
+    );
 
     expect(failure).toBeNull();
     expect(context.hookFailures).toEqual([]);

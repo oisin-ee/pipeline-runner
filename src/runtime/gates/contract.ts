@@ -28,7 +28,7 @@ export interface CommandExecutorService {
   readonly execute: (
     command: string[],
     context: CommandExecutionContext,
-    options?: CommandExecutionOptions,
+    options?: CommandExecutionOptions
   ) => Effect.Effect<NodeAttemptResult, unknown>;
 }
 
@@ -51,9 +51,14 @@ export interface GateEvaluationInput {
  * A single gate kind's evaluation step. Synchronous kinds return the result
  * directly; I/O-bound kinds (command, builtin) return a promise.
  */
-export type GateEvaluator = (input: GateEvaluationInput) => RuntimeGateResult | Promise<RuntimeGateResult>;
+export type GateEvaluator = (
+  input: GateEvaluationInput
+) => RuntimeGateResult | Promise<RuntimeGateResult>;
 
-export type GateFailureHook = (node: PlannedWorkflowNode, result: RuntimeGateResult) => Promise<void> | void;
+export type GateFailureHook = (
+  node: PlannedWorkflowNode,
+  result: RuntimeGateResult
+) => Promise<void> | void;
 
 /**
  * The adjudicator's terminal output (PIPE-90.10): the composed verdict of the
@@ -86,8 +91,10 @@ export interface GateKindModule {
  * union when `kind` is a type parameter, so this guard carries the narrowing
  * without a type assertion.
  */
-const hasKind = <K extends GateKind>(gate: GateSpec, kind: K): gate is Extract<GateSpec, { kind: K }> =>
-  gate.kind === kind;
+const hasKind = <K extends GateKind>(
+  gate: GateSpec,
+  kind: K
+): gate is Extract<GateSpec, { kind: K }> => gate.kind === kind;
 
 /**
  * Binds one gate kind to its narrowly-typed evaluator and adapts it to the
@@ -99,11 +106,16 @@ const hasKind = <K extends GateKind>(gate: GateSpec, kind: K): gate is Extract<G
 export const forKind =
   <K extends GateKind>(
     kind: K,
-    evaluate: (gate: Extract<GateSpec, { kind: K }>, input: GateEvaluationInput) => ReturnType<GateEvaluator>,
+    evaluate: (
+      gate: Extract<GateSpec, { kind: K }>,
+      input: GateEvaluationInput
+    ) => ReturnType<GateEvaluator>
   ): GateEvaluator =>
   async (input) => {
     if (!hasKind(input.gate, kind)) {
-      throw new Error(`gate registry mismatch: handler '${kind}' received '${input.gate.kind}'`);
+      throw new Error(
+        `gate registry mismatch: handler '${kind}' received '${input.gate.kind}'`
+      );
     }
     return await evaluate(input.gate, input);
   };

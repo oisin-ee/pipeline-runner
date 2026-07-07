@@ -11,7 +11,8 @@ export const requireScheduleFileForFileSource = (options: {
   scheduleFile?: string;
   scheduleSource?: "db" | "file";
 }): true | { issue: string; path: readonly PropertyKey[] } =>
-  options.scheduleSource === "file" && (options.scheduleFile === undefined || options.scheduleFile.length === 0)
+  options.scheduleSource === "file" &&
+  (options.scheduleFile === undefined || options.scheduleFile.length === 0)
     ? {
         issue: "scheduleFile is required when scheduleSource is file",
         path: ["scheduleFile"],

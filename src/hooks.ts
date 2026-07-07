@@ -1,6 +1,12 @@
 import * as Schema from "effect/Schema";
 
-import { parseWithSchema, requiredString, stringRecord, unknownRecord, struct } from "./schema-boundary";
+import {
+  parseWithSchema,
+  requiredString,
+  stringRecord,
+  unknownRecord,
+  struct,
+} from "./schema-boundary";
 
 const hookArtifact = struct({
   contentType: Schema.optional(Schema.String),
@@ -15,7 +21,7 @@ const hookResult = struct({
     struct({
       runLabels: Schema.optional(stringRecord),
       taskContext: Schema.optional(unknownRecord),
-    }),
+    })
   ),
   status: Schema.Literals(["pass", "fail", "skip"]),
   summary: Schema.optional(Schema.String),
@@ -56,7 +62,9 @@ export interface HookContext {
   };
 }
 
-export type HookFunction = (context: HookContext) => HookResult | Promise<HookResult>;
+export type HookFunction = (
+  context: HookContext
+) => HookResult | Promise<HookResult>;
 
 export const defineHook = <T extends HookFunction>(hook: T): T => hook;
 

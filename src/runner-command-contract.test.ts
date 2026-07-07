@@ -79,7 +79,10 @@ describe("runnerRepositoryContextSchema", () => {
 
 describe("runnerCommandPayloadSchema — AC1", () => {
   it("parses full payload with update-existing-pr delivery and repository.headBranch", () => {
-    const result = parseResultWithSchema(runnerCommandPayloadSchema, BASE_PAYLOAD);
+    const result = parseResultWithSchema(
+      runnerCommandPayloadSchema,
+      BASE_PAYLOAD
+    );
     expect(result.ok).toBe(true);
     if (!result.ok) {
       return;
@@ -101,7 +104,10 @@ describe("runnerCommandPayloadSchema — AC1", () => {
       delivery: { pullRequest: true },
       repository: { baseBranch: "main", url: "git@github.com:owner/repo.git" },
     };
-    const result = parseResultWithSchema(runnerCommandPayloadSchema, freshPayload);
+    const result = parseResultWithSchema(
+      runnerCommandPayloadSchema,
+      freshPayload
+    );
     expect(result.ok).toBe(true);
     if (!result.ok) {
       return;

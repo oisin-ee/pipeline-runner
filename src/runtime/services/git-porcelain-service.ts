@@ -1,14 +1,14 @@
-import { execFile, execFileSync } from "node:child_process";
-import { promisify } from "node:util";
-
 import { Context, Effect, Layer } from "effect";
-
-const execGit = promisify(execFile);
+import { execa, execaSync } from "execa";
 
 export class GitPorcelainService extends Context.Service<
   GitPorcelainService,
   {
-    readonly run: (cwd: string, args: string[], env: NodeJS.ProcessEnv) => Effect.Effect<string, unknown>;
+    readonly run: (
+      cwd: string,
+      args: string[],
+      env: NodeJS.ProcessEnv
+    ) => Effect.Effect<string, unknown>;
     readonly statusPorcelain: (cwd: string) => Effect.Effect<string, unknown>;
   }
 >()("GitPorcelainService") {}
@@ -18,10 +18,10 @@ export const GitPorcelainServiceLive = Layer.succeed(GitPorcelainService, {
     Effect.tryPromise({
       catch: (error) => error,
       try: async () => {
-        const { stdout } = await execGit("git", args, {
+        const { stdout } = await execa("git", args, {
           cwd,
-          encoding: "utf-8",
           env,
+          stdin: "ignore",
         });
         return stdout;
       },
@@ -30,10 +30,14 @@ export const GitPorcelainServiceLive = Layer.succeed(GitPorcelainService, {
     Effect.try({
       catch: (error) => error,
       try: () =>
-        execFileSync("git", ["status", "--porcelain=v1", "--untracked-files=all", "-z"], {
-          cwd,
-          encoding: "utf-8",
-          stdio: ["ignore", "pipe", "ignore"],
-        }),
+        execaSync(
+          "git",
+          ["status", "--porcelain=v1", "--untracked-files=all", "-z"],
+          {
+            cwd,
+            stderr: "ignore",
+            stdin: "ignore",
+          }
+        ).stdout,
     }),
 });

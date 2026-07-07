@@ -1,28 +1,45 @@
 import { execFileSync, spawnSync } from "node:child_process";
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
-import { delimiter, join } from "node:path";
+import { join } from "node:path";
 
-import { Option } from "effect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { parsePipelineConfigParts } from "../src/config";
 import { execute } from "../src/index";
 import { runPipelineFromConfig } from "../src/pipeline-runtime";
+import type {
+  fileRunControlStore as fileRunControlStoreExport,
+  withRunControlStoreScoped,
+} from "../src/run-control/run-control-store";
 import type { AgentResult, RunnerLaunchPlan } from "../src/runner";
+
+interface RunControlStoreModule {
+  readonly fileRunControlStore: typeof fileRunControlStoreExport;
+  readonly withRunControlStoreScoped: typeof withRunControlStoreScoped;
+}
 
 // execute() resolves the run-control store via withRunControlStoreScoped, which
 // requires db.url (PIPE-91.18, Postgres-only). The tracer pipeline is exercised
 // end-to-end against the file store double — the same DI-via-mock pattern
 // detached-run/cli use — so no live Postgres is needed.
 vi.mock("../src/run-control/run-control-store", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../src/run-control/run-control-store")>();
+  const actual = await importOriginal<RunControlStoreModule>();
 
   return {
     ...actual,
     withRunControlStoreScoped: vi.fn(
-      (workspaceRoot: string, use: Parameters<typeof actual.withRunControlStoreScoped>[1]) =>
-        use(actual.fileRunControlStore(workspaceRoot)),
+      (
+        workspaceRoot: string,
+        use: Parameters<typeof actual.withRunControlStoreScoped>[1]
+      ) => use(actual.fileRunControlStore(workspaceRoot))
     ),
   };
 });
@@ -41,7 +58,13 @@ interface TracerEnvironment {
   worktreePath: string;
 }
 
-const writeExecutable = (binPath: string, name: string, source: string): void => {
+const NODE_SHEBANG = `#!${process.execPath}`;
+
+const writeExecutable = (
+  binPath: string,
+  name: string,
+  source: string
+): void => {
   const scriptPath = join(binPath, name);
   writeFileSync(scriptPath, source);
   chmodSync(scriptPath, 0o755);
@@ -52,13 +75,13 @@ const writeFixtureWorktree = (worktreePath: string): void => {
     join(worktreePath, "package.json"),
     JSON.stringify({
       scripts: { test: "project-test", typecheck: "project-typecheck" },
-    }),
+    })
   );
   writeFileSync(join(worktreePath, "tsconfig.json"), "{}");
   mkdirSync(join(worktreePath, "rules"));
   writeFileSync(
     join(worktreePath, "rules", "test-first.md"),
-    "# Test first\n\nWrite the failing test before implementation.",
+    "# Test first\n\nWrite the failing test before implementation."
   );
   mkdirSync(join(worktreePath, ".pipeline"), { recursive: true });
   writeFileSync(
@@ -77,7 +100,7 @@ runners:
       filesystem: [read-only, workspace-write]
       network: [inherit]
       output_formats: [text, json, jsonl, json_schema]
-`,
+`
   );
   writeFileSync(
     join(worktreePath, ".pipeline", "profiles.yaml"),
@@ -122,7 +145,7 @@ profiles:
       inline: You are the LEARN phase for the tracer pipeline.
     tools: [read, list, grep, glob, bash]
     output: { format: text }
-`,
+`
   );
   writeFileSync(
     join(worktreePath, ".pipeline", "pipeline.yaml"),
@@ -164,7 +187,7 @@ workflows:
         kind: agent
         profile: learner
         needs: [verify]
-`,
+`
   );
   execFileSync("git", ["init"], { cwd: worktreePath, stdio: "ignore" });
 };
@@ -179,7 +202,7 @@ const writeFakeExecutables = (env: TracerEnvironment): void => {
   writeExecutable(
     env.binPath,
     "backlog",
-    `#!/usr/bin/env node
+    `${NODE_SHEBANG}
 const fs = require("node:fs");
 const path = require("node:path");
 const args = process.argv.slice(2);
@@ -211,13 +234,13 @@ if (args[0] === "task" && args[1] === "create") {
   const titleArg = args[2] ?? "task";
   process.stdout.write("File: backlog/tasks/" + id.toLowerCase() + " - x.md\\n\\nTask " + id + " - " + titleArg + "\\n");
 }
-`,
+`
   );
 
   writeExecutable(
     env.binPath,
     "opencode",
-    `#!/usr/bin/env node
+    `${NODE_SHEBANG}
 const fs = require("node:fs");
 const path = require("node:path");
 
@@ -329,13 +352,13 @@ if (
 
 process.stderr.write("Unknown opencode prompt");
 process.exit(1);
-`,
+`
   );
 
   writeExecutable(
     env.binPath,
     "project-test",
-    `#!/usr/bin/env node
+    `${NODE_SHEBANG}
 const fs = require("node:fs");
 
 function log(entry) {
@@ -354,13 +377,13 @@ if (!fs.existsSync("pipeline-feature.impl")) {
 }
 process.stdout.write("✓ tracer feature should pass after implementation");
 process.exit(0);
-`,
+`
   );
 
   writeExecutable(
     env.binPath,
     "bunx",
-    `#!/usr/bin/env node
+    `${NODE_SHEBANG}
 const fs = require("node:fs");
 const args = process.argv.slice(2);
 fs.appendFileSync(
@@ -373,13 +396,13 @@ if (args[0] === "jscpd") {
 }
 process.stderr.write("Unexpected bunx command: " + args.join(" "));
 process.exit(1);
-`,
+`
   );
 
   writeExecutable(
     env.binPath,
     "uvx",
-    `#!/usr/bin/env node
+    `${NODE_SHEBANG}
 const fs = require("node:fs");
 const args = process.argv.slice(2);
 fs.appendFileSync(
@@ -392,19 +415,19 @@ if (args[0] === "semgrep") {
 }
 process.stderr.write("Unexpected uvx command: " + args.join(" "));
 process.exit(1);
-`,
+`
   );
 
   writeExecutable(
     env.binPath,
     "project-typecheck",
-    `#!/usr/bin/env node
+    `${NODE_SHEBANG}
 const fs = require("node:fs");
 fs.appendFileSync(
   process.env.PIPELINE_TRACER_LOG,
   JSON.stringify({ type: "command", command: "project-typecheck", args: process.argv.slice(2), cwd: process.cwd() }) + "\\n"
 );
-`,
+`
   );
 };
 
@@ -413,17 +436,6 @@ const readCommandLog = (logPath: string): LoggedCommand[] =>
     .split("\n")
     .filter((line) => line.length > 0)
     .map((line) => JSON.parse(line) as LoggedCommand);
-
-const restoreEnvValue = (key: string, value: Option.Option<string>): void => {
-  Option.match(value, {
-    onNone: () => {
-      delete process.env[key];
-    },
-    onSome: (saved) => {
-      process.env[key] = saved;
-    },
-  });
-};
 
 /**
  * Fake executor for tracer-bullet tests: bypasses the opencode serve + SDK
@@ -435,14 +447,10 @@ const restoreEnvValue = (key: string, value: Option.Option<string>): void => {
  * the fake binary.
  */
 const makeTracerExecutor =
-  (binPath: string): ((plan: RunnerLaunchPlan) => AgentResult) =>
+  (): ((plan: RunnerLaunchPlan) => AgentResult) =>
   (plan: RunnerLaunchPlan): AgentResult => {
     const result = spawnSync(plan.command, plan.args, {
       cwd: plan.cwd,
-      env: {
-        ...process.env,
-        PATH: `${binPath}${delimiter}${process.env.PATH ?? ""}`,
-      },
     });
     const stdout = result.stdout.toString();
     const stderr = result.stderr.toString();
@@ -454,32 +462,38 @@ const makeTracerExecutor =
     };
   };
 
-const runTracerPipeline = async (env: TracerEnvironment, task: string): Promise<void> => {
+const runTracerPipeline = async (
+  env: TracerEnvironment,
+  task: string
+): Promise<void> => {
   const config = parsePipelineConfigParts(
     {
-      pipeline: readFileSync(join(env.worktreePath, ".pipeline/pipeline.yaml"), "utf-8"),
-      profiles: readFileSync(join(env.worktreePath, ".pipeline/profiles.yaml"), "utf-8"),
-      runners: readFileSync(join(env.worktreePath, ".pipeline/runners.yaml"), "utf-8"),
+      pipeline: readFileSync(
+        join(env.worktreePath, ".pipeline/pipeline.yaml"),
+        "utf-8"
+      ),
+      profiles: readFileSync(
+        join(env.worktreePath, ".pipeline/profiles.yaml"),
+        "utf-8"
+      ),
+      runners: readFileSync(
+        join(env.worktreePath, ".pipeline/runners.yaml"),
+        "utf-8"
+      ),
     },
-    env.worktreePath,
+    env.worktreePath
   );
-  const executor = makeTracerExecutor(env.binPath);
+  const executor = makeTracerExecutor();
   await execute(task, {
-    pipelineRunner: async (input) => await runPipelineFromConfig({ ...input, config, executor }),
+    pipelineRunner: async (input) =>
+      await runPipelineFromConfig({ ...input, config, executor }),
     workflow: "default",
   });
 };
 
 describe("PIPE-14 tracer-bullet pipeline", () => {
   let env: TracerEnvironment;
-  let originalPath = Option.none<string>();
-  let originalTargetPath = Option.none<string>();
-  let originalTracerLog = Option.none<string>();
-  let originalTracerState = Option.none<string>();
-  let originalTracerVerdict = Option.none<string>();
-  let originalTestCommand = Option.none<string>();
-  let originalTypecheckCommand = Option.none<string>();
-  let consoleLogSpy: ReturnType<typeof vi.spyOn>;
+  let consoleErrorSpy: ReturnType<typeof vi.spyOn>;
 
   beforeEach(() => {
     const root = mkdtempSync(join(tmpdir(), "pipe-14-tracer-"));
@@ -494,41 +508,27 @@ describe("PIPE-14 tracer-bullet pipeline", () => {
     writeFakeExecutables(env);
     writeFileSync(env.logPath, "");
 
-    originalPath = Option.fromNullishOr(process.env.PATH);
-    originalTargetPath = Option.fromNullishOr(process.env.PIPELINE_TARGET_PATH);
-    originalTracerLog = Option.fromNullishOr(process.env.PIPELINE_TRACER_LOG);
-    originalTracerState = Option.fromNullishOr(process.env.PIPELINE_TRACER_STATE);
-    originalTracerVerdict = Option.fromNullishOr(process.env.PIPELINE_TRACER_VERDICT);
-    originalTestCommand = Option.fromNullishOr(process.env.PIPELINE_TEST_COMMAND);
-    originalTypecheckCommand = Option.fromNullishOr(process.env.PIPELINE_TYPECHECK_COMMAND);
-
-    process.env.PATH = `${env.binPath}${delimiter}${process.env.PATH ?? ""}`;
-    process.env.PIPELINE_TARGET_PATH = env.worktreePath;
-    process.env.PIPELINE_TRACER_LOG = env.logPath;
-    process.env.PIPELINE_TRACER_STATE = env.statePath;
-    process.env.PIPELINE_TEST_COMMAND = "project-test";
-    process.env.PIPELINE_TYPECHECK_COMMAND = "project-typecheck";
+    vi.stubEnv("PATH", env.binPath);
+    vi.stubEnv("PIPELINE_TARGET_PATH", env.worktreePath);
+    vi.stubEnv("PIPELINE_TRACER_LOG", env.logPath);
+    vi.stubEnv("PIPELINE_TRACER_STATE", env.statePath);
+    vi.stubEnv("PIPELINE_TEST_COMMAND", "project-test");
+    vi.stubEnv("PIPELINE_TYPECHECK_COMMAND", "project-typecheck");
 
     vi.spyOn(Date, "now").mockReturnValue(14);
-    consoleLogSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
   });
 
   afterEach(() => {
-    restoreEnvValue("PATH", originalPath);
-    restoreEnvValue("PIPELINE_TARGET_PATH", originalTargetPath);
-    restoreEnvValue("PIPELINE_TRACER_LOG", originalTracerLog);
-    restoreEnvValue("PIPELINE_TRACER_STATE", originalTracerState);
-    restoreEnvValue("PIPELINE_TRACER_VERDICT", originalTracerVerdict);
-    restoreEnvValue("PIPELINE_TEST_COMMAND", originalTestCommand);
-    restoreEnvValue("PIPELINE_TYPECHECK_COMMAND", originalTypecheckCommand);
+    vi.unstubAllEnvs();
 
-    consoleLogSpy.mockRestore();
+    consoleErrorSpy.mockRestore();
     vi.restoreAllMocks();
     rmSync(join(env.binPath, ".."), { force: true, recursive: true });
   });
 
   it("runs the integrated tracer to PASS through real child-process commands", async () => {
-    process.env.PIPELINE_TRACER_VERDICT = "PASS";
+    vi.stubEnv("PIPELINE_TRACER_VERDICT", "PASS");
 
     await runTracerPipeline(env, "PIPE-14 tracer bullet");
 
@@ -536,30 +536,54 @@ describe("PIPE-14 tracer-bullet pipeline", () => {
       .filter((entry) => entry.type === "role")
       .map((entry) => entry.prompt ?? "");
 
-    expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringContaining("Pipeline complete: PASS"));
-    expect(rolePrompts.some((prompt) => prompt.includes("Test first"))).toBe(false);
-    expect(rolePrompts.some((prompt) => prompt.includes("researcher"))).toBe(true);
-    expect(rolePrompts.some((prompt) => prompt.includes("test-writer"))).toBe(true);
-    expect(rolePrompts.some((prompt) => prompt.includes("code-writer"))).toBe(true);
-    expect(rolePrompts.some((prompt) => prompt.includes("code verifier") || prompt.includes("moka-verifier"))).toBe(
-      true,
+    expect(consoleErrorSpy).toHaveBeenCalledWith(
+      expect.stringContaining("Pipeline finished: default PASS")
     );
-    expect(readCommandLog(env.logPath).some((entry) => entry.type === "backlog")).toBe(false);
+    expect(rolePrompts.some((prompt) => prompt.includes("Test first"))).toBe(
+      false
+    );
+    expect(rolePrompts.some((prompt) => prompt.includes("researcher"))).toBe(
+      true
+    );
+    expect(rolePrompts.some((prompt) => prompt.includes("test-writer"))).toBe(
+      true
+    );
+    expect(rolePrompts.some((prompt) => prompt.includes("code-writer"))).toBe(
+      true
+    );
+    expect(
+      rolePrompts.some(
+        (prompt) =>
+          prompt.includes("code verifier") || prompt.includes("moka-verifier")
+      )
+    ).toBe(true);
+    expect(
+      readCommandLog(env.logPath).some((entry) => entry.type === "backlog")
+    ).toBe(false);
   });
 
   it("runs the integrated tracer to FAIL and blocks dependent nodes", async () => {
-    process.env.PIPELINE_TRACER_VERDICT = "FAIL";
+    vi.stubEnv("PIPELINE_TRACER_VERDICT", "FAIL");
 
-    await expect(runTracerPipeline(env, "PIPE-14 tracer bullet")).rejects.toThrow("Pipeline failed");
+    await expect(
+      runTracerPipeline(env, "PIPE-14 tracer bullet")
+    ).rejects.toThrow("Pipeline failed");
 
     const rolePrompts = readCommandLog(env.logPath)
       .filter((entry) => entry.type === "role")
       .map((entry) => entry.prompt ?? "");
 
-    expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringContaining("Pipeline complete: FAIL"));
-    expect(rolePrompts.some((prompt) => prompt.includes("code verifier") || prompt.includes("moka-verifier"))).toBe(
-      true,
+    expect(consoleErrorSpy).toHaveBeenCalledWith(
+      expect.stringContaining("Pipeline finished: default FAIL")
     );
-    expect(rolePrompts.some((prompt) => prompt.includes("LEARN phase"))).toBe(false);
+    expect(
+      rolePrompts.some(
+        (prompt) =>
+          prompt.includes("code verifier") || prompt.includes("moka-verifier")
+      )
+    ).toBe(true);
+    expect(rolePrompts.some((prompt) => prompt.includes("LEARN phase"))).toBe(
+      false
+    );
   });
 });

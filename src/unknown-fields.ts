@@ -4,7 +4,10 @@ import * as P from "effect/Predicate";
 const isUnknownRecord = (value: unknown): value is Record<string, unknown> =>
   P.isObject(value) && !Array.isArray(value);
 
-export const stringField = (value: unknown, field: string): Option.Option<string> => {
+export const stringField = (
+  value: unknown,
+  field: string
+): Option.Option<string> => {
   if (!isUnknownRecord(value)) {
     return Option.none();
   }
@@ -12,7 +15,10 @@ export const stringField = (value: unknown, field: string): Option.Option<string
   return P.isString(fieldValue) ? Option.some(fieldValue) : Option.none();
 };
 
-export const numberField = (value: unknown, field: string): Option.Option<number> => {
+export const numberField = (
+  value: unknown,
+  field: string
+): Option.Option<number> => {
   if (!isUnknownRecord(value)) {
     return Option.none();
   }
@@ -20,7 +26,10 @@ export const numberField = (value: unknown, field: string): Option.Option<number
   return P.isNumber(fieldValue) ? Option.some(fieldValue) : Option.none();
 };
 
-export const booleanField = (value: unknown, field: string): Option.Option<boolean> => {
+export const booleanField = (
+  value: unknown,
+  field: string
+): Option.Option<boolean> => {
   if (!isUnknownRecord(value)) {
     return Option.none();
   }

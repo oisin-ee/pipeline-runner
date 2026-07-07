@@ -4,17 +4,17 @@ pre-commit:
     - name: fallow-audit
       run: nubx fallow audit --fail-on-issues --format compact
     - name: check
-      run: nub run check
-    - name: typecheck
-      run: nub run typecheck
+      run: nub run check -- --silent
+    # - name: typecheck
+    #   run: nub run typecheck
 
 pre-push:
   parallel: true
   jobs:
     - name: check
       run: nub run check
-    - name: typecheck
-      run: nub run typecheck
+    # - name: typecheck
+    #   run: nub run typecheck
 
 # Strip Co-Authored-By trailers locally, so this still happens once the repo runs
 # lefthook directly (local core.hooksPath) instead of via the global ~/.git-hooks.

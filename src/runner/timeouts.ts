@@ -24,7 +24,9 @@ export const agentIdleTimeoutMsFromEnv = (): Option<number> => {
   return positiveNumberOption(Number(raw));
 };
 
-export const timeoutOption = (timeoutMs: Option<number>): { timeout: number } | Record<string, never> =>
+export const timeoutOption = (
+  timeoutMs: Option<number>
+): { timeout: number } | Record<string, never> =>
   matchOption(timeoutMs, {
     onNone: () => ({}),
     onSome: (timeout) => ({ timeout }),

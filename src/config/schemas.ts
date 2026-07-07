@@ -59,17 +59,25 @@ const pipelineConfigIssue = struct({
   path: Schema.optional(Schema.String),
 });
 
-export class PipelineConfigError extends Schema.TaggedErrorClass<PipelineConfigError>()("PipelineConfigError", {
-  code: pipelineConfigErrorCode,
-  issues: mutableArray(pipelineConfigIssue),
-  message: Schema.String,
-}) {
-  constructor(code: PipelineConfigErrorCode, message: string, issues: PipelineConfigIssue[] = []) {
+export class PipelineConfigError extends Schema.TaggedErrorClass<PipelineConfigError>()(
+  "PipelineConfigError",
+  {
+    code: pipelineConfigErrorCode,
+    issues: mutableArray(pipelineConfigIssue),
+    message: Schema.String,
+  }
+) {
+  constructor(
+    code: PipelineConfigErrorCode,
+    message: string,
+    issues: PipelineConfigIssue[] = []
+  ) {
     super({ code, issues, message });
   }
 }
 
-const strictRecord = <S extends Schema.Constraint>(valueSchema: S) => Schema.Record(Schema.String, valueSchema);
+const strictRecord = <S extends Schema.Constraint>(valueSchema: S) =>
+  Schema.Record(Schema.String, valueSchema);
 
 const optionalStringArray = Schema.optional(mutableArray(Schema.String));
 
@@ -78,7 +86,9 @@ const runnerCapabilitiesSchema = struct({
   mcp_servers: Schema.optional(Schema.Boolean),
   native_subagents: Schema.optional(Schema.Boolean),
   network: Schema.optional(mutableArray(Schema.Literals(NETWORK_MODES))),
-  output_formats: Schema.optional(mutableArray(Schema.Literals(OUTPUT_FORMATS))),
+  output_formats: Schema.optional(
+    mutableArray(Schema.Literals(OUTPUT_FORMATS))
+  ),
   rules: Schema.optional(Schema.Boolean),
   skills: Schema.optional(Schema.Boolean),
   tools: Schema.optional(mutableArray(Schema.Literals(TOOL_NAMES))),
@@ -218,7 +228,9 @@ const profileSchema = struct({
   reasoning_effort: Schema.optional(reasoningEffort),
   rules: optionalStringArray,
   runner: Schema.String,
-  scheduling_roles: Schema.optional(mutableArray(Schema.Literals(SCHEDULING_ROLES))),
+  scheduling_roles: Schema.optional(
+    mutableArray(Schema.Literals(SCHEDULING_ROLES))
+  ),
   skills: optionalStringArray,
   timeout_ms: Schema.optional(positiveInteger),
   tools: Schema.optional(mutableArray(Schema.Literals(TOOL_NAMES))),
@@ -269,7 +281,10 @@ const commandHookFunctionSchema = struct({
   trusted: Schema.optional(Schema.Boolean),
 });
 
-const hookFunction = Schema.Union([moduleHookFunctionSchema, commandHookFunctionSchema]);
+const hookFunction = Schema.Union([
+  moduleHookFunctionSchema,
+  commandHookFunctionSchema,
+]);
 
 const hookBindingWhereSchema = struct({
   gate: Schema.optional(Schema.String),
@@ -307,7 +322,7 @@ const taskContextResolver = Schema.StructWithRest(
   struct({
     type: requiredString,
   }),
-  [Schema.Record(Schema.String, Schema.Unknown)],
+  [Schema.Record(Schema.String, Schema.Unknown)]
 );
 
 const nodeTaskContextSchema = struct({
@@ -316,8 +331,8 @@ const nodeTaskContextSchema = struct({
       struct({
         id: requiredString,
         text: requiredString,
-      }),
-    ),
+      })
+    )
   ),
   description: Schema.optional(Schema.String),
   id: Schema.optional(requiredString),
@@ -443,7 +458,7 @@ const workflowNode: Schema.Codec<WorkflowNode> = Schema.suspend(() =>
       kind: Schema.Literal("parallel"),
       nodes: nonEmptyMutableArray(workflowNode),
     }),
-  ]),
+  ])
 );
 
 export const workflowSchema = struct({
@@ -464,12 +479,18 @@ const runnerCommandEnvironmentSchema = struct({
 });
 
 const runnerCommandGitCommitterSchema = struct({
-  email: withDefault(requiredString, DEFAULT_RUNNER_COMMAND_GIT_COMMITTER.email),
+  email: withDefault(
+    requiredString,
+    DEFAULT_RUNNER_COMMAND_GIT_COMMITTER.email
+  ),
   name: withDefault(requiredString, DEFAULT_RUNNER_COMMAND_GIT_COMMITTER.name),
 });
 
 const runnerCommandGitSchema = struct({
-  committer: withDefault(runnerCommandGitCommitterSchema, DEFAULT_RUNNER_COMMAND_GIT_COMMITTER),
+  committer: withDefault(
+    runnerCommandGitCommitterSchema,
+    DEFAULT_RUNNER_COMMAND_GIT_COMMITTER
+  ),
 });
 
 const runnerCommandConfigSchema = struct({
@@ -507,7 +528,10 @@ const tokenBudgetSchema = struct({
     by_category: {},
     default: 4,
   }),
-  max_context_pct: withDefault(positiveNumber.check(Schema.isLessThanOrEqualTo(100)), 50),
+  max_context_pct: withDefault(
+    positiveNumber.check(Schema.isLessThanOrEqualTo(100)),
+    50
+  ),
   model_context_windows: withDefault(strictRecord(positiveInteger), {}),
 });
 
@@ -531,8 +555,11 @@ const deliverySchema = struct({
       enabled: withDefault(Schema.Boolean, false),
       head_branch: Schema.optional(requiredString),
       label: withDefault(requiredString, "preview"),
-      mode: withDefault(Schema.Literals(["create-new-pr", "update-existing-pr"]), "create-new-pr"),
-    }),
+      mode: withDefault(
+        Schema.Literals(["create-new-pr", "update-existing-pr"]),
+        "create-new-pr"
+      ),
+    })
   ),
 });
 
@@ -586,9 +613,13 @@ export type HookEvent = (typeof HOOK_EVENTS)[number];
 export type GateKind = (typeof GATE_KINDS)[number];
 export type ScheduleBaseline = (typeof SCHEDULE_BASELINES)[number];
 export type SchedulingRole = (typeof SCHEDULING_ROLES)[number];
-export type McpGatewayBackendLocality = (typeof MCP_GATEWAY_BACKEND_LOCALITIES)[number];
-export type McpGatewayWorkspacePathSource = (typeof MCP_GATEWAY_WORKSPACE_PATH_SOURCES)[number];
-export type ConfigGateSpec = NonNullable<PipelineConfig["workflows"][string]["nodes"][number]["gates"]>[number];
+export type McpGatewayBackendLocality =
+  (typeof MCP_GATEWAY_BACKEND_LOCALITIES)[number];
+export type McpGatewayWorkspacePathSource =
+  (typeof MCP_GATEWAY_WORKSPACE_PATH_SOURCES)[number];
+export type ConfigGateSpec = NonNullable<
+  PipelineConfig["workflows"][string]["nodes"][number]["gates"]
+>[number];
 
 export interface PipelineConfigParts {
   pipeline: string;
@@ -600,19 +631,25 @@ export interface PipelineConfigValidationOptions {
   allowMissingLintFileReferences?: boolean;
 }
 
-export const validationError = (issues: PipelineConfigIssue[]): PipelineConfigError =>
+export const validationError = (
+  issues: PipelineConfigIssue[]
+): PipelineConfigError =>
   new PipelineConfigError(
     "PIPELINE_CONFIG_VALIDATION_ERROR",
     [
       "Invalid pipeline config:",
       ...issues.map((issue) =>
-        issue.path === undefined || issue.path === "" ? `- ${issue.message}` : `- ${issue.path}: ${issue.message}`,
+        issue.path === undefined || issue.path === ""
+          ? `- ${issue.message}`
+          : `- ${issue.path}: ${issue.message}`
       ),
     ].join("\n"),
-    issues,
+    issues
   );
 
-export const configIssuesFromSchemaIssues = (issues: readonly EffectSchemaIssue[]): PipelineConfigIssue[] =>
+export const configIssuesFromSchemaIssues = (
+  issues: readonly EffectSchemaIssue[]
+): PipelineConfigIssue[] =>
   issues.map((issue) => ({
     message: issue.message,
     path: issue.path.map(String).join("."),

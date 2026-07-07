@@ -2,7 +2,12 @@ import { Effect, Option } from "effect";
 
 import type { PlannedWorkflowNode } from "../../planning/compile";
 import { diffChangedFiles } from "../changed-files";
-import type { ChangedFilesSnapshot, NodeAttemptRetry, RuntimeContext, RuntimeNodeResult } from "../contracts";
+import type {
+  ChangedFilesSnapshot,
+  NodeAttemptRetry,
+  RuntimeContext,
+  RuntimeNodeResult,
+} from "../contracts";
 
 export interface NodeRemediationResult {
   result?: RuntimeNodeResult;
@@ -10,9 +15,14 @@ export interface NodeRemediationResult {
 }
 
 export interface RuntimeRemediationDependencies {
-  executeNode: (node: PlannedWorkflowNode, context: RuntimeContext) => Effect.Effect<RuntimeNodeResult, unknown>;
+  executeNode: (
+    node: PlannedWorkflowNode,
+    context: RuntimeContext
+  ) => Effect.Effect<RuntimeNodeResult, unknown>;
   isCancelled: (context: RuntimeContext) => boolean;
-  snapshotChangedFiles: (worktreePath: string) => Effect.Effect<ChangedFilesSnapshot, unknown>;
+  snapshotChangedFiles: (
+    worktreePath: string
+  ) => Effect.Effect<ChangedFilesSnapshot, unknown>;
 }
 
 export interface RemediateFailedNodeInput {
@@ -24,13 +34,13 @@ export interface RemediateFailedNodeInput {
 }
 
 type RemediationStrategy = (
-  input: RemediateFailedNodeInput,
+  input: RemediateFailedNodeInput
 ) => Effect.Effect<Option.Option<NodeRemediationResult>, unknown>;
 
 const remediationChangedNothing = (
   changedFileCount: number,
   result: RuntimeNodeResult,
-  beforeOutput?: string,
+  beforeOutput?: string
 ): boolean => {
   if (changedFileCount !== 0) {
     return false;
@@ -38,7 +48,9 @@ const remediationChangedNothing = (
   return result.output === beforeOutput;
 };
 
-const retryNodeWhenRemediated = (remediated: boolean): Option.Option<NodeRemediationResult> =>
+const retryNodeWhenRemediated = (
+  remediated: boolean
+): Option.Option<NodeRemediationResult> =>
   remediated ? Option.some({ retryNode: true }) : Option.none();
 
 const recordImplementationRemediationEffect = (input: {
@@ -52,20 +64,28 @@ const recordImplementationRemediationEffect = (input: {
   Effect.gen(function* effectBody() {
     const changed = diffChangedFiles(
       input.beforeSnapshot,
-      yield* input.dependencies.snapshotChangedFiles(input.context.worktreePath),
-      input.context.worktreePath,
+      yield* input.dependencies.snapshotChangedFiles(
+        input.context.worktreePath
+      ),
+      input.context.worktreePath
     );
-    if (changed.files.size === 0 && input.result.output === input.beforeOutput) {
+    if (
+      changed.files.size === 0 &&
+      input.result.output === input.beforeOutput
+    ) {
       return false;
     }
-    input.context.nodeStateStore.lastOutputByNode.set(input.implementationNode.id, input.result.output);
+    input.context.nodeStateStore.lastOutputByNode.set(
+      input.implementationNode.id,
+      input.result.output
+    );
     return true;
   });
 
 const withRemediationTask = (
   context: RuntimeContext,
   task: string,
-  effect: () => Effect.Effect<RuntimeNodeResult, unknown>,
+  effect: () => Effect.Effect<RuntimeNodeResult, unknown>
 ): Effect.Effect<RuntimeNodeResult, unknown> =>
   Effect.gen(function* effectBody() {
     const originalTask = context.task;
@@ -74,7 +94,7 @@ const withRemediationTask = (
       effect(),
       Effect.sync(() => {
         context.task = originalTask;
-      }),
+      })
     );
   });
 
@@ -129,21 +149,23 @@ const executeImplementationRemediation = (input: {
         originalTask: input.context.task,
         retry: input.retry,
       }),
-      () => input.dependencies.executeNode(node, input.context),
+      () => input.dependencies.executeNode(node, input.context)
     );
   });
 
 const remediateImplementationAncestor = (
   input: RemediateFailedNodeInput,
-  implementationNode: PlannedWorkflowNode,
+  implementationNode: PlannedWorkflowNode
 ): Effect.Effect<boolean, unknown> =>
   Effect.gen(function* effectBody() {
     if (input.dependencies.isCancelled(input.context)) {
       return false;
     }
-    const beforeSnapshot = yield* input.dependencies.snapshotChangedFiles(input.context.worktreePath);
+    const beforeSnapshot = yield* input.dependencies.snapshotChangedFiles(
+      input.context.worktreePath
+    );
     const beforeOutput = Option.fromUndefinedOr(
-      input.context.nodeStateStore.lastOutputByNode.get(implementationNode.id),
+      input.context.nodeStateStore.lastOutputByNode.get(implementationNode.id)
     );
     const result = yield* executeImplementationRemediation({
       attempt: input.attempt,
@@ -192,7 +214,9 @@ const nodeRemediationTask = (input: {
     "Update the node output and files so this gate can pass.",
   ].join("\n");
 
-const executeSelfRemediation = (input: RemediateFailedNodeInput): Effect.Effect<RuntimeNodeResult, unknown> =>
+const executeSelfRemediation = (
+  input: RemediateFailedNodeInput
+): Effect.Effect<RuntimeNodeResult, unknown> =>
   Effect.gen(function* effectBody() {
     const node: PlannedWorkflowNode = {
       ...input.node,
@@ -209,11 +233,14 @@ const executeSelfRemediation = (input: RemediateFailedNodeInput): Effect.Effect<
         originalTask: input.context.task,
         retry: input.retry,
       }),
-      () => input.dependencies.executeNode(node, input.context),
+      () => input.dependencies.executeNode(node, input.context)
     );
   });
 
-const visitImplementationDependencies = (candidate: PlannedWorkflowNode, visit: (nodeId: string) => void): void => {
+const visitImplementationDependencies = (
+  candidate: PlannedWorkflowNode,
+  visit: (nodeId: string) => void
+): void => {
   for (const need of candidate.needs) {
     visit(need);
   }
@@ -225,21 +252,30 @@ const nodeStatePassed = (context: RuntimeContext, nodeId: string): boolean =>
     onSome: (state) => state.status === "passed",
   });
 
-const hasWorkspaceWriteMode = (profile: RuntimeContext["config"]["profiles"][string]): boolean =>
-  profile.filesystem?.mode === "workspace-write";
+const hasWorkspaceWriteMode = (
+  profile: RuntimeContext["config"]["profiles"][string]
+): boolean => profile.filesystem?.mode === "workspace-write";
 
-const isWriteTool = (tool: string): boolean => (tool === "edit" ? true : tool === "write");
+const isWriteTool = (tool: string): boolean =>
+  tool === "edit" ? true : tool === "write";
 
 const hasWriteTool = (tools: string[]): boolean => tools.some(isWriteTool);
 
-const profileCanWrite = (profile?: RuntimeContext["config"]["profiles"][string]): boolean => {
+const profileCanWrite = (
+  profile?: RuntimeContext["config"]["profiles"][string]
+): boolean => {
   if (!profile) {
     return false;
   }
-  return hasWorkspaceWriteMode(profile) ? true : hasWriteTool(profile.tools ?? []);
+  return hasWorkspaceWriteMode(profile)
+    ? true
+    : hasWriteTool(profile.tools ?? []);
 };
 
-const nodeCanWrite = (context: RuntimeContext, node: PlannedWorkflowNode): boolean => {
+const nodeCanWrite = (
+  context: RuntimeContext,
+  node: PlannedWorkflowNode
+): boolean => {
   const profileId = node.profile;
   if (profileId === undefined || profileId.length === 0) {
     return false;
@@ -247,9 +283,12 @@ const nodeCanWrite = (context: RuntimeContext, node: PlannedWorkflowNode): boole
   return profileCanWrite(context.config.profiles[profileId]);
 };
 
-const isRemediationNode = (node: PlannedWorkflowNode): boolean => node.id.includes(":remediate:");
+const isRemediationNode = (node: PlannedWorkflowNode): boolean =>
+  node.id.includes(":remediate:");
 
-const canSelfRemediateWritableNode = (input: RemediateFailedNodeInput): boolean => {
+const canSelfRemediateWritableNode = (
+  input: RemediateFailedNodeInput
+): boolean => {
   if (input.retry.retryReason !== "gate_failure") {
     return false;
   }
@@ -260,15 +299,19 @@ const canSelfRemediateWritableNode = (input: RemediateFailedNodeInput): boolean 
 };
 
 const remediateWritableNodeFailure = (
-  input: RemediateFailedNodeInput,
+  input: RemediateFailedNodeInput
 ): Effect.Effect<Option.Option<NodeRemediationResult>, unknown> =>
   Effect.gen(function* effectBody() {
     if (!canSelfRemediateWritableNode(input)) {
       return Option.none();
     }
 
-    const beforeSnapshot = yield* input.dependencies.snapshotChangedFiles(input.context.worktreePath);
-    const beforeOutput = Option.fromUndefinedOr(input.context.nodeStateStore.lastOutputByNode.get(input.node.id));
+    const beforeSnapshot = yield* input.dependencies.snapshotChangedFiles(
+      input.context.worktreePath
+    );
+    const beforeOutput = Option.fromUndefinedOr(
+      input.context.nodeStateStore.lastOutputByNode.get(input.node.id)
+    );
     const result = yield* executeSelfRemediation(input);
     if (result.status !== "passed") {
       return Option.none();
@@ -276,15 +319,26 @@ const remediateWritableNodeFailure = (
 
     const changed = diffChangedFiles(
       beforeSnapshot,
-      yield* input.dependencies.snapshotChangedFiles(input.context.worktreePath),
-      input.context.worktreePath,
+      yield* input.dependencies.snapshotChangedFiles(
+        input.context.worktreePath
+      ),
+      input.context.worktreePath
     );
-    if (remediationChangedNothing(changed.files.size, result, Option.getOrUndefined(beforeOutput))) {
+    if (
+      remediationChangedNothing(
+        changed.files.size,
+        result,
+        Option.getOrUndefined(beforeOutput)
+      )
+    ) {
       return Option.none();
     }
 
     input.context.nodeStateStore.nodeSnapshots.set(input.node.id, changed);
-    input.context.nodeStateStore.lastOutputByNode.set(input.node.id, result.output);
+    input.context.nodeStateStore.lastOutputByNode.set(
+      input.node.id,
+      result.output
+    );
     return Option.some({
       result: {
         attempts: input.attempt + 1,
@@ -300,16 +354,18 @@ const remediateWritableNodeFailure = (
 const hasSchedulingRole = (
   context: RuntimeContext,
   node: PlannedWorkflowNode,
-  role: "coverage" | "implementation",
+  role: "coverage" | "implementation"
 ): boolean =>
   node.profile === undefined || node.profile.length === 0
     ? false
-    : (context.config.profiles[node.profile]?.scheduling_roles?.includes(role) ?? false);
+    : (context.config.profiles[node.profile]?.scheduling_roles?.includes(
+        role
+      ) ?? false);
 
 const pushIfImplementation = (
   context: RuntimeContext,
   ordered: PlannedWorkflowNode[],
-  node: PlannedWorkflowNode,
+  node: PlannedWorkflowNode
 ): void => {
   if (hasSchedulingRole(context, node, "implementation")) {
     ordered.push(node);
@@ -319,7 +375,7 @@ const pushIfImplementation = (
 const appendPassedImplementationChild = (
   context: RuntimeContext,
   ordered: PlannedWorkflowNode[],
-  child: PlannedWorkflowNode,
+  child: PlannedWorkflowNode
 ): void => {
   pushIfImplementation(context, ordered, child);
   for (const grandchild of child.children ?? []) {
@@ -330,7 +386,7 @@ const appendPassedImplementationChild = (
 const appendImplementationNode = (
   context: RuntimeContext,
   ordered: PlannedWorkflowNode[],
-  candidate: PlannedWorkflowNode,
+  candidate: PlannedWorkflowNode
 ): void => {
   if (!nodeStatePassed(context, candidate.id)) {
     return;
@@ -347,7 +403,7 @@ const visitImplementationNode = (
   visited: Set<string>,
   ordered: PlannedWorkflowNode[],
   nodeId: string,
-  visit: (nodeId: string) => void,
+  visit: (nodeId: string) => void
 ): void => {
   if (visited.has(nodeId)) {
     return;
@@ -361,7 +417,10 @@ const visitImplementationNode = (
   appendImplementationNode(context, ordered, candidate);
 };
 
-const upstreamImplementationNodes = (context: RuntimeContext, node: PlannedWorkflowNode): PlannedWorkflowNode[] => {
+const upstreamImplementationNodes = (
+  context: RuntimeContext,
+  node: PlannedWorkflowNode
+): PlannedWorkflowNode[] => {
   const visited = new Set<string>();
   const ordered: PlannedWorkflowNode[] = [];
   const visit = (candidateId: string): void => {
@@ -373,9 +432,14 @@ const upstreamImplementationNodes = (context: RuntimeContext, node: PlannedWorkf
   return ordered;
 };
 
-const remediatePassedImplementationAncestors = (input: RemediateFailedNodeInput): Effect.Effect<boolean, unknown> =>
+const remediatePassedImplementationAncestors = (
+  input: RemediateFailedNodeInput
+): Effect.Effect<boolean, unknown> =>
   Effect.gen(function* effectBody() {
-    const implementationNodes = upstreamImplementationNodes(input.context, input.node);
+    const implementationNodes = upstreamImplementationNodes(
+      input.context,
+      input.node
+    );
     if (implementationNodes.length === 0) {
       return false;
     }
@@ -391,16 +455,21 @@ const remediatePassedImplementationAncestors = (input: RemediateFailedNodeInput)
   });
 
 const remediateCoverageFailure = (
-  input: RemediateFailedNodeInput,
+  input: RemediateFailedNodeInput
 ): Effect.Effect<Option.Option<NodeRemediationResult>, unknown> => {
-  if (input.retry.retryReason !== "gate_failure" || !hasSchedulingRole(input.context, input.node, "coverage")) {
+  if (
+    input.retry.retryReason !== "gate_failure" ||
+    !hasSchedulingRole(input.context, input.node, "coverage")
+  ) {
     return Effect.succeed(Option.none());
   }
-  return remediatePassedImplementationAncestors(input).pipe(Effect.map(retryNodeWhenRemediated));
+  return remediatePassedImplementationAncestors(input).pipe(
+    Effect.map(retryNodeWhenRemediated)
+  );
 };
 
 const remediateUpstreamImplementationFailure = (
-  input: RemediateFailedNodeInput,
+  input: RemediateFailedNodeInput
 ): Effect.Effect<Option.Option<NodeRemediationResult>, unknown> => {
   if (
     isRemediationNode(input.node) ||
@@ -409,7 +478,9 @@ const remediateUpstreamImplementationFailure = (
   ) {
     return Effect.succeed(Option.none());
   }
-  return remediatePassedImplementationAncestors(input).pipe(Effect.map(retryNodeWhenRemediated));
+  return remediatePassedImplementationAncestors(input).pipe(
+    Effect.map(retryNodeWhenRemediated)
+  );
 };
 
 const remediationStrategies: RemediationStrategy[] = [
@@ -419,7 +490,7 @@ const remediationStrategies: RemediationStrategy[] = [
 ];
 
 export const remediateFailedNode = (
-  input: RemediateFailedNodeInput,
+  input: RemediateFailedNodeInput
 ): Effect.Effect<Option.Option<NodeRemediationResult>, unknown> =>
   Effect.gen(function* effectBody() {
     for (const strategy of remediationStrategies) {

@@ -46,7 +46,10 @@ export interface EvalReport {
   variants: VariantSummary[];
 }
 
-const summarizeVariant = (variant: string, runs: EvalRunResult[]): VariantSummary => {
+const summarizeVariant = (
+  variant: string,
+  runs: EvalRunResult[]
+): VariantSummary => {
   const resolved = runs.filter((r) => r.resolved).length;
   const totalWall = runs.reduce((sum, r) => sum + r.wallMs, 0);
   return {
@@ -66,17 +69,20 @@ export const buildEvalReport = (results: EvalRunResult[]): EvalReport => {
     variants: variants.map((variant) =>
       summarizeVariant(
         variant,
-        results.filter((r) => r.variant === variant),
-      ),
+        results.filter((r) => r.variant === variant)
+      )
     ),
   };
 };
 
 export const renderEvalReport = (report: EvalReport): string => {
-  const lines = [`Eval over ${report.tasks} task(s):`, "variant | resolved | rate | tokens | avg ms"];
+  const lines = [
+    `Eval over ${report.tasks} task(s):`,
+    "variant | resolved | rate | tokens | avg ms",
+  ];
   for (const v of report.variants) {
     lines.push(
-      `${v.variant} | ${v.resolved}/${v.count} | ${(v.resolutionRate * 100).toFixed(0)}% | ${v.totalCostTokens} | ${v.avgWallMs}`,
+      `${v.variant} | ${v.resolved}/${v.count} | ${(v.resolutionRate * 100).toFixed(0)}% | ${v.totalCostTokens} | ${v.avgWallMs}`
     );
   }
   return lines.join("\n");

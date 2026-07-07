@@ -4,10 +4,22 @@ import * as Match from "effect/Match";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 
-import type { PlannedWorkflowNode, WorkflowExecutionPlan } from "./planning/compile";
-import { indexPlannedNodesById, resolveExecutableDependencyIds } from "./planning/dependency-refs";
+import type {
+  PlannedWorkflowNode,
+  WorkflowExecutionPlan,
+} from "./planning/compile";
+import {
+  indexPlannedNodesById,
+  resolveExecutableDependencyIds,
+} from "./planning/dependency-refs";
 import { terminalDependencyItems } from "./planning/graph";
-import { mutableArray, nonEmptyMutableArray, parseStrictWithSchema, requiredString, struct } from "./schema-boundary";
+import {
+  mutableArray,
+  nonEmptyMutableArray,
+  parseStrictWithSchema,
+  requiredString,
+  struct,
+} from "./schema-boundary";
 import { uniqueStrings } from "./strings";
 
 const argoExecutableTaskSchema = struct({
@@ -38,31 +50,25 @@ export class ArgoGraphCompilerError extends Schema.TaggedErrorClass<ArgoGraphCom
     kind: Schema.String,
     message: Schema.String,
     nodeId: Schema.String,
-  },
+  }
 ) {
-  constructor(kind: string, nodeId: string) {
+  constructor(kind: string, nodeId: string, message?: string) {
     super({
       kind,
-      message: `Argo graph compiler: node kind '${kind}' on node '${nodeId}' cannot be lowered to an Argo DAG task`,
+      message:
+        message ??
+        `Argo graph compiler: node kind '${kind}' on node '${nodeId}' cannot be lowered to an Argo DAG task`,
       nodeId,
     });
   }
 }
 
-class ArgoGraphDuplicateNodeError extends Schema.TaggedErrorClass<ArgoGraphDuplicateNodeError>()(
-  "ArgoGraphDuplicateNodeError",
-  {
-    message: Schema.String,
-    nodeId: Schema.String,
-  },
-) {
-  constructor(nodeId: string) {
-    super({
-      message: `Argo schedule contains duplicate node id '${nodeId}'`,
-      nodeId,
-    });
-  }
-}
+const duplicateNodeError = (nodeId: string): ArgoGraphCompilerError =>
+  new ArgoGraphCompilerError(
+    "duplicate-node-id",
+    nodeId,
+    `Argo schedule contains duplicate node id '${nodeId}'`
+  );
 
 const argoTaskName = (nodeId: string): string => `node-${nodeId}`;
 
@@ -89,45 +95,71 @@ const emptyDuplicateNodeSearchState: DuplicateNodeSearchState = {
   seen: HashMap.empty<string, true>(),
 };
 
-const nodeAndDescendants = (node: PlannedWorkflowNode): readonly PlannedWorkflowNode[] => [
+const nodeAndDescendants = (
+  node: PlannedWorkflowNode
+): readonly PlannedWorkflowNode[] => [
   node,
-  ...Arr.flatMap(node.children ?? [], nodeAndDescendants),
+  ...Arr.flatMap(nodeAndDescendants)(node.children ?? []),
 ];
 
-const plannedNodeTree = (nodes: readonly PlannedWorkflowNode[]): readonly PlannedWorkflowNode[] =>
-  Arr.flatMap(nodes, nodeAndDescendants);
+const plannedNodeTree = (
+  nodes: readonly PlannedWorkflowNode[]
+): readonly PlannedWorkflowNode[] => Arr.flatMap(nodeAndDescendants)(nodes);
 
-const trackDuplicateNodeId = (state: DuplicateNodeSearchState, node: PlannedWorkflowNode): DuplicateNodeSearchState =>
-  Option.isSome(state.duplicate)
-    ? state
-    : HashMap.has(state.seen, node.id)
-      ? { ...state, duplicate: Option.some(node.id) }
-      : {
-          duplicate: Option.none(),
-          seen: HashMap.set(state.seen, node.id, true),
-        };
+const trackDuplicateNodeId = (
+  state: DuplicateNodeSearchState,
+  node: PlannedWorkflowNode
+): DuplicateNodeSearchState => {
+  if (Option.isSome(state.duplicate)) {
+    return state;
+  }
+  return HashMap.has(state.seen, node.id)
+    ? { ...state, duplicate: Option.some(node.id) }
+    : {
+        duplicate: Option.none(),
+        seen: HashMap.set(state.seen, node.id, true),
+      };
+};
 
-const duplicateNodeId = (nodes: readonly PlannedWorkflowNode[]): Option.Option<string> =>
-  Arr.reduce(plannedNodeTree(nodes), emptyDuplicateNodeSearchState, trackDuplicateNodeId).duplicate;
+const duplicateNodeId = (
+  nodes: readonly PlannedWorkflowNode[]
+): Option.Option<string> =>
+  Arr.reduce(
+    plannedNodeTree(nodes),
+    emptyDuplicateNodeSearchState,
+    trackDuplicateNodeId
+  ).duplicate;
 
 const assertUniqueNodeIds = (nodes: readonly PlannedWorkflowNode[]): void => {
   Option.match(duplicateNodeId(nodes), {
-    onNone: () => undefined,
+    onNone: () => {
+      /* empty */
+    },
     onSome: (nodeId) => {
-      throw new ArgoGraphDuplicateNodeError(nodeId);
+      throw duplicateNodeError(nodeId);
     },
   });
 };
 
-const resolveDependencyTaskNames = (context: ArgoGraphCompileContext, nodeIds: readonly string[]): string[] =>
-  uniqueStrings(resolveExecutableDependencyIds(context.nodeById, nodeIds).map((id) => argoTaskName(id)));
+const resolveDependencyTaskNames = (
+  context: ArgoGraphCompileContext,
+  nodeIds: readonly string[]
+): string[] =>
+  uniqueStrings(
+    resolveExecutableDependencyIds(context.nodeById, nodeIds).map((id) =>
+      argoTaskName(id)
+    )
+  );
 
 const compileExecutableNode = (
   context: ArgoGraphCompileContext,
   node: PlannedWorkflowNode,
-  inheritedNeeds: readonly string[],
+  inheritedNeeds: readonly string[]
 ): ArgoExecutableTask => {
-  const dependencies = resolveDependencyTaskNames(context, [...inheritedNeeds, ...node.needs]);
+  const dependencies = resolveDependencyTaskNames(context, [
+    ...inheritedNeeds,
+    ...node.needs,
+  ]);
   return parseStrictWithSchema(argoExecutableTaskSchema, {
     dependencies,
     nodeId: node.id,
@@ -140,29 +172,36 @@ const compileArgoNodes = (
   context: ArgoGraphCompileContext,
   nodes: readonly PlannedWorkflowNode[],
   inheritedNeeds: readonly string[],
-  initialTasks: ArgoExecutableTask[] = [],
+  initialTasks: ArgoExecutableTask[] = []
 ): ArgoExecutableTask[] =>
-  Arr.reduce(nodes, initialTasks, (tasks, node) => compileArgoNode({ context, inheritedNeeds, node, tasks }));
-
-const compileArgoNode = (input: CompileArgoNodeInput): ArgoExecutableTask[] =>
-  Match.value(input.node.kind).pipe(
-    Match.whenOr("agent", "builtin", "command", () => [
-      ...input.tasks,
-      compileExecutableNode(input.context, input.node, input.inheritedNeeds),
-    ]),
-    Match.when("group", () => input.tasks),
-    Match.when("parallel", () =>
-      compileArgoNodes(
-        input.context,
-        input.node.children ?? [],
-        [...input.inheritedNeeds, ...input.node.needs],
-        input.tasks,
+  Arr.reduce(nodes, initialTasks, (tasks, node) => {
+    const input: CompileArgoNodeInput = {
+      context,
+      inheritedNeeds,
+      node,
+      tasks,
+    };
+    return Match.value(input.node.kind).pipe(
+      Match.whenOr("agent", "builtin", "command", () => [
+        ...input.tasks,
+        compileExecutableNode(input.context, input.node, input.inheritedNeeds),
+      ]),
+      Match.when("group", () => input.tasks),
+      Match.when("parallel", () =>
+        compileArgoNodes(
+          input.context,
+          input.node.children ?? [],
+          [...input.inheritedNeeds, ...input.node.needs],
+          input.tasks
+        )
       ),
-    ),
-    Match.exhaustive,
-  );
+      Match.exhaustive
+    );
+  });
 
-const compileArgoExecutionGraphUnchecked = (plan: WorkflowExecutionPlan): ArgoExecutionGraph => {
+const compileArgoExecutionGraphUnchecked = (
+  plan: WorkflowExecutionPlan
+): ArgoExecutionGraph => {
   const context: ArgoGraphCompileContext = {
     nodeById: indexPlannedNodesById(plan.topologicalOrder),
   };
@@ -170,7 +209,7 @@ const compileArgoExecutionGraphUnchecked = (plan: WorkflowExecutionPlan): ArgoEx
   const terminalTasks = terminalDependencyItems(
     tasks,
     (task) => task.taskName,
-    (task) => task.dependencies,
+    (task) => task.dependencies
   );
   return {
     tasks,
@@ -180,7 +219,12 @@ const compileArgoExecutionGraphUnchecked = (plan: WorkflowExecutionPlan): ArgoEx
   };
 };
 
-export const compileArgoExecutionGraph = (plan: WorkflowExecutionPlan): ArgoExecutionGraph => {
+export const compileArgoExecutionGraph = (
+  plan: WorkflowExecutionPlan
+): ArgoExecutionGraph => {
   assertUniqueNodeIds(plan.topologicalOrder);
-  return parseStrictWithSchema(argoExecutionGraphSchema, compileArgoExecutionGraphUnchecked(plan));
+  return parseStrictWithSchema(
+    argoExecutionGraphSchema,
+    compileArgoExecutionGraphUnchecked(plan)
+  );
 };

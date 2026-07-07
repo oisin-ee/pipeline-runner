@@ -79,12 +79,13 @@ const inventoryYamlSchema = struct({
         name: Schema.String,
         transport: Schema.optional(Schema.String),
         url: Schema.optional(Schema.String),
-      }),
-    ),
+      })
+    )
   ),
 });
 
-const parseInventoryYaml = (source: string) => parseWithSchema(inventoryYamlSchema, parse(source));
+const parseInventoryYaml = (source: string) =>
+  parseWithSchema(inventoryYamlSchema, parse(source));
 
 describe("ToolHive vMCP inventory rendering", () => {
   it("renders deterministic backend config for every declared backend", () => {
@@ -118,14 +119,14 @@ describe("ToolHive vMCP inventory rendering", () => {
         },
         name: "serena",
         type: "stdio",
-      }),
+      })
     );
     expect(inventory.backends).toContainEqual(
       expect.objectContaining({
         locality: "shared-remote",
         name: "context7",
         type: "entry",
-      }),
+      })
     );
   });
 
@@ -148,12 +149,16 @@ describe("ToolHive vMCP inventory rendering", () => {
     });
     const parsed = parseInventoryYaml(inventory.yaml);
 
-    expect(parsed.backends.find((backend) => backend.name === "qdrant")).toEqual({
+    expect(
+      parsed.backends.find((backend) => backend.name === "qdrant")
+    ).toEqual({
       name: "qdrant",
       transport: "streamable-http",
       url: "http://127.0.0.1:20222/mcp/",
     });
-    expect(inventory.backends.find((backend) => backend.name === "qdrant")).toMatchObject({
+    expect(
+      inventory.backends.find((backend) => backend.name === "qdrant")
+    ).toMatchObject({
       name: "qdrant",
       workloadName: "oisin-pipeline-qdrant",
     });

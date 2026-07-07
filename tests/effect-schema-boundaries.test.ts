@@ -37,7 +37,7 @@ describe("Effect Schema boundary helpers", () => {
   it("exports type aliases for exported schema constants", () => {
     expectTypeOf<requiredString>().toExtend<string>();
     expectTypeOf<trimmedRequiredString>().toExtend<string>();
-    expectTypeOf<stringArray>().toExtend<ReadonlyArray<string>>();
+    expectTypeOf<stringArray>().toExtend<readonly string[]>();
     expectTypeOf<unknownRecord>().toExtend<Record<string, unknown>>();
     expectTypeOf<stringRecord>().toExtend<Record<string, string>>();
     expectTypeOf<integer>().toExtend<number>();
@@ -48,17 +48,29 @@ describe("Effect Schema boundary helpers", () => {
   });
 
   it("strips excess properties by default", () => {
-    expect(parseWithSchema(boundary, { extra: "drop-me", id: "ticket-1" })).toEqual({ id: "ticket-1" });
+    expect(
+      parseWithSchema(boundary, { extra: "drop-me", id: "ticket-1" })
+    ).toEqual({ id: "ticket-1" });
   });
 
   it("fails on excess properties when ParseOptions request strict behaviour", () => {
     expect(() =>
-      parseWithSchema(boundary, { extra: "reject-me", id: "ticket-1" }, { onExcessProperty: "error" }),
+      parseWithSchema(
+        boundary,
+        { extra: "reject-me", id: "ticket-1" },
+        { onExcessProperty: "error" }
+      )
     ).toThrow();
   });
 
   it("preserves excess properties when ParseOptions request passthrough behaviour", () => {
-    expect(parseWithSchema(boundary, { extra: "keep-me", id: "ticket-1" }, { onExcessProperty: "preserve" })).toEqual({
+    expect(
+      parseWithSchema(
+        boundary,
+        { extra: "keep-me", id: "ticket-1" },
+        { onExcessProperty: "preserve" }
+      )
+    ).toEqual({
       extra: "keep-me",
       id: "ticket-1",
     });
@@ -68,7 +80,7 @@ describe("Effect Schema boundary helpers", () => {
     const result = parseResultWithSchema(
       nestedBoundary,
       { metadata: { label: "", unexpected: true } },
-      { errors: "all", onExcessProperty: "error" },
+      { errors: "all", onExcessProperty: "error" }
     );
 
     expect(result.ok).toBe(false);
@@ -77,7 +89,7 @@ describe("Effect Schema boundary helpers", () => {
       expect.arrayContaining([
         expect.objectContaining({ path: ["metadata", "label"] }),
         expect.objectContaining({ path: ["metadata", "unexpected"] }),
-      ]),
+      ])
     );
   });
 
@@ -99,7 +111,7 @@ describe("Effect Schema boundary helpers", () => {
         id: "ticket-1",
       });
       expect(decoded).toEqual({ id: "ticket-1" });
-    }),
+    })
   );
 
   it("emits draft-07 JSON Schema through Effect's document converter", () => {

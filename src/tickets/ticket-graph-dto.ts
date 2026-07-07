@@ -18,9 +18,16 @@ import type { TicketGraph, TicketGraphError } from "./ticket-graph";
  * Node lifecycle in the loop controller DAG traversal.
  * One concept owns this variation — this enum is it.
  */
-const literalValues = <const T extends readonly string[]>(values: T): T => values;
+const literalValues = <const T extends readonly string[]>(values: T): T =>
+  values;
 
-export const LOOP_STATES = literalValues(["queued", "running", "merging", "passed", "blocked"]);
+export const LOOP_STATES = literalValues([
+  "queued",
+  "running",
+  "merging",
+  "passed",
+  "blocked",
+]);
 
 const loopState = Schema.Literals(LOOP_STATES);
 
@@ -74,7 +81,9 @@ export type TicketGraphDto = typeof ticketGraphDto.Type;
  * fail on a graph that cannot be topologically sorted, which should never
  * happen for a well-formed backlog but must be handled explicitly).
  */
-export const serializeTicketGraph = (graph: TicketGraph): Effect.Effect<TicketGraphDto, TicketGraphError> =>
+export const serializeTicketGraph = (
+  graph: TicketGraph
+): Effect.Effect<TicketGraphDto, TicketGraphError> =>
   Effect.gen(function* effectBody() {
     const batches = yield* sequenceTicketBatchesEffect(graph);
 
@@ -85,7 +94,7 @@ export const serializeTicketGraph = (graph: TicketGraph): Effect.Effect<TicketGr
         ...(task.priority === undefined ? {} : { priority: task.priority }),
         status: task.status,
         title: task.title,
-      }),
+      })
     );
 
     const edges: TicketGraphDtoEdge[] = graphEdgeIds(graph.dependencyGraph);

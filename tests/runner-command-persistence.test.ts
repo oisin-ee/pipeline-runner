@@ -8,12 +8,18 @@ import { buildNextNodeEnvelope } from "../src/run-control/next-node";
 import { fileRunControlStore } from "../src/run-control/run-control-store";
 import type { RunControlStore } from "../src/run-control/run-control-store";
 import { runRunnerCommand } from "../src/runner-command/run";
-import type { PipelineRuntimeEvent, RuntimeNodeResult } from "../src/runtime/contracts";
+import type {
+  PipelineRuntimeEvent,
+  RuntimeNodeResult,
+} from "../src/runtime/contracts";
 import { inMemoryDurableRunStore } from "../src/runtime/durable-store/durable-store";
 import type { WorkflowScheduleNode } from "../src/runtime/scheduler";
-import { cleanupRunnerCommandFixtures, writeRunnerCommandFixture } from "./runner-command-fixture";
+import {
+  cleanupRunnerCommandFixtures,
+  writeRunnerCommandFixture,
+} from "./runner-command-fixture";
 
-const RESOLVED_VOID: void = undefined;
+const RESOLVED_VALUE = undefined;
 
 interface RunnerPersistenceMocks {
   commitAndPushNodeRef: ReturnType<typeof vi.fn>;
@@ -45,7 +51,8 @@ const installMockState = (): RunnerPersistenceMocks => {
 };
 
 vi.mock("../src/pipeline-runtime", () => ({
-  runScheduledWorkflowTask: (...args: unknown[]) => mockState().runScheduledWorkflowTask(...args),
+  runScheduledWorkflowTask: (...args: unknown[]) =>
+    mockState().runScheduledWorkflowTask(...args),
 }));
 
 vi.mock("execa", () => ({
@@ -57,9 +64,12 @@ vi.mock("../src/credentials/runner", () => ({
 }));
 
 vi.mock("../src/run-state/git-refs", () => ({
-  commitAndPushNodeRef: (...args: unknown[]) => mockState().commitAndPushNodeRef(...args),
-  mergeDependencyRefs: (...args: unknown[]) => mockState().mergeDependencyRefs(...args),
-  prepareRunnerGitWorkspace: (...args: unknown[]) => mockState().prepareRunnerGitWorkspace(...args),
+  commitAndPushNodeRef: (...args: unknown[]) =>
+    mockState().commitAndPushNodeRef(...args),
+  mergeDependencyRefs: (...args: unknown[]) =>
+    mockState().mergeDependencyRefs(...args),
+  prepareRunnerGitWorkspace: (...args: unknown[]) =>
+    mockState().prepareRunnerGitWorkspace(...args),
 }));
 
 afterEach(() => {
@@ -85,7 +95,11 @@ const PASSED_RESULT: RuntimeNodeResult = {
 // events the real executor emits (via emitNodeStart/emitNodeFinish) so the
 // run-control projection sees the terminal status, then return the result.
 const executeEmittingResult =
-  (result: RuntimeNodeResult) => (options: { nodeId: string; reporter?: (event: PipelineRuntimeEvent) => void }) => {
+  (result: RuntimeNodeResult) =>
+  (options: {
+    nodeId: string;
+    reporter?: (event: PipelineRuntimeEvent) => void;
+  }) => {
     options.reporter?.({
       attempt: 1,
       nodeId: options.nodeId,
@@ -109,7 +123,10 @@ const captureOutput = (): {
   return {
     stream: {
       write: (chunk) => {
-        value += typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf-8");
+        value +=
+          typeof chunk === "string"
+            ? chunk
+            : Buffer.from(chunk).toString("utf-8");
         return true;
       },
     },
@@ -128,12 +145,17 @@ interface PersistedRunnerArrangement {
 // terminal result; git workspace + ref ops resolve). The single owner of this
 // boilerplate so each test only states what it asserts, not how the runner is
 // wired.
-const arrangeRunnerMocks = (dir: string, result: RuntimeNodeResult = PASSED_RESULT): RunnerPersistenceMocks => {
+const arrangeRunnerMocks = (
+  dir: string,
+  result: RuntimeNodeResult = PASSED_RESULT
+): RunnerPersistenceMocks => {
   const mocks = installMockState();
-  mocks.runScheduledWorkflowTask.mockImplementation(executeEmittingResult(result));
+  mocks.runScheduledWorkflowTask.mockImplementation(
+    executeEmittingResult(result)
+  );
   mocks.prepareRunnerGitWorkspace.mockResolvedValue(dir);
-  mocks.mergeDependencyRefs.mockResolvedValue(RESOLVED_VOID);
-  mocks.commitAndPushNodeRef.mockResolvedValue(RESOLVED_VOID);
+  mocks.mergeDependencyRefs.mockResolvedValue(RESOLVED_VALUE);
+  mocks.commitAndPushNodeRef.mockResolvedValue(RESOLVED_VALUE);
   return mocks;
 };
 
@@ -168,23 +190,31 @@ const arrangePersistedRunner = (options: {
 
 const runPersistedRunner = async (
   arrangement: PersistedRunnerArrangement,
-  overrides: { forceRerunNodeIds?: string[] } = {},
+  overrides: { forceRerunNodeIds?: string[] } = {}
 ): Promise<number> => {
   const { durableStore, fixture, runControlStore } = arrangement;
   return await runRunnerCommand({
     cwd: fixture.dir,
-    fetch: async () => await Promise.resolve(new Response(null, { status: 202 })),
+    fetch: async () =>
+      await Promise.resolve(new Response(null, { status: 202 })),
     payloadFile: fixture.payloadPath,
-    resolvePersistence: () => Effect.succeed(Option.some({ durableStore, runControlStore })),
+    resolvePersistence: () =>
+      Effect.succeed(Option.some({ durableStore, runControlStore })),
     scheduleFile: fixture.schedulePath,
-    stderr: { write: () => true },
-    stdout: { write: () => true },
+    stderr: { write: () => {} },
+    stdout: { write: () => {} },
     taskDescriptorFile: fixture.descriptorPath,
-    ...(overrides.forceRerunNodeIds ? { forceRerunNodeIds: overrides.forceRerunNodeIds } : {}),
+    ...(overrides.forceRerunNodeIds
+      ? { forceRerunNodeIds: overrides.forceRerunNodeIds }
+      : {}),
   });
 };
 
-const createRun = async (store: RunControlStore, runId: string, nodeIds: string[]): Promise<unknown> => {
+const createRun = async (
+  store: RunControlStore,
+  runId: string,
+  nodeIds: string[]
+): Promise<unknown> => {
   const fixture = writeRunnerCommandFixture({
     runId,
     tempPrefix: "runner-command-schedule-source-",
@@ -197,7 +227,7 @@ const createRun = async (store: RunControlStore, runId: string, nodeIds: string[
       runId,
       schedule: readFileSync(fixture.schedulePath, "utf-8"),
       target: "remote",
-    }),
+    })
   );
 };
 
@@ -212,7 +242,10 @@ describe("runner-command durable persistence (PIPE-94.6)", () => {
     const exitCode = await runPersistedRunner(arrangement);
 
     expect(exitCode).toBe(0);
-    expect(Option.getOrThrow(arrangement.durableStore.get("run-persist", "command")).result).toEqual(PASSED_RESULT);
+    expect(
+      Option.getOrThrow(arrangement.durableStore.get("run-persist", "command"))
+        .result
+    ).toEqual(PASSED_RESULT);
   });
 
   it("AC2: run-control node status reflects pass and the durable record advances next node to B", async () => {
@@ -220,12 +253,17 @@ describe("runner-command durable persistence (PIPE-94.6)", () => {
       runId: "run-advance",
       tempPrefix: "runner-command-advance-",
     });
-    await createRun(arrangement.runControlStore, "run-advance", ["command", "b"]);
+    await createRun(arrangement.runControlStore, "run-advance", [
+      "command",
+      "b",
+    ]);
 
     const exitCode = await runPersistedRunner(arrangement);
 
     expect(exitCode).toBe(0);
-    const manifest = await Effect.runPromise(arrangement.runControlStore.readRun({ runId: "run-advance" }));
+    const manifest = await Effect.runPromise(
+      arrangement.runControlStore.readRun({ runId: "run-advance" })
+    );
     expect(manifest?.nodes.command).toBe("passed");
 
     // A two-node graph A(command) -> B: now A is recorded as passed, the shared
@@ -242,7 +280,9 @@ describe("runner-command durable persistence (PIPE-94.6)", () => {
       store: arrangement.durableStore,
     });
     expect(envelope?.nodeId).toBe("b");
-    expect(envelope?.upstreamOutputs).toEqual([{ nodeId: "command", output: "node A output" }]);
+    expect(envelope?.upstreamOutputs).toEqual([
+      { nodeId: "command", output: "node A output" },
+    ]);
   });
 
   it("reads the schedule from DB and node id from the Argo item parameter", async () => {
@@ -250,11 +290,14 @@ describe("runner-command durable persistence (PIPE-94.6)", () => {
       runId: "run-db-schedule",
       tempPrefix: "runner-command-db-schedule-",
     });
-    await createRun(arrangement.runControlStore, "run-db-schedule", ["command"]);
+    await createRun(arrangement.runControlStore, "run-db-schedule", [
+      "command",
+    ]);
 
     const exitCode = await runRunnerCommand({
       cwd: arrangement.fixture.dir,
-      fetch: async () => await Promise.resolve(new Response(null, { status: 202 })),
+      fetch: async () =>
+        await Promise.resolve(new Response(null, { status: 202 })),
       nodeId: "command",
       payloadFile: arrangement.fixture.payloadPath,
       resolvePersistence: () =>
@@ -262,15 +305,19 @@ describe("runner-command durable persistence (PIPE-94.6)", () => {
           Option.some({
             durableStore: arrangement.durableStore,
             runControlStore: arrangement.runControlStore,
-          }),
+          })
         ),
       scheduleSource: "db",
-      stderr: { write: () => true },
-      stdout: { write: () => true },
+      stderr: { write: () => {} },
+      stdout: { write: () => {} },
     });
 
     expect(exitCode).toBe(0);
-    expect(Option.getOrThrow(arrangement.durableStore.get("run-db-schedule", "command")).result).toEqual(PASSED_RESULT);
+    expect(
+      Option.getOrThrow(
+        arrangement.durableStore.get("run-db-schedule", "command")
+      ).result
+    ).toEqual(PASSED_RESULT);
     expect(arrangement.mocks.runScheduledWorkflowTask).toHaveBeenCalledTimes(1);
   });
 
@@ -322,11 +369,12 @@ describe("runner-command durable persistence (PIPE-94.6)", () => {
     try {
       exitCode = await runRunnerCommand({
         cwd: fixture.dir,
-        fetch: async () => await Promise.resolve(new Response(null, { status: 202 })),
+        fetch: async () =>
+          await Promise.resolve(new Response(null, { status: 202 })),
         payloadFile: fixture.payloadPath,
         // No resolvePersistence override — exercises the real db.url guard.
         scheduleFile: fixture.schedulePath,
-        stderr: { write: () => true },
+        stderr: { write: () => {} },
         stdout: stdout.stream,
         taskDescriptorFile: fixture.descriptorPath,
       });

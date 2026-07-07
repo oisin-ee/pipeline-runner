@@ -10,14 +10,23 @@ const shellArg = (value: string): string => {
   return `'${value.replaceAll("'", `'"'"'`)}'`;
 };
 
-const renderCommand = (args: readonly string[]): string => args.map(shellArg).join(" ");
+const renderCommand = (args: readonly string[]): string =>
+  args.map(shellArg).join(" ");
 
-const renderCreateCommand = (task: TicketPlanEpic | TicketPlanTask, parentKey?: string): string =>
-  renderCommand(["backlog", ...ticketCreateArgs(task, { parentId: parentKey })]);
+const renderCreateCommand = (
+  task: TicketPlanEpic | TicketPlanTask,
+  parentKey?: string
+): string =>
+  renderCommand([
+    "backlog",
+    ...ticketCreateArgs(task, { parentId: parentKey }),
+  ]);
 
 export const renderTicketPlanDryRun = (plan: TicketPlan): string =>
   [
     "# Dry run: no Backlog files were written.",
     ...(plan.epic ? [renderCreateCommand(plan.epic)] : []),
-    ...plan.tickets.map((ticket) => renderCreateCommand(ticket, plan.epic?.key)),
+    ...plan.tickets.map((ticket) =>
+      renderCreateCommand(ticket, plan.epic?.key)
+    ),
   ].join("\n");

@@ -9,19 +9,26 @@ export interface ContinuationPromptInput {
   state: PipelineGoalState;
 }
 
-export const exactNextRequirement = (state: PipelineGoalState): string => goalStateNextRequirement(state);
+export const exactNextRequirement = (state: PipelineGoalState): string =>
+  goalStateNextRequirement(state);
 
 const currentScheduleNode = (
   state: PipelineGoalState,
-  requestedNodeId?: string,
+  requestedNodeId?: string
 ): Option.Option<PipelineGoalState["nodes"][string]> => {
-  if (requestedNodeId !== undefined && requestedNodeId.length > 0 && requestedNodeId in state.nodes) {
+  if (
+    requestedNodeId !== undefined &&
+    requestedNodeId.length > 0 &&
+    requestedNodeId in state.nodes
+  ) {
     return Option.some(state.nodes[requestedNodeId]);
   }
   const failedNode = Object.values(state.nodes)
     .toReversed()
     .find((node) => node.status === "failed");
-  return Option.fromUndefinedOr(failedNode ?? Object.values(state.nodes).at(-1));
+  return Option.fromUndefinedOr(
+    failedNode ?? Object.values(state.nodes).at(-1)
+  );
 };
 
 const optionalLine = (label: string, value?: string): string =>
@@ -35,7 +42,9 @@ const scheduleLines = (state: PipelineGoalState): string[] =>
     optionalLine("schedule_path", state.schedule?.path),
   ].filter(Boolean);
 
-const nodeContextLines = (node: Option.Option<PipelineGoalState["nodes"][string]>): string[] =>
+const nodeContextLines = (
+  node: Option.Option<PipelineGoalState["nodes"][string]>
+): string[] =>
   Option.match(node, {
     onNone: () => ["- No schedule node has run yet."],
     onSome: (value) =>
@@ -45,15 +54,19 @@ const nodeContextLines = (node: Option.Option<PipelineGoalState["nodes"][string]
         `- attempts: ${value.attempts}`,
         optionalLine("profile", value.profile),
         optionalLine("runner", value.runnerId),
-        value.changedFiles.length > 0 ? `- node_changed_files: ${value.changedFiles.join(", ")}` : "",
+        value.changedFiles.length > 0
+          ? `- node_changed_files: ${value.changedFiles.join(", ")}`
+          : "",
         ...value.gates.map(
           (gate) =>
-            `- gate ${gate.gateId}: ${gate.passed ? "PASS" : "FAIL"}${gate.reason === undefined || gate.reason.length === 0 ? "" : ` (${gate.reason})`}`,
+            `- gate ${gate.gateId}: ${gate.passed ? "PASS" : "FAIL"}${gate.reason === undefined || gate.reason.length === 0 ? "" : ` (${gate.reason})`}`
         ),
       ].filter(Boolean),
   });
 
-const failedGateLines = (gates: PipelineGoalState["gateFailures"]): string[] => {
+const failedGateLines = (
+  gates: PipelineGoalState["gateFailures"]
+): string[] => {
   if (gates.length === 0) {
     return ["- No failed gates recorded."];
   }
@@ -99,7 +112,7 @@ const priorAttemptLines = (state: PipelineGoalState): string[] => {
   }
   return state.continuationAttempts.map(
     (attempt) =>
-      `- #${attempt.attempt}: ${attempt.reason}${attempt.promptPath === undefined || attempt.promptPath.length === 0 ? "" : ` (${attempt.promptPath})`}`,
+      `- #${attempt.attempt}: ${attempt.reason}${attempt.promptPath === undefined || attempt.promptPath.length === 0 ? "" : ` (${attempt.promptPath})`}`
   );
 };
 
@@ -142,7 +155,9 @@ const taskRefLines = (context: unknown): string[] => {
   ].filter(Boolean);
 };
 
-export const renderContinuationPrompt = (input: ContinuationPromptInput): string => {
+export const renderContinuationPrompt = (
+  input: ContinuationPromptInput
+): string => {
   const currentNode = currentScheduleNode(input.state, input.currentNodeId);
   const failedGates = input.state.gateFailures.filter((gate) => !gate.passed);
   return compactLines([

@@ -3,7 +3,10 @@ import { describe, expect, it } from "vitest";
 
 import { parsePipelineConfigParts } from "../src/config";
 import type { PipelineConfigParts } from "../src/config";
-import { gatewayServerForProfile, renderGatewayConfig } from "../src/mcp/gateway-config";
+import {
+  gatewayServerForProfile,
+  renderGatewayConfig,
+} from "../src/mcp/gateway-config";
 import {
   renderClaudeGatewayUserConfig,
   renderCodexGatewayConfig,
@@ -56,7 +59,10 @@ runners:
 const ENV: NodeJS.ProcessEnv = {
   PIPELINE_MCP_GATEWAY_URL: "https://gateway.example/mcp",
 };
-const CLAUDE_GATEWAY_AUTH_HEADER = ["$", "{PIPELINE_MCP_GATEWAY_AUTHORIZATION}"].join("");
+const CLAUDE_GATEWAY_AUTH_HEADER = [
+  "$",
+  "{PIPELINE_MCP_GATEWAY_AUTHORIZATION}",
+].join("");
 const gatewayHeaderConfigSchema = struct({
   Authorization: Schema.String,
 });
@@ -69,7 +75,7 @@ const openCodeGatewayConfigSchema = struct({
       oauth: Schema.Boolean,
       type: Schema.String,
       url: Schema.String,
-    }),
+    })
   ),
 });
 const claudeGatewayConfigSchema = struct({
@@ -79,21 +85,29 @@ const claudeGatewayConfigSchema = struct({
       headers: gatewayHeaderConfigSchema,
       type: Schema.String,
       url: Schema.String,
-    }),
+    })
   ),
 });
 
 const parseOpenCodeGatewayJson = (source: string) =>
-  parseWithSchema(openCodeGatewayConfigSchema, parseJson(source, "OpenCode gateway JSON"));
+  parseWithSchema(
+    openCodeGatewayConfigSchema,
+    parseJson(source, "OpenCode gateway JSON")
+  );
 
 const parseClaudeGatewayJson = (source: string) =>
-  parseWithSchema(claudeGatewayConfigSchema, parseJson(source, "Claude gateway JSON"));
+  parseWithSchema(
+    claudeGatewayConfigSchema,
+    parseJson(source, "Claude gateway JSON")
+  );
 
 describe("MCP gateway pure renderers", () => {
   it("renders host gateway configs without filesystem or process IO", () => {
     const config = parsePipelineConfigParts(PARTS);
 
-    const opencode = parseOpenCodeGatewayJson(renderOpenCodeGatewayConfig(config, ENV));
+    const opencode = parseOpenCodeGatewayJson(
+      renderOpenCodeGatewayConfig(config, ENV)
+    );
     expect(opencode.mcp["pipeline-gateway"]).toEqual({
       enabled: true,
       headers: {
@@ -104,7 +118,9 @@ describe("MCP gateway pure renderers", () => {
       url: "https://gateway.example/mcp",
     });
 
-    const claude = parseClaudeGatewayJson(renderClaudeGatewayUserConfig(config, ENV));
+    const claude = parseClaudeGatewayJson(
+      renderClaudeGatewayUserConfig(config, ENV)
+    );
     expect(claude.mcpServers["pipeline-gateway"]).toEqual({
       headers: {
         Authorization: CLAUDE_GATEWAY_AUTH_HEADER,
@@ -113,7 +129,9 @@ describe("MCP gateway pure renderers", () => {
       url: "https://gateway.example/mcp",
     });
 
-    expect(renderCodexGatewayConfig(config, ENV)).toContain('url = "https://gateway.example/mcp"');
+    expect(renderCodexGatewayConfig(config, ENV)).toContain(
+      'url = "https://gateway.example/mcp"'
+    );
   });
 
   it("renders profile gateway grants through the same config resolution", () => {
@@ -128,6 +146,8 @@ describe("MCP gateway pure renderers", () => {
         url: "https://gateway.example/mcp",
       },
     });
-    expect(renderGatewayConfig(config, ENV)).toContain("resolved_url: https://gateway.example/mcp");
+    expect(renderGatewayConfig(config, ENV)).toContain(
+      "resolved_url: https://gateway.example/mcp"
+    );
   });
 });

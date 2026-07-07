@@ -1,10 +1,29 @@
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from "node:fs";
+import {
+  existsSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join, relative, sep } from "node:path";
 
+import * as Arr from "effect/Array";
+import * as Schema from "effect/Schema";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { MokaNodeStatus, MokaRunStatus } from "../src/run-control/contracts";
+import type {
+  logEffect,
+  withRunControlStore,
+  workspaceRoot as readWorkspaceRoot,
+} from "../src/run-control/command-context";
+import type {
+  MokaNodeStatus,
+  MokaRunStatus,
+} from "../src/run-control/contracts";
+import { parseJson } from "../src/safe-json";
+import { isStringValue, isUnknownRecord } from "../src/schema-boundary";
 import {
   createRun,
   readRun,
@@ -15,27 +34,49 @@ import {
 import { restoreEnv, runMokaCliInTarget } from "./run-control-test-helpers";
 import type { CliCapture } from "./run-control-test-helpers";
 
-const runtimeState = vi.hoisted(() => ({
-  runtimeCalls: [] as unknown[],
+interface RuntimeState {
+  runtimeCalls: unknown[];
+}
+
+interface CommandContextModule {
+  readonly logEffect: typeof logEffect;
+  readonly withRunControlStore: typeof withRunControlStore;
+  readonly workspaceRoot: typeof readWorkspaceRoot;
+}
+
+const runtimeState = vi.hoisted<RuntimeState>(() => ({
+  runtimeCalls: [],
 }));
+
+class RuntimeWorkStartedError extends Schema.TaggedErrorClass<RuntimeWorkStartedError>()(
+  "RuntimeWorkStartedError",
+  { message: Schema.String }
+) {}
+
+const encodeUnknownJson = Schema.encodeSync(Schema.UnknownFromJsonString);
 
 vi.mock("../src/pipeline-runtime", () => ({
   runPipelineFromConfig: vi.fn((input: unknown) => {
     runtimeState.runtimeCalls.push(input);
-    throw new Error("run-control read commands must not start runtime work");
+    throw new RuntimeWorkStartedError({
+      message: "run-control read commands must not start runtime work",
+    });
   }),
 }));
 
 vi.mock("../src/run-control/command-context", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../src/run-control/command-context")>();
-  const { fileRunControlStore } = await import("../src/run-control/run-control-store");
+  const actual = await importOriginal<CommandContextModule>();
+  const { fileRunControlStore } =
+    await import("../src/run-control/run-control-store");
 
   return {
     ...actual,
-    withRunControlStore: vi.fn((use: Parameters<typeof actual.withRunControlStore>[0]) => {
-      const root = actual.workspaceRoot();
-      return use(fileRunControlStore(root), root);
-    }),
+    withRunControlStore: vi.fn(
+      (use: Parameters<typeof actual.withRunControlStore>[0]) => {
+        const root = actual.workspaceRoot();
+        return use(fileRunControlStore(root), root);
+      }
+    ),
   };
 });
 
@@ -47,19 +88,42 @@ const RUN_ID_TIMESTAMP_RE = /run-(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})/u;
 
 type FileSnapshot = Record<string, string>;
 
-const runMokaInTarget = async (workspaceRoot: string, args: string[]): Promise<CliCapture> => {
+const field = (value: unknown, key: string): unknown =>
+  isUnknownRecord(value) ? value[key] : undefined;
+
+const isVerificationArtifact = (value: unknown): boolean => {
+  if (!isUnknownRecord(value)) {
+    return false;
+  }
+  const { content, name, nodeId } = value;
+  return (
+    name === "verification.log" &&
+    nodeId === "writer" &&
+    isStringValue(content) &&
+    content.includes("node final evidence")
+  );
+};
+
+const runMokaInTarget = async (
+  workspaceRoot: string,
+  args: string[]
+): Promise<CliCapture> => {
   const buffers: { stderr: string[]; stdout: string[] } = {
     stderr: [],
     stdout: [],
   };
-  const stdoutWrite = vi.spyOn(process.stdout, "write").mockImplementation((chunk: string | Uint8Array) => {
-    buffers.stdout.push(String(chunk));
-    return true;
-  });
-  const stderrWrite = vi.spyOn(process.stderr, "write").mockImplementation((chunk: string | Uint8Array) => {
-    buffers.stderr.push(String(chunk));
-    return true;
-  });
+  const stdoutWrite = vi
+    .spyOn(process.stdout, "write")
+    .mockImplementation((chunk: string | Uint8Array) => {
+      buffers.stdout.push(String(chunk));
+      return true;
+    });
+  const stderrWrite = vi
+    .spyOn(process.stderr, "write")
+    .mockImplementation((chunk: string | Uint8Array) => {
+      buffers.stderr.push(String(chunk));
+      return true;
+    });
   try {
     return await runMokaCliInTarget({
       args,
@@ -74,7 +138,7 @@ const runMokaInTarget = async (workspaceRoot: string, args: string[]): Promise<C
 };
 
 const hashText = (value: string): number =>
-  Array.from(value).reduce((hash, char) => hash + (char.codePointAt(0) ?? 0), 0);
+  Arr.reduce(value, 0, (hash, char) => hash + (char.codePointAt(0) ?? 0));
 
 const eventTimeFor = (runId: string, salt: string): string => {
   const timestamp = RUN_ID_TIMESTAMP_RE.exec(runId);
@@ -93,7 +157,7 @@ const seedRun = async (
     nodeStatuses: Record<string, MokaNodeStatus>;
     runId: string;
     status: MokaRunStatus;
-  },
+  }
 ): Promise<void> => {
   const nodeIds = Object.keys(input.nodeStatuses);
   await createRun({
@@ -145,7 +209,10 @@ const snapshotFiles = (root: string, current: string): FileSnapshot => {
       Object.assign(snapshot, snapshotFiles(root, fullPath));
       continue;
     }
-    snapshot[relative(root, fullPath).split(sep).join("/")] = readFileSync(fullPath, "utf-8");
+    snapshot[relative(root, fullPath).split(sep).join("/")] = readFileSync(
+      fullPath,
+      "utf-8"
+    );
   }
   return snapshot;
 };
@@ -200,7 +267,9 @@ describe("moka run-control CLI commands", () => {
     expect(capture.stdout).toContain("run-20260617100100");
     expect(capture.stdout).toContain("running");
     expect(capture.stdout).toContain("passed");
-    expect(capture.stdout.indexOf("run-20260617101500")).toBeLessThan(capture.stdout.indexOf("run-20260617100100"));
+    expect(capture.stdout.indexOf("run-20260617101500")).toBeLessThan(
+      capture.stdout.indexOf("run-20260617100100")
+    );
   });
 
   it("status with no run id targets the latest active run", async () => {
@@ -240,7 +309,11 @@ describe("moka run-control CLI commands", () => {
 
     const before = snapshotRunState(workspaceRoot);
     const capture = await runMokaInTarget(workspaceRoot, ["status"]);
-    const reported = [capture.stdout, capture.stderr, String(capture.thrown)].join("\n");
+    const reported = [
+      capture.stdout,
+      capture.stderr,
+      String(capture.thrown),
+    ].join("\n");
 
     expect(snapshotRunState(workspaceRoot)).toEqual(before);
     expect(runtimeState.runtimeCalls).toEqual([]);
@@ -257,26 +330,24 @@ describe("moka run-control CLI commands", () => {
     });
 
     const before = snapshotRunState(workspaceRoot);
-    const capture = await runMokaInTarget(workspaceRoot, ["status", "run-20260617140000", "--json"]);
+    const capture = await runMokaInTarget(workspaceRoot, [
+      "status",
+      "run-20260617140000",
+      "--json",
+    ]);
 
     expect(capture.thrown).toBeUndefined();
     expect(runtimeState.runtimeCalls).toEqual([]);
     expect(snapshotRunState(workspaceRoot)).toEqual(before);
 
-    const status = JSON.parse(capture.stdout) as {
-      active: boolean;
-      events: unknown[];
-      nodes: Record<string, string>;
-      runId: string;
-      status: string;
-    };
+    const status = parseJson(capture.stdout, "status output");
     expect(status).toMatchObject({
       active: true,
       nodes: { planner: "passed", writer: "running" },
       runId: "run-20260617140000",
       status: "running",
     });
-    expect(Array.isArray(status.events)).toBe(true);
+    expect(Array.isArray(field(status, "events"))).toBe(true);
   });
 
   it("logs tails whole-run and node-specific artifacts without mutating run state", async () => {
@@ -291,8 +362,15 @@ describe("moka run-control CLI commands", () => {
     });
 
     const before = snapshotRunState(workspaceRoot);
-    const wholeRun = await runMokaInTarget(workspaceRoot, ["logs", "run-20260617150000"]);
-    const writerOnly = await runMokaInTarget(workspaceRoot, ["logs", "run-20260617150000", "writer"]);
+    const wholeRun = await runMokaInTarget(workspaceRoot, [
+      "logs",
+      "run-20260617150000",
+    ]);
+    const writerOnly = await runMokaInTarget(workspaceRoot, [
+      "logs",
+      "run-20260617150000",
+      "writer",
+    ]);
 
     expect(wholeRun.thrown).toBeUndefined();
     expect(writerOnly.thrown).toBeUndefined();
@@ -311,7 +389,11 @@ describe("moka run-control CLI commands", () => {
       status: "running",
     });
 
-    const capture = await runMokaInTarget(workspaceRoot, ["stop", "run-20260617160000", "writer"]);
+    const capture = await runMokaInTarget(workspaceRoot, [
+      "stop",
+      "run-20260617160000",
+      "writer",
+    ]);
 
     expect(capture.thrown).toBeUndefined();
     expect(capture.stdout).toContain("run-20260617160000");
@@ -333,7 +415,9 @@ describe("moka run-control CLI commands", () => {
       artifacts: {
         writer: {
           "prompt.txt": `user prompt ${PROMPT_SESSION_SECRET}\n`,
-          "session-body.json": JSON.stringify({ body: PROMPT_SESSION_SECRET }),
+          "session-body.json": encodeUnknownJson({
+            body: PROMPT_SESSION_SECRET,
+          }),
           "verification.log": "node final evidence\n",
         },
       },
@@ -343,31 +427,27 @@ describe("moka run-control CLI commands", () => {
     });
 
     const before = snapshotRunState(workspaceRoot);
-    const capture = await runMokaInTarget(workspaceRoot, ["export", "run-20260617170000", "--sanitize"]);
+    const capture = await runMokaInTarget(workspaceRoot, [
+      "export",
+      "run-20260617170000",
+      "--sanitize",
+    ]);
 
     expect(capture.thrown).toBeUndefined();
     expect(runtimeState.runtimeCalls).toEqual([]);
     expect(snapshotRunState(workspaceRoot)).toEqual(before);
 
-    const bundle = JSON.parse(capture.stdout) as {
-      artifacts: { content?: string; name: string; nodeId: string }[];
-      run: { runId: string; status: string };
-      version: number;
-    };
+    const bundle = parseJson(capture.stdout, "export bundle");
     expect(bundle).toMatchObject({
       run: { runId: "run-20260617170000", status: "passed" },
       version: 1,
     });
-    expect(bundle.artifacts).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          content: expect.stringContaining("node final evidence"),
-          name: "verification.log",
-          nodeId: "writer",
-        }),
-      ]),
-    );
-    expect(JSON.stringify(bundle)).not.toContain(PROMPT_SESSION_SECRET);
+    const artifacts = field(bundle, "artifacts");
+    expect(Array.isArray(artifacts)).toBe(true);
+    expect(
+      Array.isArray(artifacts) && artifacts.some(isVerificationArtifact)
+    ).toBe(true);
+    expect(capture.stdout).not.toContain(PROMPT_SESSION_SECRET);
   });
 
   it("read commands do not start runtime work or mutate run state", async () => {
@@ -381,13 +461,27 @@ describe("moka run-control CLI commands", () => {
     });
 
     const before = snapshotRunState(workspaceRoot);
-    const captures: CliCapture[] = [];
-    captures.push(await runMokaInTarget(workspaceRoot, ["runs"]));
-    captures.push(await runMokaInTarget(workspaceRoot, ["status", "run-20260617180000"]));
-    captures.push(await runMokaInTarget(workspaceRoot, ["logs", "run-20260617180000", "writer"]));
-    captures.push(await runMokaInTarget(workspaceRoot, ["export", "run-20260617180000", "--sanitize"]));
+    const captures: CliCapture[] = [
+      await runMokaInTarget(workspaceRoot, ["runs"]),
+      await runMokaInTarget(workspaceRoot, ["status", "run-20260617180000"]),
+      await runMokaInTarget(workspaceRoot, [
+        "logs",
+        "run-20260617180000",
+        "writer",
+      ]),
+      await runMokaInTarget(workspaceRoot, [
+        "export",
+        "run-20260617180000",
+        "--sanitize",
+      ]),
+    ];
 
-    expect(captures.map((capture) => capture.thrown)).toEqual([undefined, undefined, undefined, undefined]);
+    expect(captures.map((capture) => capture.thrown)).toEqual([
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+    ]);
     expect(runtimeState.runtimeCalls).toEqual([]);
     expect(snapshotRunState(workspaceRoot)).toEqual(before);
   });

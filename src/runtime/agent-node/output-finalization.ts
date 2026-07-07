@@ -1,13 +1,24 @@
-import { Effect, Option } from "effect";
+import { Effect, Option, pipe } from "effect";
 
 import type { PipelineConfig } from "../../config";
 import type { PlannedWorkflowNode } from "../../planning/compile";
 import type { AgentResult, RunnerLaunchPlan } from "../../runner";
 import { createRunnerLaunchPlan } from "../../runner";
-import { normalizeRunnerOutput, runnerTextCandidates } from "../../runner-output";
-import type { JsonSchemaValidationResult, OutputRepairContext, RuntimeContext } from "../contracts";
+import {
+  normalizeRunnerOutput,
+  runnerTextCandidates,
+} from "../../runner-output";
+import type {
+  JsonSchemaValidationResult,
+  OutputRepairContext,
+  RuntimeContext,
+} from "../contracts";
 import { emit, emitAgentFinish, emitAgentStart } from "../events";
-import { normalizeJsonSource, readJsonSchemaSource, validateJsonSchemaSource } from "../json-validation";
+import {
+  normalizeJsonSource,
+  readJsonSchemaSource,
+  validateJsonSchemaSource,
+} from "../json-validation";
 import { AgentNodeRuntimeService } from "../services/agent-node-runtime-service";
 
 type AgentProfile = PipelineConfig["profiles"][string];
@@ -38,10 +49,17 @@ const firstValidStructuredCandidate = (inputs: {
 }): Option.Option<{ evidence: string[]; output: string }> => {
   for (const candidate of inputs.candidates) {
     const candidateOutput = normalizeJsonSource(candidate.output);
-    const validation = validateJsonSchemaSource(candidateOutput, inputs.schemaPath, inputs.context.worktreePath);
+    const validation = validateJsonSchemaSource(
+      candidateOutput,
+      inputs.schemaPath,
+      inputs.context.worktreePath
+    );
     if (validation.passed) {
       return Option.some({
-        evidence: [candidate.evidence, `selected valid structured output for ${inputs.node.id}`],
+        evidence: [
+          candidate.evidence,
+          `selected valid structured output for ${inputs.node.id}`,
+        ],
         output: candidateOutput,
       });
     }
@@ -52,7 +70,7 @@ const firstValidStructuredCandidate = (inputs: {
 const structuredOutputCandidates = (
   plan: RunnerLaunchPlan,
   stdout: string,
-  normalized: { evidence: string[]; output: string },
+  normalized: { evidence: string[]; output: string }
 ): { evidence: string; output: string }[] => {
   const candidates = runnerTextCandidates(plan, stdout);
   if (candidates.length > 0) {
@@ -66,62 +84,96 @@ const structuredOutputCandidates = (
   ];
 };
 
-const successfulAgentResult = (result: AgentResult): boolean => result.exitCode === 0 && result.timedOut !== true;
+const successfulAgentResult = (result: AgentResult): boolean =>
+  result.exitCode === 0 && result.timedOut !== true;
 
-const nodeProfile = (context: RuntimeContext, node: PlannedWorkflowNode): Option.Option<AgentProfile> => {
+const nodeProfile = (
+  context: RuntimeContext,
+  node: PlannedWorkflowNode
+): Option.Option<AgentProfile> => {
   if (node.profile === undefined || node.profile.length === 0) {
     return Option.none();
   }
   return Option.fromUndefinedOr(context.config.profiles[node.profile]);
 };
 
-const jsonSchemaOutputConfig = (output: Option.Option<OutputConfig>): Option.Option<JsonSchemaOutputConfig> =>
-  Option.flatMap(output, (value) => {
-    if (value.format !== "json_schema") {
-      return Option.none();
-    }
-    const schemaPath = value.schema_path;
-    if (schemaPath === undefined || schemaPath.length === 0) {
-      return Option.none();
-    }
-    return Option.some({
-      ...value,
-      format: "json_schema",
-      schema_path: schemaPath,
-    });
-  });
+const jsonSchemaOutputConfig = (
+  output: Option.Option<OutputConfig>
+): Option.Option<JsonSchemaOutputConfig> =>
+  pipe(
+    output,
+    Option.flatMap((value) => {
+      if (value.format !== "json_schema") {
+        return Option.none();
+      }
+      const schemaPath = value.schema_path;
+      if (schemaPath === undefined || schemaPath.length === 0) {
+        return Option.none();
+      }
+      return Option.some({
+        ...value,
+        format: "json_schema",
+        schema_path: schemaPath,
+      });
+    })
+  );
 
-const jsonSchemaOutput = (profile: Option.Option<AgentProfile>): Option.Option<JsonSchemaOutputConfig> =>
-  Option.flatMap(profile, (value) => jsonSchemaOutputConfig(Option.fromUndefinedOr(value.output)));
+const jsonSchemaOutput = (
+  profile: Option.Option<AgentProfile>
+): Option.Option<JsonSchemaOutputConfig> =>
+  pipe(
+    profile,
+    Option.flatMap((value) =>
+      jsonSchemaOutputConfig(Option.fromUndefinedOr(value.output))
+    )
+  );
 
-const nodeSchemaOutput = (context: RuntimeContext, node: PlannedWorkflowNode): Option.Option<NodeSchemaOutput> => {
+const nodeSchemaOutput = (
+  context: RuntimeContext,
+  node: PlannedWorkflowNode
+): Option.Option<NodeSchemaOutput> => {
   const profile = nodeProfile(context, node);
-  return Option.flatMap(profile, (value) =>
-    Option.map(jsonSchemaOutput(profile), (output) => ({
-      output,
-      profile: value,
-      schemaPath: output.schema_path,
-    })),
+  return pipe(
+    profile,
+    Option.flatMap((value) =>
+      pipe(
+        jsonSchemaOutput(Option.some(value)),
+        Option.map((output) => ({
+          output,
+          profile: value,
+          schemaPath: output.schema_path,
+        }))
+      )
+    )
   );
 };
 
-const nodeOutputSchemaPath = (context: RuntimeContext, node: PlannedWorkflowNode): Option.Option<string> =>
-  Option.map(nodeSchemaOutput(context, node), (output) => output.schemaPath);
+const nodeOutputSchemaPath = (
+  context: RuntimeContext,
+  node: PlannedWorkflowNode
+): Option.Option<string> =>
+  pipe(
+    nodeSchemaOutput(context, node),
+    Option.map((output) => output.schemaPath)
+  );
 
 const selectValidStructuredOutput = (
   context: RuntimeContext,
   node: PlannedWorkflowNode,
   normalized: { evidence: string[]; output: string },
   plan: RunnerLaunchPlan,
-  stdout: string,
+  stdout: string
 ): Option.Option<{ evidence: string[]; output: string }> =>
-  Option.flatMap(nodeOutputSchemaPath(context, node), (schemaPath) =>
-    firstValidStructuredCandidate({
-      candidates: structuredOutputCandidates(plan, stdout, normalized),
-      context,
-      node,
-      schemaPath,
-    }),
+  pipe(
+    nodeOutputSchemaPath(context, node),
+    Option.flatMap((schemaPath) =>
+      firstValidStructuredCandidate({
+        candidates: structuredOutputCandidates(plan, stdout, normalized),
+        context,
+        node,
+        schemaPath,
+      })
+    )
   );
 
 const repairEvidence = (
@@ -129,7 +181,7 @@ const repairEvidence = (
   validation: JsonSchemaValidationResult,
   nodeId: string,
   attempt: number,
-  passed: boolean,
+  passed: boolean
 ): string[] => [
   ...repairedEvidence,
   passed
@@ -143,7 +195,7 @@ const emitRepairEvent = (
   nodeId: string,
   attempt: number,
   passed: boolean,
-  validation: JsonSchemaValidationResult,
+  validation: JsonSchemaValidationResult
 ): void => {
   emit(context, {
     attempt,
@@ -159,8 +211,13 @@ const defaultRepairOptions = (): RepairOptions => ({
   maxAttempts: 1,
 });
 
-const withRepairRunner = (options: Omit<RepairOptions, "runner">, runner?: string): RepairOptions =>
-  runner === undefined || runner.length === 0 ? options : { ...options, runner };
+const withRepairRunner = (
+  options: Omit<RepairOptions, "runner">,
+  runner?: string
+): RepairOptions =>
+  runner === undefined || runner.length === 0
+    ? options
+    : { ...options, runner };
 
 const configuredRepairOptions = (repair: OutputRepairConfig): RepairOptions => {
   const options = {
@@ -171,7 +228,9 @@ const configuredRepairOptions = (repair: OutputRepairConfig): RepairOptions => {
 };
 
 const outputRepairOptions = (output: JsonSchemaOutputConfig): RepairOptions =>
-  output.repair === undefined ? defaultRepairOptions() : configuredRepairOptions(output.repair);
+  output.repair === undefined
+    ? defaultRepairOptions()
+    : configuredRepairOptions(output.repair);
 
 const failedRepairableOutputContext = (inputs: {
   context: RuntimeContext;
@@ -181,7 +240,11 @@ const failedRepairableOutputContext = (inputs: {
   profile: AgentProfile;
   schemaPath: string;
 }): Option.Option<OutputRepairContext> => {
-  const validation = validateJsonSchemaSource(inputs.normalized.output, inputs.schemaPath, inputs.context.worktreePath);
+  const validation = validateJsonSchemaSource(
+    inputs.normalized.output,
+    inputs.schemaPath,
+    inputs.context.worktreePath
+  );
   const repair = outputRepairOptions(inputs.output);
   if (validation.passed || !repair.enabled) {
     return Option.none();
@@ -203,23 +266,30 @@ const outputRepairContext = (
   context: RuntimeContext,
   node: PlannedWorkflowNode,
   normalized: { evidence: string[]; output: string },
-  result: AgentResult,
+  result: AgentResult
 ): Option.Option<OutputRepairContext> => {
   if (!successfulAgentResult(result)) {
     return Option.none();
   }
   const schemaOutput = nodeSchemaOutput(context, node);
-  return Option.flatMap(schemaOutput, (output) =>
-    failedRepairableOutputContext({
-      context,
-      node,
-      normalized,
-      ...output,
-    }),
+  return pipe(
+    schemaOutput,
+    Option.flatMap((output) =>
+      failedRepairableOutputContext({
+        context,
+        node,
+        normalized,
+        ...output,
+      })
+    )
   );
 };
 
-const outputRepairPrompt = (schema: string, validation: JsonSchemaValidationResult, originalOutput: string): string =>
+const outputRepairPrompt = (
+  schema: string,
+  validation: JsonSchemaValidationResult,
+  originalOutput: string
+): string =>
   [
     "You are an output finalizer for a pipeline agent.",
     "Return only valid JSON matching the expected schema.",
@@ -244,7 +314,14 @@ const createOutputRepairPlan = (inputs: {
   schemaPath: string;
   validation: JsonSchemaValidationResult;
 }): RunnerLaunchPlan => {
-  const { context, node, originalOutput, repairRunner, schemaPath, validation } = inputs;
+  const {
+    context,
+    node,
+    originalOutput,
+    repairRunner,
+    schemaPath,
+    validation,
+  } = inputs;
   const schema = readJsonSchemaSource(schemaPath, context.worktreePath);
   const repairProfileId = `${node.id}:output-repair`;
   const repairConfig: PipelineConfig = {
@@ -269,21 +346,28 @@ const createOutputRepairPlan = (inputs: {
   });
 };
 
-export const normalizeAgentOutput = (plan: RunnerLaunchPlan, stdout: string): { evidence: string[]; output: string } =>
+export const normalizeAgentOutput = (
+  plan: RunnerLaunchPlan,
+  stdout: string
+): { evidence: string[]; output: string } =>
   normalizeRunnerOutput(plan, stdout);
 
 const repairedOutputState = (
   repairPlan: RunnerLaunchPlan,
   repairResult: AgentResult,
   schemaPath: string,
-  worktreePath: string,
+  worktreePath: string
 ): {
   latest: { evidence: string[]; output: string };
   latestValidation: JsonSchemaValidationResult;
 } => {
   const repaired = normalizeAgentOutput(repairPlan, repairResult.stdout);
   const repairedOutput = normalizeJsonSource(repaired.output);
-  const latestValidation = validateJsonSchemaSource(repairedOutput, schemaPath, worktreePath);
+  const latestValidation = validateJsonSchemaSource(
+    repairedOutput,
+    schemaPath,
+    worktreePath
+  );
   return {
     latest: {
       evidence: [
@@ -329,22 +413,43 @@ const runSingleRepairAttempt = (inputs: {
     });
     inputs.context.agentInvocations.push(repairPlan);
     emitAgentStart(inputs.context, repairPlan, inputs.nodeAttempt);
-    const repairResult = yield* service.executeRunner(inputs.context.executor, repairPlan, {
-      signal: inputs.context.signal,
-    });
-    emitAgentFinish(inputs.context, repairPlan, inputs.nodeAttempt, repairResult);
-    const latest = repairedOutputState(
+    const repairResult = yield* service.executeRunner(
+      inputs.context.executor,
+      repairPlan,
+      {
+        signal: inputs.context.signal,
+      }
+    );
+    emitAgentFinish(
+      inputs.context,
+      repairPlan,
+      inputs.nodeAttempt,
+      repairResult
+    );
+    const { latest, latestValidation } = repairedOutputState(
       repairPlan,
       repairResult,
       inputs.repairContext.schemaPath,
-      inputs.context.worktreePath,
+      inputs.context.worktreePath
     );
-    const passed = repairResult.exitCode === 0 && latest.latestValidation.passed;
-    emitRepairEvent(inputs.context, inputs.node.id, inputs.attempt, passed, latest.latestValidation);
+    const passed = repairResult.exitCode === 0 && latestValidation.passed;
+    emitRepairEvent(
+      inputs.context,
+      inputs.node.id,
+      inputs.attempt,
+      passed,
+      latestValidation
+    );
     return {
-      evidence: repairEvidence(latest.latest.evidence, latest.latestValidation, inputs.node.id, inputs.attempt, passed),
-      latest: latest.latest,
-      latestValidation: latest.latestValidation,
+      evidence: repairEvidence(
+        latest.evidence,
+        latestValidation,
+        inputs.node.id,
+        inputs.attempt,
+        passed
+      ),
+      latest,
+      latestValidation,
       passed,
     };
   });
@@ -354,14 +459,23 @@ const runOutputRepairEffect = (
   node: PlannedWorkflowNode,
   normalized: { evidence: string[]; output: string },
   repairContext: OutputRepairContext,
-  nodeAttempt: number,
-): Effect.Effect<{ evidence: string[]; output: string }, unknown, AgentNodeRuntimeService> =>
+  nodeAttempt: number
+): Effect.Effect<
+  { evidence: string[]; output: string },
+  unknown,
+  AgentNodeRuntimeService
+> =>
   Effect.gen(function* effectBody() {
     let latest = normalized;
     let latestValidation = repairContext.validation;
     const evidence = [...repairContext.evidence];
     for (let attempt = 1; attempt <= repairContext.maxAttempts; attempt += 1) {
-      const repair = yield* runSingleRepairAttempt({
+      const {
+        evidence: repairEvidenceItems,
+        latest: repairedLatest,
+        latestValidation: repairedLatestValidation,
+        passed,
+      } = yield* runSingleRepairAttempt({
         attempt,
         context,
         latest,
@@ -370,11 +484,11 @@ const runOutputRepairEffect = (
         nodeAttempt,
         repairContext,
       });
-      latest = repair.latest;
-      latestValidation = repair.latestValidation;
-      evidence.push(...repair.evidence);
-      if (repair.passed) {
-        return { evidence, output: repair.latest.output };
+      latest = repairedLatest;
+      latestValidation = repairedLatestValidation;
+      evidence.push(...repairEvidenceItems);
+      if (passed) {
+        return { evidence, output: repairedLatest.output };
       }
     }
     return { evidence, output: latest.output };
@@ -387,19 +501,40 @@ export const finalizeAgentOutputEffect = (inputs: {
   normalized: { evidence: string[]; output: string };
   plan: RunnerLaunchPlan;
   result: AgentResult;
-}): Effect.Effect<{ evidence: string[]; output: string }, unknown, AgentNodeRuntimeService> =>
+}): Effect.Effect<
+  { evidence: string[]; output: string },
+  unknown,
+  AgentNodeRuntimeService
+> =>
   Effect.gen(function* effectBody() {
     const { attempt, context, node, normalized, plan, result } = inputs;
-    const validStructuredOutput = selectValidStructuredOutput(context, node, normalized, plan, result.stdout);
+    const validStructuredOutput = selectValidStructuredOutput(
+      context,
+      node,
+      normalized,
+      plan,
+      result.stdout
+    );
     const structuredOutput = Option.getOrUndefined(validStructuredOutput);
     if (structuredOutput !== undefined) {
       return structuredOutput;
     }
-    const repairContext = outputRepairContext(context, node, normalized, result);
+    const repairContext = outputRepairContext(
+      context,
+      node,
+      normalized,
+      result
+    );
     const repair = Option.getOrUndefined(repairContext);
     if (repair === undefined) {
       return normalized;
     }
 
-    return yield* runOutputRepairEffect(context, node, normalized, repair, attempt);
+    return yield* runOutputRepairEffect(
+      context,
+      node,
+      normalized,
+      repair,
+      attempt
+    );
   });

@@ -1,12 +1,19 @@
 import type { AssistantMessage, Event, Part } from "@opencode-ai/sdk/v2";
 import { Duration, Effect, Option } from "effect";
 
-import type { AgentResult, RunnerExecutionOptions, RunnerLaunchPlan } from "../runner";
+import type {
+  AgentResult,
+  RunnerExecutionOptions,
+  RunnerLaunchPlan,
+} from "../runner";
 import { isNumberValue, isRecord, isStringValue } from "../safe-json";
 import { raceDetached } from "./detached-race";
 import { EXIT_AGENT_ERROR, EXIT_INFRA, EXIT_OK } from "./exit-codes";
 import { opencodeAgentName } from "./opencode-agent-name";
-import { OpencodeSdkService, OpencodeSdkServiceLive } from "./services/opencode-sdk-service";
+import {
+  OpencodeSdkService,
+  OpencodeSdkServiceLive,
+} from "./services/opencode-sdk-service";
 import type {
   OpencodeAssistantResult,
   OpencodePromptPart,
@@ -59,8 +66,13 @@ interface SessionActivity {
   last: number;
 }
 
-const timeoutFailure = (milliseconds: number, message: string): Effect.Effect<never, Error> =>
-  Effect.sleep(Duration.millis(milliseconds)).pipe(Effect.andThen(Effect.fail(new Error(message))));
+const timeoutFailure = (
+  milliseconds: number,
+  message: string
+): Effect.Effect<never, Error> =>
+  Effect.sleep(Duration.millis(milliseconds)).pipe(
+    Effect.andThen(Effect.fail(new Error(message)))
+  );
 
 /*
  * Bound each attempt by a wall-clock budget (plan.timeoutMs, from
@@ -74,24 +86,36 @@ const timeoutFailure = (milliseconds: number, message: string): Effect.Effect<ne
  */
 const boundByAgentTimeout =
   (plan: RunnerLaunchPlan) =>
-  <A, R>(effect: Effect.Effect<A, unknown, R>): Effect.Effect<A, unknown, R> => {
+  <A, R>(
+    effect: Effect.Effect<A, unknown, R>
+  ): Effect.Effect<A, unknown, R> => {
     const { timeoutMs } = plan;
     if (timeoutMs === undefined || timeoutMs <= 0) {
       return effect;
     }
-    return raceDetached(effect, timeoutFailure(timeoutMs, `agent session timed out after ${timeoutMs}ms`));
+    return raceDetached(
+      effect,
+      timeoutFailure(timeoutMs, `agent session timed out after ${timeoutMs}ms`)
+    );
   };
 
-const validateOpencodePlan = (plan: RunnerLaunchPlan): Effect.Effect<void, Error> => {
+const validateOpencodePlan = (
+  plan: RunnerLaunchPlan
+): Effect.Effect<void, Error> => {
   if (plan.type === "opencode") {
     return Effect.void;
   }
-  return Effect.fail(new Error(`opencode executor cannot drive runner type '${plan.type}'`));
+  return Effect.fail(
+    new Error(`opencode executor cannot drive runner type '${plan.type}'`)
+  );
 };
 
 // PIPE-83.4: a worktree-isolated child carries its tree in plan.cwd; fall back
 // to the lease directory for normal nodes (where plan.cwd === deps.directory).
-const sessionDirectory = (deps: OpencodeExecutorDeps, plan: RunnerLaunchPlan): string => plan.cwd;
+const sessionDirectory = (
+  deps: OpencodeExecutorDeps,
+  plan: RunnerLaunchPlan
+): string => plan.cwd;
 
 /*
  * Release the stranded opencode session via the SDK's native session.abort so
@@ -101,7 +125,7 @@ const sessionDirectory = (deps: OpencodeExecutorDeps, plan: RunnerLaunchPlan): s
  */
 const abortBestEffort = (
   deps: OpencodeExecutorDeps,
-  plan: RunnerLaunchPlan,
+  plan: RunnerLaunchPlan
 ): Effect.Effect<void, never, OpencodeSdkService> => {
   const sessionId = deps.registry.sessions.get(plan.nodeId);
   if (sessionId === undefined) {
@@ -113,18 +137,14 @@ const abortBestEffort = (
       directory: sessionDirectory(deps, plan),
       sessionID: sessionId,
     });
-  }).pipe(
-    Effect.timeout(Duration.millis(5000)),
-    Effect.asVoid,
-    Effect.catch(() => Effect.void),
-  );
+  }).pipe(Effect.timeout(Duration.millis(5000)), Effect.asVoid, Effect.ignore);
 };
 
 const onIdleTimeout = (
   deps: OpencodeExecutorDeps,
   plan: RunnerLaunchPlan,
   options: RunnerExecutionOptions,
-  idleMs: number,
+  idleMs: number
 ): Effect.Effect<never, Error, OpencodeSdkService> =>
   Effect.sync(() => {
     options.onOutput?.({
@@ -134,7 +154,9 @@ const onIdleTimeout = (
     });
   }).pipe(
     Effect.andThen(abortBestEffort(deps, plan)),
-    Effect.andThen(Effect.fail(new Error(`agent session idle for ${idleMs}ms (no progress)`))),
+    Effect.andThen(
+      Effect.fail(new Error(`agent session idle for ${idleMs}ms (no progress)`))
+    )
   );
 
 const idleWatchdog = (
@@ -142,15 +164,19 @@ const idleWatchdog = (
   plan: RunnerLaunchPlan,
   options: RunnerExecutionOptions,
   activity: SessionActivity,
-  idleMs: number,
+  idleMs: number
 ): Effect.Effect<never, Error, OpencodeSdkService> => {
-  const loop: Effect.Effect<never, Error, OpencodeSdkService> = Effect.suspend(() => {
-    const remaining = idleMs - (Date.now() - activity.last);
-    if (remaining <= 0) {
-      return onIdleTimeout(deps, plan, options, idleMs);
+  const loop: Effect.Effect<never, Error, OpencodeSdkService> = Effect.suspend(
+    () => {
+      const remaining = idleMs - (Date.now() - activity.last);
+      if (remaining <= 0) {
+        return onIdleTimeout(deps, plan, options, idleMs);
+      }
+      return Effect.sleep(Duration.millis(remaining)).pipe(
+        Effect.andThen(loop)
+      );
     }
-    return Effect.sleep(Duration.millis(remaining)).pipe(Effect.andThen(loop));
-  });
+  );
   return loop;
 };
 
@@ -167,8 +193,15 @@ const idleWatchdog = (
  * the wall-clock (which would already win).
  */
 const boundByIdle =
-  (deps: OpencodeExecutorDeps, plan: RunnerLaunchPlan, options: RunnerExecutionOptions, activity: SessionActivity) =>
-  <A, R>(effect: Effect.Effect<A, unknown, R>): Effect.Effect<A, unknown, R | OpencodeSdkService> => {
+  (
+    deps: OpencodeExecutorDeps,
+    plan: RunnerLaunchPlan,
+    options: RunnerExecutionOptions,
+    activity: SessionActivity
+  ) =>
+  <A, R>(
+    effect: Effect.Effect<A, unknown, R>
+  ): Effect.Effect<A, unknown, R | OpencodeSdkService> => {
     const idleMs = plan.idleTimeoutMs;
     if (idleMs === undefined || idleMs <= 0 || options.onOutput === undefined) {
       return effect;
@@ -180,18 +213,22 @@ const boundByIdle =
     // returns the first SUCCESS — it would ignore the watchdog's failure and
     // wait for the (never-succeeding) stalled session. raceFirst settles on the
     // first side to complete by success or failure.
-    return raceDetached(effect, idleWatchdog(deps, plan, options, activity, idleMs));
+    return raceDetached(
+      effect,
+      idleWatchdog(deps, plan, options, activity, idleMs)
+    );
   };
 
 const stopStream = (stream: EventStreamHandle): Effect.Effect<void> =>
   Effect.tryPromise(async () => {
     await stream.stop();
-  }).pipe(
-    Effect.asVoid,
-    Effect.catch(() => Effect.void),
-  );
+  }).pipe(Effect.ignore);
 
-const recordSession = (deps: OpencodeExecutorDeps, nodeId: string, sessionId: string): void => {
+const recordSession = (
+  deps: OpencodeExecutorDeps,
+  nodeId: string,
+  sessionId: string
+): void => {
   deps.onSession?.(nodeId, sessionId);
 };
 
@@ -215,7 +252,10 @@ interface TransientRetryContext {
 const TRANSIENT_TRANSPORT_RE =
   /fetch failed|econnreset|etimedout|enotfound|eai_again|socket hang ?up|network|connection (?:reset|closed|refused)|aborterror|operation was aborted|timed? ?out/iu;
 
-const numericField = (container: unknown, key: string): Option.Option<number> => {
+const numericField = (
+  container: unknown,
+  key: string
+): Option.Option<number> => {
   const value = isRecord(container) ? container[key] : undefined;
   return isNumberValue(value) ? Option.some(value) : Option.none();
 };
@@ -223,11 +263,20 @@ const numericField = (container: unknown, key: string): Option.Option<number> =>
 const httpStatusFromError = (error: unknown): Option.Option<number> => {
   const response = isRecord(error) ? error.response : undefined;
   return Option.orElse(numericField(error, "status"), () =>
-    Option.orElse(numericField(error, "statusCode"), () => numericField(response, "status")),
+    Option.orElse(numericField(error, "statusCode"), () =>
+      numericField(response, "status")
+    )
   );
 };
 
-const FLAGS_TAKING_VALUE = new Set(["--agent", "--dir", "--file", "--format", "--model", "--variant"]);
+const FLAGS_TAKING_VALUE = new Set([
+  "--agent",
+  "--dir",
+  "--file",
+  "--format",
+  "--model",
+  "--variant",
+]);
 
 /**
  * The launch plan carries the prompt inside the CLI argv (`run <prompt>` or
@@ -237,12 +286,17 @@ const FLAGS_TAKING_VALUE = new Set(["--agent", "--dir", "--file", "--format", "-
  */
 const promptText = (plan: RunnerLaunchPlan): string => {
   const positional = plan.args.filter(
-    (arg, index) => index > 0 && !arg.startsWith("-") && !FLAGS_TAKING_VALUE.has(plan.args[index - 1] ?? ""),
+    (arg, index) =>
+      index > 0 &&
+      !arg.startsWith("-") &&
+      !FLAGS_TAKING_VALUE.has(plan.args[index - 1] ?? "")
   );
   return positional.at(-1) ?? "";
 };
 
-const parseModel = (model?: string): Option.Option<{ modelID: string; providerID: string }> => {
+const parseModel = (
+  model?: string
+): Option.Option<{ modelID: string; providerID: string }> => {
   if (model === undefined || model.length === 0) {
     return Option.none();
   }
@@ -261,7 +315,7 @@ const parseModel = (model?: string): Option.Option<{ modelID: string; providerID
 // the SDK's request body type lags and omits it; the JSON body serializer
 // forwards the field verbatim, so we declare it here and let it ride through.
 const promptBody = (
-  plan: RunnerLaunchPlan,
+  plan: RunnerLaunchPlan
 ): {
   agent?: string;
   model?: { modelID: string; providerID: string };
@@ -284,11 +338,17 @@ const promptBody = (
       onNone: () => ({}),
       onSome: (value) => ({ model: value }),
     }),
-    ...(plan.variant === undefined || plan.variant.length === 0 ? {} : { variant: plan.variant }),
+    ...(plan.variant === undefined || plan.variant.length === 0
+      ? {}
+      : { variant: plan.variant }),
   };
 };
 
-const promptRequest = (deps: OpencodeExecutorDeps, plan: RunnerLaunchPlan, sessionId: string) => ({
+const promptRequest = (
+  deps: OpencodeExecutorDeps,
+  plan: RunnerLaunchPlan,
+  sessionId: string
+) => ({
   directory: sessionDirectory(deps, plan),
   sessionID: sessionId,
   ...promptBody(plan),
@@ -306,13 +366,17 @@ interface EventStreamHandle {
   stop(): Promise<void>;
 }
 
-const readNextEvent = (iterator: AsyncIterator<Event>): Effect.Effect<IteratorResult<Event>, unknown> =>
+const readNextEvent = (
+  iterator: AsyncIterator<Event>
+): Effect.Effect<IteratorResult<Event>, unknown> =>
   Effect.tryPromise({
     catch: (error) => error,
     try: async () => await iterator.next(),
   });
 
-const requestIteratorReturn = (iterator: AsyncIterator<Event>): Effect.Effect<void> => {
+const requestIteratorReturn = (
+  iterator: AsyncIterator<Event>
+): Effect.Effect<void> => {
   if (iterator.return === undefined) {
     return Effect.void;
   }
@@ -321,21 +385,24 @@ const requestIteratorReturn = (iterator: AsyncIterator<Event>): Effect.Effect<vo
     try: async () => {
       await iterator.return?.();
     },
-  }).pipe(
-    Effect.asVoid,
-    Effect.catch(() => Effect.void),
-  );
+  }).pipe(Effect.asVoid, Effect.ignore);
 };
 
-const stopIteratorEffect = (iterator: AsyncIterator<Event>, pump: Promise<void>): Effect.Effect<void> =>
+const stopIteratorEffect = (
+  iterator: AsyncIterator<Event>,
+  pump: Promise<void>
+): Effect.Effect<void> =>
   Effect.gen(function* effectBody() {
     yield* requestIteratorReturn(iterator);
     yield* Effect.tryPromise(async () => {
       await pump;
-    }).pipe(Effect.catch(() => Effect.void));
+    }).pipe(Effect.ignore);
   });
 
-const stopIterator = async (iterator: AsyncIterator<Event>, pump: Promise<void>): Promise<void> => {
+const stopIterator = async (
+  iterator: AsyncIterator<Event>,
+  pump: Promise<void>
+): Promise<void> => {
   await Effect.runPromise(stopIteratorEffect(iterator, pump));
 };
 
@@ -344,10 +411,17 @@ interface ForwardChunk {
   stream: "stderr" | "stdout";
 }
 
-const belongsToSession = (event: Extract<Event, { type: "session.error" }>, sessionId: string): boolean =>
-  event.properties.sessionID === undefined || event.properties.sessionID === sessionId;
+const belongsToSession = (
+  event: Extract<Event, { type: "session.error" }>,
+  sessionId: string
+): boolean =>
+  event.properties.sessionID === undefined ||
+  event.properties.sessionID === sessionId;
 
-const partChunk = (part: Part, sessionId: string): Option.Option<ForwardChunk> => {
+const partChunk = (
+  part: Part,
+  sessionId: string
+): Option.Option<ForwardChunk> => {
   if (part.sessionID !== sessionId) {
     return Option.none();
   }
@@ -371,7 +445,9 @@ const partChunk = (part: Part, sessionId: string): Option.Option<ForwardChunk> =
  * Output-length / aborted are agent-task outcomes (exit 1, gate territory);
  * provider-auth, API, and unknown are infra (exit 70, retry-eligible).
  */
-const infraErrorExitCode = (error: NonNullable<AssistantMessage["error"]>): number => {
+const infraErrorExitCode = (
+  error: NonNullable<AssistantMessage["error"]>
+): number => {
   switch (error.name) {
     case "MessageOutputLengthError":
     case "MessageAbortedError": {
@@ -387,6 +463,9 @@ const infraErrorExitCode = (error: NonNullable<AssistantMessage["error"]>): numb
     case "UnknownError": {
       return EXIT_INFRA;
     }
+    default: {
+      return EXIT_INFRA;
+    }
   }
 };
 
@@ -395,11 +474,17 @@ const describeMessageError = (error?: AssistantMessage["error"]): string => {
     return "unknown opencode error";
   }
   const data = isRecord(error.data) ? error.data : undefined;
-  const detail = data !== undefined && isStringValue(data.message) ? `: ${data.message}` : "";
+  const detail =
+    data !== undefined && isStringValue(data.message)
+      ? `: ${data.message}`
+      : "";
   return `${error.name}${detail}`;
 };
 
-const eventChunk = (event: Event, sessionId: string): Option.Option<ForwardChunk> => {
+const eventChunk = (
+  event: Event,
+  sessionId: string
+): Option.Option<ForwardChunk> => {
   if (event.type === "message.part.updated") {
     return partChunk(event.properties.part, sessionId);
   }
@@ -416,7 +501,7 @@ const forwardEvent = (
   event: Event,
   sessionId: string,
   plan: RunnerLaunchPlan,
-  options: RunnerExecutionOptions,
+  options: RunnerExecutionOptions
 ): void => {
   const forwarded = eventChunk(event, sessionId);
   if (Option.isSome(forwarded)) {
@@ -433,12 +518,17 @@ const forwardEvent = (
  * parser already understands, so the structured-output and repair passes work
  * unchanged on top of SDK responses.
  */
-const successResult = (plan: RunnerLaunchPlan, drive: SessionDriveResult): AgentResult => {
+const successResult = (
+  plan: RunnerLaunchPlan,
+  drive: SessionDriveResult
+): AgentResult => {
   const textParts = drive.parts.filter(
     (part): part is OpencodePromptPart & { text: string; type: "text" } =>
-      part.type === "text" && isStringValue(part.text),
+      part.type === "text" && isStringValue(part.text)
   );
-  const stdout = textParts.map((part) => JSON.stringify({ part: { text: part.text, type: "text" } })).join("\n");
+  const stdout = textParts
+    .map((part) => JSON.stringify({ part: { text: part.text, type: "text" } }))
+    .join("\n");
   const assistantError = drive.assistant?.error;
   if (assistantError) {
     return {
@@ -475,7 +565,8 @@ const nonEmptyJson = (error: unknown): Option.Option<string> => {
   return json.length > 0 && json !== "{}" ? Option.some(json) : Option.none();
 };
 
-const requestTarget = (request?: Request): string => `${request?.method ?? "?"} ${request?.url ?? "?"}`;
+const requestTarget = (request?: Request): string =>
+  `${request?.method ?? "?"} ${request?.url ?? "?"}`;
 
 const hasRequestTarget = (request?: Request): boolean =>
   (request?.method !== undefined && request.method.length > 0) ||
@@ -484,7 +575,8 @@ const hasRequestTarget = (request?: Request): boolean =>
 const isHttpStatus = (status?: number): status is number =>
   status !== undefined && status !== 0 && !Number.isNaN(status);
 
-const statusSuffix = (status?: number): string => (isHttpStatus(status) ? ` → HTTP ${status}` : "");
+const statusSuffix = (status?: number): string =>
+  isHttpStatus(status) ? ` → HTTP ${status}` : "";
 
 /*
  * Status CODE + target only — deliberately NOT statusText. statusText like
@@ -523,13 +615,17 @@ const bodyMessage = (error: unknown): Option.Option<string> => {
     return Option.none();
   }
   return Option.orElse(stringField(error.data, "message"), () =>
-    Option.orElse(stringField(error, "message"), () => stringField(error, "name")),
+    Option.orElse(stringField(error, "message"), () =>
+      stringField(error, "name")
+    )
   );
 };
 
 // Ordered precedence for the human-readable detail of a failed result body.
 const errorDetail = (error: unknown): Option.Option<string> =>
-  Option.orElse(bodyMessage(error), () => Option.orElse(nonEmptyString(error), () => nonEmptyJson(error)));
+  Option.orElse(bodyMessage(error), () =>
+    Option.orElse(nonEmptyString(error), () => nonEmptyJson(error))
+  );
 
 /**
  * Build the richest available message for a failed opencode result tuple. The
@@ -545,7 +641,10 @@ const resultErrorMessage = <T>(result: ResultTuple<T>): string => {
   if (Option.isSome(detail)) {
     return `${detail.value}${httpContext(result)}`;
   }
-  return Option.getOrElse(httpStatusLine(result), () => "opencode error with empty response body");
+  return Option.getOrElse(
+    httpStatusLine(result),
+    () => "opencode error with empty response body"
+  );
 };
 
 const unwrap = <T>(result: ResultTuple<T>): T => {
@@ -553,7 +652,9 @@ const unwrap = <T>(result: ResultTuple<T>): T => {
     throw new Error(resultErrorMessage(result));
   }
   if (result.data === undefined) {
-    throw new Error(`opencode response contained no data${httpContext(result)}`);
+    throw new Error(
+      `opencode response contained no data${httpContext(result)}`
+    );
   }
   return result.data;
 };
@@ -561,13 +662,14 @@ const unwrap = <T>(result: ResultTuple<T>): T => {
 const unwrapEffect = <T>(response: ResultTuple<T>): Effect.Effect<T, unknown> =>
   Effect.try({ catch: (error) => error, try: () => unwrap(response) });
 
-const errorMessage = (error: unknown): string => (error instanceof Error ? error.message : String(error));
+const errorMessage = (error: unknown): string =>
+  error instanceof Error ? error.message : String(error);
 
 const emitTransientRetry = (
   ctx: TransientRetryContext,
   error: unknown,
   attempt: number,
-  delay: Duration.Duration,
+  delay: Duration.Duration
 ): Effect.Effect<void> =>
   Effect.sync(() => {
     ctx.options.onOutput?.({
@@ -597,20 +699,25 @@ const isTransientTransportError = (error: unknown): boolean => {
 const retryTransientTransport = function retryTransientTransport<A>(
   make: () => Effect.Effect<A, unknown, OpencodeSdkService>,
   ctx: TransientRetryContext,
-  attempt = 0,
+  attempt = 0
 ): Effect.Effect<A, unknown, OpencodeSdkService> {
   return make().pipe(
-    Effect.catch((error) => {
-      if (!(attempt < MAX_TRANSIENT_RETRIES && isTransientTransportError(error))) {
-        return Effect.fail(error);
-      }
-      const nextAttempt = attempt + 1;
-      const delay = Duration.millis(TRANSIENT_RETRY_BASE_MS * 2 ** attempt);
-      return emitTransientRetry(ctx, error, nextAttempt, delay).pipe(
-        Effect.andThen(Effect.sleep(delay)),
-        Effect.andThen(retryTransientTransport(make, ctx, nextAttempt)),
-      );
-    }),
+    Effect.matchEffect({
+      onFailure: (error) => {
+        if (
+          !(attempt < MAX_TRANSIENT_RETRIES && isTransientTransportError(error))
+        ) {
+          return Effect.fail(error);
+        }
+        const nextAttempt = attempt + 1;
+        const delay = Duration.millis(TRANSIENT_RETRY_BASE_MS * 2 ** attempt);
+        return emitTransientRetry(ctx, error, nextAttempt, delay).pipe(
+          Effect.andThen(Effect.sleep(delay)),
+          Effect.andThen(retryTransientTransport(make, ctx, nextAttempt))
+        );
+      },
+      onSuccess: (value) => Effect.succeed(value),
+    })
   );
 };
 
@@ -618,7 +725,7 @@ const promptSessionResult = (
   deps: OpencodeExecutorDeps,
   plan: RunnerLaunchPlan,
   sessionId: string,
-  options: RunnerExecutionOptions,
+  options: RunnerExecutionOptions
 ): Effect.Effect<SessionDriveResult, unknown, OpencodeSdkService> =>
   // promptSession retry is bounded to transport-class failures (fetch failed,
   // connection reset/timeout, HTTP 429/5xx) raised BEFORE the server accepts the
@@ -630,7 +737,10 @@ const promptSessionResult = (
     () =>
       Effect.gen(function* effectBody() {
         const sdk = yield* OpencodeSdkService;
-        const response = yield* sdk.promptSession(deps.client, promptRequest(deps, plan, sessionId));
+        const response = yield* sdk.promptSession(
+          deps.client,
+          promptRequest(deps, plan, sessionId)
+        );
         const data = yield* unwrapEffect(response);
         return {
           assistant: data.info,
@@ -638,13 +748,13 @@ const promptSessionResult = (
           sessionId,
         };
       }),
-    { label: "session.prompt", options, plan },
+    { label: "session.prompt", options, plan }
   );
 
 const resolveSessionId = (
   deps: OpencodeExecutorDeps,
   plan: RunnerLaunchPlan,
-  options: RunnerExecutionOptions,
+  options: RunnerExecutionOptions
 ): Effect.Effect<string, unknown, OpencodeSdkService> => {
   const existing = deps.registry.sessions.get(plan.nodeId);
   if (existing !== undefined && existing.length > 0) {
@@ -656,7 +766,7 @@ const resolveSessionId = (
     // orphaning or duplicating a session.
     const session = yield* retryTransientTransport(
       () =>
-        Effect.gen(function* session() {
+        Effect.gen(function* createSessionAttempt() {
           const sdk = yield* OpencodeSdkService;
           const created = yield* sdk.createSession(deps.client, {
             directory: plan.cwd,
@@ -664,7 +774,7 @@ const resolveSessionId = (
           });
           return yield* unwrapEffect(created);
         }),
-      { label: "session.create", options, plan },
+      { label: "session.create", options, plan }
     );
     deps.registry.sessions.set(plan.nodeId, session.id);
     return session.id;
@@ -674,7 +784,7 @@ const resolveSessionId = (
 const reportStreamDrop = (
   error: unknown,
   plan: RunnerLaunchPlan,
-  options: RunnerExecutionOptions,
+  options: RunnerExecutionOptions
 ): Effect.Effect<void> =>
   Effect.sync(() => {
     options.onOutput?.({
@@ -689,7 +799,7 @@ const pumpEvents = (
   sessionId: string,
   plan: RunnerLaunchPlan,
   options: RunnerExecutionOptions,
-  activity: SessionActivity,
+  activity: SessionActivity
 ): Effect.Effect<void> =>
   Effect.gen(function* effectBody() {
     let done = false;
@@ -704,14 +814,19 @@ const pumpEvents = (
         forwardEvent(next.value, sessionId, plan, options);
       }
     }
-  }).pipe(Effect.catch((error) => reportStreamDrop(error, plan, options)));
+  }).pipe(
+    Effect.matchEffect({
+      onFailure: (error) => reportStreamDrop(error, plan, options),
+      onSuccess: () => Effect.void,
+    })
+  );
 
 const streamEventsToOutput = (
   deps: OpencodeExecutorDeps,
   sessionId: string,
   plan: RunnerLaunchPlan,
   options: RunnerExecutionOptions,
-  activity: SessionActivity,
+  activity: SessionActivity
 ): Effect.Effect<EventStreamHandle, unknown, OpencodeSdkService> => {
   if (options.onOutput === undefined) {
     return Effect.succeed({
@@ -727,7 +842,9 @@ const streamEventsToOutput = (
     // Restart the idle clock at stream attach so createSession latency before
     // the first event does not count against the idle budget.
     activity.last = Date.now();
-    const pump = Effect.runPromise(pumpEvents(iterator, sessionId, plan, options, activity));
+    const pump = Effect.runPromise(
+      pumpEvents(iterator, sessionId, plan, options, activity)
+    );
     return {
       stop: async () => {
         await stopIterator(iterator, pump);
@@ -740,16 +857,27 @@ const driveSession = (
   deps: OpencodeExecutorDeps,
   plan: RunnerLaunchPlan,
   options: RunnerExecutionOptions,
-  activity: SessionActivity,
+  activity: SessionActivity
 ): Effect.Effect<SessionDriveResult, unknown, OpencodeSdkService> =>
   Effect.gen(function* effectBody() {
     const sessionId = yield* resolveSessionId(deps, plan, options);
     recordSession(deps, plan.nodeId, sessionId);
-    const stream = yield* streamEventsToOutput(deps, sessionId, plan, options, activity);
-    return yield* promptSessionResult(deps, plan, sessionId, options).pipe(Effect.ensuring(stopStream(stream)));
+    const stream = yield* streamEventsToOutput(
+      deps,
+      sessionId,
+      plan,
+      options,
+      activity
+    );
+    return yield* promptSessionResult(deps, plan, sessionId, options).pipe(
+      Effect.ensuring(stopStream(stream))
+    );
   });
 
-const failureResult = (plan: RunnerLaunchPlan, error: unknown): AgentResult => ({
+const failureResult = (
+  plan: RunnerLaunchPlan,
+  error: unknown
+): AgentResult => ({
   argv: plan.args,
   exitCode: EXIT_INFRA,
   stderr: `opencode session failed: ${errorMessage(error)}`,
@@ -759,7 +887,7 @@ const failureResult = (plan: RunnerLaunchPlan, error: unknown): AgentResult => (
 const executeOpencodeSession = (
   deps: OpencodeExecutorDeps,
   plan: RunnerLaunchPlan,
-  options: RunnerExecutionOptions,
+  options: RunnerExecutionOptions
 ): Effect.Effect<AgentResult, never, OpencodeSdkService> => {
   const activity: SessionActivity = { last: Date.now() };
   return Effect.gen(function* effectBody() {
@@ -768,14 +896,17 @@ const executeOpencodeSession = (
   }).pipe(
     boundByIdle(deps, plan, options, activity),
     boundByAgentTimeout(plan),
-    Effect.catch((error) => Effect.succeed(failureResult(plan, error))),
+    Effect.matchEffect({
+      onFailure: (error) => Effect.succeed(failureResult(plan, error)),
+      onSuccess: (result) => Effect.succeed(result),
+    })
   );
 };
 
 const executeOpencodeEffect = (
   deps: OpencodeExecutorDeps,
   plan: RunnerLaunchPlan,
-  options: RunnerExecutionOptions,
+  options: RunnerExecutionOptions
 ): Effect.Effect<AgentResult, Error, OpencodeSdkService> =>
   Effect.gen(function* effectBody() {
     yield* validateOpencodePlan(plan);
@@ -787,11 +918,17 @@ const executeOpencodeEffect = (
  * RuntimeContext.executor seam so agent-node never learns the transport.
  */
 export const createOpencodeExecutor = (deps: OpencodeExecutorDeps) =>
-  async function execute(plan: RunnerLaunchPlan, options: RunnerExecutionOptions = {}): Promise<AgentResult> {
+  async function execute(
+    plan: RunnerLaunchPlan,
+    options: RunnerExecutionOptions = {}
+  ): Promise<AgentResult> {
     // Thread the caller's AbortSignal into the Effect runtime so transient-retry
     // backoff sleeps are interruptible on cancellation rather than uncancellable.
     return await Effect.runPromise(
-      Effect.provide(executeOpencodeEffect(deps, plan, options), OpencodeSdkServiceLive),
-      options.signal ? { signal: options.signal } : undefined,
+      Effect.provide(
+        executeOpencodeEffect(deps, plan, options),
+        OpencodeSdkServiceLive
+      ),
+      options.signal ? { signal: options.signal } : undefined
     );
   };

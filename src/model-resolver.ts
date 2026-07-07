@@ -1,3 +1,5 @@
+import * as Option from "effect/Option";
+
 import type { PipelineConfig } from "./config";
 import type { PlannedWorkflowNode } from "./planning/compile";
 
@@ -38,34 +40,49 @@ export interface ModelCandidates {
   skipped: string[];
 }
 
-const sizedCandidates = (enabled: string[], baseSkipped: string[], options: ModelSizingOptions): ModelCandidates => {
+const sizedCandidates = (
+  enabled: string[],
+  baseSkipped: string[],
+  options: ModelSizingOptions
+): ModelCandidates => {
   const { estimatedTokens, budget } = options;
   const required = estimatedTokens / (budget.max_context_pct / 100);
   const fits: string[] = [];
   const tooSmall: string[] = [];
   for (const candidate of enabled) {
-    const window = budget.model_context_windows[candidate] ?? budget.default_context_window;
+    const window =
+      budget.model_context_windows[candidate] ?? budget.default_context_window;
     if (window >= required) {
       fits.push(candidate);
     } else {
       tooSmall.push(candidate);
     }
   }
-  const head = fits[0];
+  const [head] = fits;
   const reason = head
     ? `selected '${head}' (window ${budget.model_context_windows[head] ?? budget.default_context_window}) — holds estimated ${estimatedTokens} tokens within the ${budget.max_context_pct}% context cap`
     : `estimated context ${estimatedTokens} tokens exceeds ${budget.max_context_pct}% of every available model window`;
   return { models: fits, reason, skipped: [...baseSkipped, ...tooSmall] };
 };
 
-const isAvailable = (candidate: string, available?: ReadonlySet<string>): boolean =>
-  available === undefined ? true : available.has(candidate);
+const isAvailable = (
+  candidate: string,
+  available?: ReadonlySet<string>
+): boolean => (available === undefined ? true : available.has(candidate));
 
-const sizingFromOptions = (options?: ModelSelectionOptions) => {
-  if (options?.budget !== undefined && typeof options.estimatedTokens === "number") {
-    return { budget: options.budget, estimatedTokens: options.estimatedTokens };
+const sizingFromOptions = (
+  options?: ModelSelectionOptions
+): Option.Option<ModelSizingOptions> => {
+  if (
+    options?.budget !== undefined &&
+    typeof options.estimatedTokens === "number"
+  ) {
+    return Option.some({
+      budget: options.budget,
+      estimatedTokens: options.estimatedTokens,
+    });
   }
-  return;
+  return Option.none();
 };
 
 const selectionReason = (model?: string): string => {
@@ -80,12 +97,12 @@ const disabledModels = (): Set<string> =>
     (process.env[DISABLED_MODELS_ENV] ?? "")
       .split(",")
       .map((value) => value.trim())
-      .filter(Boolean),
+      .filter(Boolean)
   );
 
 export const selectNodeModelCandidates = (
   node: PlannedWorkflowNode,
-  options?: ModelSelectionOptions,
+  options?: ModelSelectionOptions
 ): ModelCandidates => {
   const models = node.models ?? [];
   if (models.length === 0) {
@@ -97,15 +114,19 @@ export const selectNodeModelCandidates = (
   }
   const disabled = disabledModels();
   const available = options?.available;
-  const enabled = models.filter((candidate) => !disabled.has(candidate) && isAvailable(candidate, available));
-  const baseSkipped = models.filter((candidate) => disabled.has(candidate) || !isAvailable(candidate, available));
+  const enabled = models.filter(
+    (candidate) => !disabled.has(candidate) && isAvailable(candidate, available)
+  );
+  const baseSkipped = models.filter(
+    (candidate) => disabled.has(candidate) || !isAvailable(candidate, available)
+  );
   const sizing = sizingFromOptions(options);
-  if (sizing === undefined) {
+  if (Option.isNone(sizing)) {
     return {
       models: enabled,
       reason: selectionReason(enabled[0]),
       skipped: baseSkipped,
     };
   }
-  return sizedCandidates(enabled, baseSkipped, sizing);
+  return sizedCandidates(enabled, baseSkipped, sizing.value);
 };

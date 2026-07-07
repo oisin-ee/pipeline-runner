@@ -1,30 +1,52 @@
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
+import { afterEach, beforeEach, describe, expect, it } from "@effect/vitest";
+import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
-import { execa } from "execa";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import * as Schema from "effect/Schema";
+import { vi } from "vitest";
 
 import { parsePipelineConfigParts } from "../src/config";
 import type { PipelineConfig } from "../src/config";
 import { loadMokaGlobalConfig } from "../src/moka-global-config";
 import type { MokaGlobalConfig } from "../src/moka-global-config";
-import { runPipelineFromConfig, runScheduledWorkflowTask } from "../src/pipeline-runtime";
+import {
+  runPipelineFromConfig,
+  runScheduledWorkflowTask,
+} from "../src/pipeline-runtime";
 import type { PipelineRuntimeEvent } from "../src/pipeline-runtime";
 import type { RunnerLaunchPlan } from "../src/runner";
 
+interface ExecaMockOptions {
+  readonly cancelSignal?: AbortSignal;
+  readonly env?: Record<string, string>;
+}
+
+type ExecaMock = (
+  command: string,
+  args: string[],
+  options?: ExecaMockOptions
+) => unknown;
+
+const mockExeca = vi.hoisted(() => vi.fn<ExecaMock>());
+
 vi.mock("execa", () => ({
-  execa: vi.fn(),
+  execa: mockExeca,
 }));
 
 vi.mock("../src/moka-global-config", () => ({
   loadMokaDbUrl: vi.fn(() => {}),
   loadMokaGlobalConfig: vi.fn(() => null),
 }));
-
-const RESOLVED_VOID: void = undefined;
 
 interface GitMock {
   client: {
@@ -45,15 +67,25 @@ let gitMock: GitMock;
     files: { path: string }[];
   }
   const client = {
-    add: vi.fn<(...args: unknown[]) => Promise<unknown>>(async () => {}),
-    addConfig: vi.fn<(...args: unknown[]) => Promise<unknown>>(async () => {}),
-    commit: vi.fn<(...args: unknown[]) => Promise<unknown>>(async () => {}),
-    raw: vi.fn<(...commands: (string | string[])[]) => Promise<string>>(async () => ""),
-    revparse: vi.fn<(options: string[]) => Promise<string>>(async () => "base-sha"),
+    add: vi.fn<(...args: unknown[]) => Promise<unknown>>(async () => {
+      await Promise.resolve();
+    }),
+    addConfig: vi.fn<(...args: unknown[]) => Promise<unknown>>(async () => {
+      await Promise.resolve();
+    }),
+    commit: vi.fn<(...args: unknown[]) => Promise<unknown>>(async () => {
+      await Promise.resolve();
+    }),
+    raw: vi.fn<(...commands: (string | string[])[]) => Promise<string>>(
+      async () => await Promise.resolve("")
+    ),
+    revparse: vi.fn<(options: string[]) => Promise<string>>(
+      async () => await Promise.resolve("base-sha")
+    ),
     status: vi.fn(
-      async (_options?: { baseDir?: string }): Promise<GitStatusResult> => ({
+      (_options?: { baseDir?: string }): GitStatusResult => ({
         files: [],
-      }),
+      })
     ),
   };
   gitMock = {
@@ -64,7 +96,7 @@ let gitMock: GitMock;
       commit: client.commit,
       raw: client.raw,
       revparse: client.revparse,
-      status: async () => await client.status(options),
+      status: async () => await Promise.resolve(client.status(options)),
     })),
   };
 })();
@@ -73,7 +105,7 @@ vi.mock("simple-git", () => ({
   default: (options?: { baseDir?: string }) => gitMock.simpleGit(options),
 }));
 
-const mockExeca = execa as unknown as ReturnType<typeof vi.fn>;
+const RESOLVED_UNDEFINED = undefined;
 const tempDirs: string[] = [];
 const originalPipelineTestCommand = process.env.PIPELINE_TEST_COMMAND;
 const originalPipelineLintCommand = process.env.PIPELINE_LINT_COMMAND;
@@ -82,19 +114,114 @@ const originalPipelineTypecheckCommand = process.env.PIPELINE_TYPECHECK_COMMAND;
 const CANCEL_PATTERN = /cancel/iu;
 const LINE_SPLIT_RE = /\r?\n/u;
 
+interface CommandExecutionResult {
+  readonly exitCode: number;
+  readonly stdout: string;
+}
+
+class PipelineRuntimeTestError extends Schema.TaggedErrorClass<PipelineRuntimeTestError>()(
+  "PipelineRuntimeTestError",
+  {
+    exitCode: Schema.optional(Schema.Number),
+    message: Schema.String,
+    stdout: Schema.optional(Schema.String),
+  }
+) {}
+
+const testPromise = <A>(
+  evaluate: () => Promise<A>
+): Effect.Effect<A, PipelineRuntimeTestError> =>
+  Effect.tryPromise({
+    catch: (cause) =>
+      cause instanceof PipelineRuntimeTestError
+        ? cause
+        : new PipelineRuntimeTestError({ message: String(cause) }),
+    try: evaluate,
+  });
+
+const delay = async (milliseconds: number): Promise<void> => {
+  const timers = await import("node:timers/promises");
+  await timers.setTimeout(milliseconds);
+};
+
+const captureEvents =
+  (events: PipelineRuntimeEvent[]) =>
+  (event: PipelineRuntimeEvent): void => {
+    events.push(event);
+  };
+
+const abortOrDelayResult = async (
+  signalOption: Option.Option<AbortSignal>,
+  onAbort: () => void,
+  abortResult: CommandExecutionResult,
+  delayResult: CommandExecutionResult,
+  milliseconds: number
+): Promise<CommandExecutionResult> =>
+  await Option.match(signalOption, {
+    onNone: async () => {
+      await delay(milliseconds);
+      return delayResult;
+    },
+    onSome: async (signal) => {
+      const events = await import("node:events");
+      const aborted = async (): Promise<CommandExecutionResult> => {
+        if (!signal.aborted) {
+          await events.once(signal, "abort");
+        }
+        onAbort();
+        return abortResult;
+      };
+      const delayed = async (): Promise<CommandExecutionResult> => {
+        await delay(milliseconds);
+        return delayResult;
+      };
+      return await Promise.race([aborted(), delayed()]);
+    },
+  });
+
+const rejectOnAbort = async (
+  signal: AbortSignal,
+  triggerAbort: () => void
+): Promise<never> => {
+  const events = await import("node:events");
+  const aborted = signal.aborted
+    ? Option.none<Promise<unknown>>()
+    : Option.some(events.once(signal, "abort"));
+  triggerAbort();
+  await Option.match(aborted, {
+    onNone: async () => {},
+    onSome: async (promise) => {
+      await promise;
+    },
+  });
+  throw Object.assign(new Error("cancelled"), {
+    exitCode: 1,
+    stdout: "started",
+  });
+};
+
 const isStringRecord = (value: unknown): value is Record<string, string> => {
   if (typeof value !== "object" || value === null) {
     return false;
   }
-  return Object.values(value).every((item: unknown) => typeof item === "string");
+  return Object.values(value).every(
+    (item: unknown) => typeof item === "string"
+  );
 };
 
-const commandHookEnv = (options: unknown): Option.Option<Record<string, string>> => {
+const hasEnv = (value: object): value is { readonly env: unknown } =>
+  "env" in value;
+
+const commandHookEnv = (
+  options: unknown
+): Option.Option<Record<string, string>> => {
   if (typeof options !== "object" || options === null) {
     return Option.none();
   }
-  const env = Reflect.get(options, "env");
-  return isStringRecord(env) ? Option.some(env) : Option.none();
+  if (!hasEnv(options)) {
+    return Option.none();
+  }
+  return isStringRecord(options.env) ? Option.some(options.env) : Option.none();
 };
 
 const mockLoadMokaGlobalConfig = vi.mocked(loadMokaGlobalConfig);
@@ -132,23 +259,31 @@ const tempProject = (): string => {
   return dir;
 };
 
-const writeProjectFile = (root: string, path: string, content: string): void => {
+const writeProjectFile = (
+  root: string,
+  path: string,
+  content: string
+): void => {
   const fullPath = join(root, path);
   mkdirSync(dirname(fullPath), { recursive: true });
   writeFileSync(fullPath, content);
 };
 
 const gitStatusSnapshot = (
-  baseDir?: string,
+  baseDir?: string
 ): {
   files: { path: string }[];
 } => {
   try {
-    const stdout = execFileSync("git", ["status", "--porcelain", "--untracked-files=all"], {
-      cwd: baseDir,
-      encoding: "utf-8",
-      stdio: ["ignore", "pipe", "ignore"],
-    });
+    const stdout = execFileSync(
+      "git",
+      ["status", "--porcelain", "--untracked-files=all"],
+      {
+        cwd: baseDir,
+        encoding: "utf-8",
+        stdio: ["ignore", "pipe", "ignore"],
+      }
+    );
     return {
       files: stdout
         .split(LINE_SPLIT_RE)
@@ -164,12 +299,14 @@ const gitStatusSnapshot = (
 
 beforeEach(() => {
   mockLoadMokaGlobalConfig.mockReturnValue(null);
-  gitMock.client.add.mockResolvedValue(RESOLVED_VOID);
-  gitMock.client.addConfig.mockResolvedValue(RESOLVED_VOID);
-  gitMock.client.commit.mockResolvedValue(RESOLVED_VOID);
+  gitMock.client.add.mockResolvedValue(RESOLVED_UNDEFINED);
+  gitMock.client.addConfig.mockResolvedValue(RESOLVED_UNDEFINED);
+  gitMock.client.commit.mockResolvedValue(RESOLVED_UNDEFINED);
   gitMock.client.raw.mockResolvedValue("");
   gitMock.client.revparse.mockResolvedValue("base-sha");
-  gitMock.client.status.mockImplementation(async (options) => gitStatusSnapshot(options?.baseDir));
+  gitMock.client.status.mockImplementation((options) =>
+    gitStatusSnapshot(options?.baseDir)
+  );
 });
 
 const initCommittedGitProject = (project: string, files: string[]): void => {
@@ -252,7 +389,7 @@ runners:
 const withProfilePatch = (
   config: PipelineConfig,
   profileId: string,
-  patch: Partial<PipelineConfig["profiles"][string]>,
+  patch: Partial<PipelineConfig["profiles"][string]>
 ): PipelineConfig => ({
   ...config,
   profiles: {
@@ -267,7 +404,7 @@ const withProfilePatch = (
 const withRunnerPatch = (
   config: PipelineConfig,
   runnerId: string,
-  patch: Partial<PipelineConfig["runners"][string]>,
+  patch: Partial<PipelineConfig["runners"][string]>
 ): PipelineConfig => ({
   ...config,
   runners: {
@@ -286,7 +423,7 @@ const withDefaultWorkflowFirstNodeTaskContext = (
     description: string;
     id: string;
     title: string;
-  },
+  }
 ): PipelineConfig => ({
   ...config,
   workflows: {
@@ -304,7 +441,9 @@ const withDefaultWorkflowFirstNodeTaskContext = (
   },
 });
 
-const structuredVerdictSchemaProject = (options: { repairEnabled?: boolean } = {}) => {
+const structuredVerdictSchemaProject = (
+  options: { repairEnabled?: boolean } = {}
+) => {
   const project = tempProject();
   writeProjectFile(
     project,
@@ -314,7 +453,7 @@ const structuredVerdictSchemaProject = (options: { repairEnabled?: boolean } = {
       properties: { verdict: { enum: ["PASS"], type: "string" } },
       required: ["verdict"],
       type: "object",
-    }),
+    })
   );
   const config = withProfilePatch(
     baseConfig(`
@@ -328,10 +467,12 @@ const structuredVerdictSchemaProject = (options: { repairEnabled?: boolean } = {
     {
       output: {
         format: "json_schema",
-        ...(options.repairEnabled === false ? { repair: { enabled: false } } : {}),
+        ...(options.repairEnabled === false
+          ? { repair: { enabled: false } }
+          : {}),
         schema_path: "schema.json",
       },
-    },
+    }
   );
   return { config, project };
 };
@@ -342,7 +483,9 @@ const executor = (outputs: Record<string, string | string[]>) => {
     const current = counts.get(plan.nodeId) ?? 0;
     counts.set(plan.nodeId, current + 1);
     const value = outputs[plan.nodeId] ?? "ok";
-    const stdout = Array.isArray(value) ? (value.at(current) ?? value.at(-1) ?? "") : value;
+    const stdout = Array.isArray(value)
+      ? (value.at(current) ?? value.at(-1) ?? "")
+      : value;
     return { exitCode: stdout === "__FAIL__" ? 1 : 0, stdout };
   };
 };
@@ -358,7 +501,10 @@ const commandHookSuccess =
       },
     });
     if (hookResultPath.length > 0) {
-      writeFileSync(hookResultPath, JSON.stringify({ status: "pass", summary: stdout }));
+      writeFileSync(
+        hookResultPath,
+        JSON.stringify({ status: "pass", summary: stdout })
+      );
     }
     return { exitCode: 0, stderr: "", stdout };
   };
@@ -379,7 +525,10 @@ describe("runPipelineFromConfig", () => {
     });
 
     expect(result.outcome).toBe("PASS");
-    expect(result.agentInvocations.map((plan) => plan.nodeId)).toEqual(["a", "b"]);
+    expect(result.agentInvocations.map((plan) => plan.nodeId)).toEqual([
+      "a",
+      "b",
+    ]);
     expect(result.nodeStates.a).toMatchObject({
       attempts: 1,
       status: "passed",
@@ -398,7 +547,7 @@ describe("runPipelineFromConfig", () => {
 
     const result = await runPipelineFromConfig({
       config: baseConfig(),
-      executor: async () => {
+      executor: () => {
         throw new Error("DISTINCT_REAL_CAUSE_42");
       },
       task: "ship",
@@ -408,13 +557,17 @@ describe("runPipelineFromConfig", () => {
     expect(result.outcome).toBe("FAIL");
     const serialized = JSON.stringify(result);
     expect(serialized).toContain("DISTINCT_REAL_CAUSE_42");
-    expect(serialized).not.toContain("An unknown error occurred in Effect.tryPromise");
+    expect(serialized).not.toContain(
+      "An unknown error occurred in Effect.tryPromise"
+    );
   });
 
   it("renders node-specific task context in agent prompts", async () => {
     const project = tempProject();
     const config = withDefaultWorkflowFirstNodeTaskContext(baseConfig(), {
-      acceptance_criteria: [{ id: "1", text: "The prompt includes node context." }],
+      acceptance_criteria: [
+        { id: "1", text: "The prompt includes node context." },
+      ],
       description: "Use the node ticket instead of the parent task.",
       id: "PIPE-41.7",
       title: "Propagate node context",
@@ -446,7 +599,11 @@ describe("runPipelineFromConfig", () => {
   it("loads configured rules, skills, and MCP servers into agent boundaries", async () => {
     const project = tempProject();
     writeProjectFile(project, "rules/test-first.md", "Always write tests.");
-    writeProjectFile(project, ".agents/skills/research/SKILL.md", "Use repository research.");
+    writeProjectFile(
+      project,
+      ".agents/skills/research/SKILL.md",
+      "Use repository research."
+    );
     const config = parsePipelineConfigParts({
       pipeline: `
 version: 1
@@ -532,9 +689,10 @@ runners:
     expect(launchText).not.toContain("mcp_servers.memory.url");
   });
 
-  it("runs parallel nodes concurrently after dependencies are met", async () => {
-    const project = tempProject();
-    const config = baseConfig(`
+  it.live("runs parallel nodes concurrently after dependencies are met", () =>
+    testPromise(async () => {
+      const project = tempProject();
+      const config = baseConfig(`
   parallel:
     nodes:
       - { id: start, kind: agent, profile: a }
@@ -542,37 +700,33 @@ runners:
       - { id: right, kind: agent, profile: b, needs: [start] }
       - { id: join, kind: group, nodes: [left, right], needs: [left, right] }
 `);
-    const started: string[] = [];
-    let leftRelease = Option.none<() => void>();
-    const leftWaiting = new Promise<void>((resolve) => {
-      leftRelease = Option.some(resolve);
-    });
+      const events = await import("node:events");
+      const started: string[] = [];
+      const leftWaiting = new EventTarget();
+      let leftReleased = false;
 
-    await runPipelineFromConfig({
-      config,
-      executor: async (plan) => {
-        started.push(plan.nodeId);
-        if (plan.nodeId === "left") {
-          await leftWaiting;
-        }
-        if (plan.nodeId === "right") {
-          Option.match(leftRelease, {
-            onNone: () => {},
-            onSome: (release) => {
-              release();
-            },
-          });
-        }
-        return { exitCode: 0, stdout: plan.nodeId };
-      },
-      task: "parallel",
-      workflowId: "parallel",
-      worktreePath: project,
-    });
+      await runPipelineFromConfig({
+        config,
+        executor: async (plan) => {
+          started.push(plan.nodeId);
+          if (plan.nodeId === "left" && !leftReleased) {
+            await events.once(leftWaiting, "release");
+          }
+          if (plan.nodeId === "right") {
+            leftReleased = true;
+            leftWaiting.dispatchEvent(new Event("release"));
+          }
+          return { exitCode: 0, stdout: plan.nodeId };
+        },
+        task: "parallel",
+        workflowId: "parallel",
+        worktreePath: project,
+      });
 
-    expect(started[0]).toBe("start");
-    expect(started.slice(1).toSorted()).toEqual(["left", "right"]);
-  });
+      expect(started[0]).toBe("start");
+      expect(started.slice(1).toSorted()).toEqual(["left", "right"]);
+    })
+  );
 
   it("includes parallel child node ids in the workflow.start event", async () => {
     // Regression: the run-control store rejects state updates for node ids it
@@ -594,7 +748,7 @@ runners:
     await runPipelineFromConfig({
       config,
       executor: () => ({ exitCode: 0, stdout: "ok" }),
-      reporter: (event) => events.push(event),
+      reporter: captureEvents(events),
       task: "fanout",
       workflowId: "fanout",
       worktreePath: project,
@@ -605,42 +759,45 @@ runners:
     expect(nodeIds).toEqual(expect.arrayContaining(["fan", "left", "right"]));
   });
 
-  it("limits parallel node execution when configured", async () => {
-    const project = tempProject();
-    const config = baseConfig(`
+  it.live("limits parallel node execution when configured", () =>
+    testPromise(async () => {
+      const project = tempProject();
+      const config = baseConfig(`
   limited:
     nodes:
       - { id: left, kind: agent, profile: a }
       - { id: right, kind: agent, profile: b }
 `);
-    let active = 0;
-    let maxActive = 0;
-    const seen: string[] = [];
+      let active = 0;
+      let maxActive = 0;
+      const seen: string[] = [];
 
-    const result = await runPipelineFromConfig({
-      config,
-      executor: async (plan) => {
-        active += 1;
-        maxActive = Math.max(maxActive, active);
-        seen.push(plan.nodeId);
-        await new Promise((resolve) => setTimeout(resolve, 0));
-        active -= 1;
-        return { exitCode: 0, stdout: plan.nodeId };
-      },
-      maxParallelNodes: 1,
-      task: "parallel",
-      workflowId: "limited",
-      worktreePath: project,
-    });
+      const result = await runPipelineFromConfig({
+        config,
+        executor: async (plan) => {
+          active += 1;
+          maxActive = Math.max(maxActive, active);
+          seen.push(plan.nodeId);
+          await delay(0);
+          active -= 1;
+          return { exitCode: 0, stdout: plan.nodeId };
+        },
+        maxParallelNodes: 1,
+        task: "parallel",
+        workflowId: "limited",
+        worktreePath: project,
+      });
 
-    expect(result.outcome).toBe("PASS");
-    expect(seen).toEqual(["left", "right"]);
-    expect(maxActive).toBe(1);
-  });
+      expect(result.outcome).toBe("PASS");
+      expect(seen).toEqual(["left", "right"]);
+      expect(maxActive).toBe(1);
+    })
+  );
 
-  it("starts descendants as soon as their own dependencies pass", async () => {
-    const project = tempProject();
-    const config = baseConfig(`
+  it.live("starts descendants as soon as their own dependencies pass", () =>
+    testPromise(async () => {
+      const project = tempProject();
+      const config = baseConfig(`
   dynamic:
     nodes:
       - { id: root, kind: agent, profile: a }
@@ -649,32 +806,35 @@ runners:
       - { id: child-fast, kind: agent, profile: b, needs: [fast] }
       - { id: join, kind: agent, profile: a, needs: [slow, child-fast] }
 `);
-    const starts = new Map<string, number>();
-    const finishes = new Map<string, number>();
-    const delays = new Map([
-      ["root", 0],
-      ["slow", 50],
-      ["fast", 0],
-      ["child-fast", 0],
-      ["join", 0],
-    ]);
+      const starts = new Map<string, number>();
+      const finishes = new Map<string, number>();
+      const delays = new Map([
+        ["root", 0],
+        ["slow", 50],
+        ["fast", 0],
+        ["child-fast", 0],
+        ["join", 0],
+      ]);
 
-    const result = await runPipelineFromConfig({
-      config,
-      executor: async (plan) => {
-        starts.set(plan.nodeId, performance.now());
-        await new Promise((resolve) => setTimeout(resolve, delays.get(plan.nodeId) ?? 0));
-        finishes.set(plan.nodeId, performance.now());
-        return { exitCode: 0, stdout: plan.nodeId };
-      },
-      task: "dynamic",
-      workflowId: "dynamic",
-      worktreePath: project,
-    });
+      const result = await runPipelineFromConfig({
+        config,
+        executor: async (plan) => {
+          starts.set(plan.nodeId, performance.now());
+          await delay(delays.get(plan.nodeId) ?? 0);
+          finishes.set(plan.nodeId, performance.now());
+          return { exitCode: 0, stdout: plan.nodeId };
+        },
+        task: "dynamic",
+        workflowId: "dynamic",
+        worktreePath: project,
+      });
 
-    expect(result.outcome).toBe("PASS");
-    expect(starts.get("child-fast") ?? 0).toBeLessThan(finishes.get("slow") ?? 0);
-  });
+      expect(result.outcome).toBe("PASS");
+      expect(starts.get("child-fast") ?? 0).toBeLessThan(
+        finishes.get("slow") ?? 0
+      );
+    })
+  );
 
   it("continues independent ready branches after a non fail-fast failure", async () => {
     const project = tempProject();
@@ -712,9 +872,12 @@ runners:
     expect(result.nodeStates["child-fast"]).toMatchObject({ status: "passed" });
   });
 
-  it("uses workflow execution config to limit parallel node execution", async () => {
-    const project = tempProject();
-    const config = baseConfig(`
+  it.live(
+    "uses workflow execution config to limit parallel node execution",
+    () =>
+      testPromise(async () => {
+        const project = tempProject();
+        const config = baseConfig(`
   limited:
     execution:
       max_parallel_nodes: 1
@@ -722,26 +885,27 @@ runners:
       - { id: left, kind: agent, profile: a }
       - { id: right, kind: agent, profile: b }
 `);
-    let active = 0;
-    let maxActive = 0;
+        let active = 0;
+        let maxActive = 0;
 
-    const result = await runPipelineFromConfig({
-      config,
-      executor: async (plan) => {
-        active += 1;
-        maxActive = Math.max(maxActive, active);
-        await new Promise((resolve) => setTimeout(resolve, 0));
-        active -= 1;
-        return { exitCode: 0, stdout: plan.nodeId };
-      },
-      task: "parallel",
-      workflowId: "limited",
-      worktreePath: project,
-    });
+        const result = await runPipelineFromConfig({
+          config,
+          executor: async (plan) => {
+            active += 1;
+            maxActive = Math.max(maxActive, active);
+            await delay(0);
+            active -= 1;
+            return { exitCode: 0, stdout: plan.nodeId };
+          },
+          task: "parallel",
+          workflowId: "limited",
+          worktreePath: project,
+        });
 
-    expect(result.outcome).toBe("PASS");
-    expect(maxActive).toBe(1);
-  });
+        expect(result.outcome).toBe("PASS");
+        expect(maxActive).toBe(1);
+      })
+  );
 
   it("stops a ready batch when fail_fast is enabled", async () => {
     const project = tempProject();
@@ -807,7 +971,9 @@ runners:
       kind: "artifact",
       passed: false,
     });
-    expect(result.agentInvocations.map((plan) => plan.nodeId)).toEqual(["produce"]);
+    expect(result.agentInvocations.map((plan) => plan.nodeId)).toEqual([
+      "produce",
+    ]);
   });
 
   it("retries failed gated nodes", async () => {
@@ -901,14 +1067,16 @@ runners:
     const result = await runPipelineFromConfig({
       config,
       executor: executor({ flaky: "done" }),
-      reporter: (event) => events.push(event),
+      reporter: captureEvents(events),
       task: "retry observability",
       workflowId: "retry-observability",
       worktreePath: project,
     });
 
     expect(result.outcome).toBe("PASS");
-    expect(events.filter((event) => event.type === "runtime.observability")).toEqual(
+    expect(
+      events.filter((event) => event.type === "runtime.observability")
+    ).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
           name: "runtime.hook.started",
@@ -929,7 +1097,7 @@ runners:
           summary: "node flaky retry scheduled for attempt 2 (gate_failure)",
           type: "runtime.observability",
         }),
-      ]),
+      ])
     );
     expect(JSON.stringify(events)).not.toContain('snapshot":{"');
   });
@@ -992,7 +1160,7 @@ runners:
     expect(mockExeca).toHaveBeenCalledWith(
       "uvx",
       ["semgrep", "scan", "--config=p/ci", "--error", "--", "src/app.ts"],
-      expect.objectContaining({ cwd: project }),
+      expect.objectContaining({ cwd: project })
     );
   });
 
@@ -1021,10 +1189,26 @@ runners:
         writeProjectFile(project, "src/app.ts", "export const value = 2;\n");
         // Supervisor run-state written into the worktree WHILE the node runs;
         // none of it is on the allow list. Before PIPE-85 these failed the gate.
-        writeProjectFile(project, ".pipeline/runs/run-fixture/status.json", '{"status":"running"}\n');
-        writeProjectFile(project, ".pipeline/runs/run-fixture/runtime-events.jsonl", "{}\n");
-        writeProjectFile(project, ".pipeline/runs/run-fixture/nodes/green-edit/stdout.jsonl", "{}\n");
-        writeProjectFile(project, ".pipeline/journal/run-fixture.jsonl", "{}\n");
+        writeProjectFile(
+          project,
+          ".pipeline/runs/run-fixture/status.json",
+          '{"status":"running"}\n'
+        );
+        writeProjectFile(
+          project,
+          ".pipeline/runs/run-fixture/runtime-events.jsonl",
+          "{}\n"
+        );
+        writeProjectFile(
+          project,
+          ".pipeline/runs/run-fixture/nodes/green-edit/stdout.jsonl",
+          "{}\n"
+        );
+        writeProjectFile(
+          project,
+          ".pipeline/journal/run-fixture.jsonl",
+          "{}\n"
+        );
         return { exitCode: 0, stdout: "done" };
       },
       task: "run-state gate",
@@ -1033,8 +1217,12 @@ runners:
     });
 
     expect(result.outcome, JSON.stringify(result, null, 2)).toBe("PASS");
-    expect(result.nodes.find((node) => node.nodeId === "green-edit")).toMatchObject({ status: "passed" });
-    const changedGate = result.gates.find((gate) => gate.gateId === "changed-policy");
+    expect(
+      result.nodes.find((node) => node.nodeId === "green-edit")
+    ).toMatchObject({ status: "passed" });
+    const changedGate = result.gates.find(
+      (gate) => gate.gateId === "changed-policy"
+    );
     expect(changedGate).toMatchObject({
       kind: "changed_files",
       passed: true,
@@ -1067,7 +1255,7 @@ runners:
     const result = await runPipelineFromConfig({
       config,
       executor: executor({ flaky: "done" }),
-      reporter: (event) => events.push(event),
+      reporter: captureEvents(events),
       task: "retry",
       workflowId: "retry-flow",
       worktreePath: project,
@@ -1076,7 +1264,9 @@ runners:
     expect(result.outcome).toBe("FAIL");
     expect(result.nodes[0]).toMatchObject({ attempts: 1, status: "failed" });
     expect(mockExeca).toHaveBeenCalledTimes(1);
-    expect(events.filter((event) => event.type === "runtime.observability")).toEqual(
+    expect(
+      events.filter((event) => event.type === "runtime.observability")
+    ).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
           level: "warn",
@@ -1085,7 +1275,7 @@ runners:
           summary: "node flaky retry exhausted after attempt 1 (gate_failure)",
           type: "runtime.observability",
         }),
-      ]),
+      ])
     );
   });
 
@@ -1122,7 +1312,11 @@ runners:
 
     expect(result.outcome).toBe("PASS");
     expect(timeouts).toEqual([1234]);
-    expect(mockExeca).toHaveBeenCalledWith("node", ["slow.js"], expect.objectContaining({ timeout: 2345 }));
+    expect(mockExeca).toHaveBeenCalledWith(
+      "node",
+      ["slow.js"],
+      expect.objectContaining({ timeout: 2345 })
+    );
   });
 
   it("retries timed-out command nodes when retry_on includes timeout", async () => {
@@ -1197,7 +1391,9 @@ runners:
 
     const node = result.nodes.find((entry) => entry.nodeId === "structured");
     expect(node).toMatchObject({ exitCode: 70, status: "failed" });
-    expect(result.gates.find((gate) => gate.kind === "json_schema")).toBeUndefined();
+    expect(
+      result.gates.find((gate) => gate.kind === "json_schema")
+    ).toBeUndefined();
   });
 
   it("validates package standard implementation output without repo-local schema files", async () => {
@@ -1217,7 +1413,7 @@ runners:
           repair: { enabled: false },
           schema_path: ".pipeline/schemas/implementation.schema.json",
         },
-      },
+      }
     );
 
     const result = await runPipelineFromConfig({
@@ -1279,7 +1475,7 @@ runners:
           repair: { enabled: false },
           schema_path: ".pipeline/schemas/implementation.schema.json",
         },
-      },
+      }
     );
 
     const result = await runPipelineFromConfig({
@@ -1318,7 +1514,7 @@ runners:
         properties: { id: { format: "uuid", type: "string" } },
         required: ["id"],
         type: "object",
-      }),
+      })
     );
     const config = withProfilePatch(
       baseConfig(`
@@ -1335,7 +1531,7 @@ runners:
           repair: { enabled: false },
           schema_path: "schema.json",
         },
-      },
+      }
     );
 
     const result = await runPipelineFromConfig({
@@ -1368,7 +1564,7 @@ runners:
         type: "opencode",
       }),
       "structured",
-      { runner: "opencode" },
+      { runner: "opencode" }
     );
     const { project } = fixture;
     const opencodeEvents = [
@@ -1398,7 +1594,9 @@ runners:
 
     expect(result.outcome).toBe("PASS");
     expect(result.nodes[0].output).toBe('{"verdict":"PASS"}');
-    expect(result.nodes[0].evidence).toContain("selected valid structured output for structured");
+    expect(result.nodes[0].evidence).toContain(
+      "selected valid structured output for structured"
+    );
     expect(result.agentInvocations).toHaveLength(1);
   });
 
@@ -1431,7 +1629,10 @@ runners:
         seen.push(plan);
         return {
           exitCode: 0,
-          stdout: plan.nodeId === "structured:output-repair" ? '```json\n{"verdict":"PASS"}\n```' : "verdict is pass",
+          stdout:
+            plan.nodeId === "structured:output-repair"
+              ? '```json\n{"verdict":"PASS"}\n```'
+              : "verdict is pass",
         };
       },
       task: "schema",
@@ -1441,12 +1642,17 @@ runners:
 
     expect(result.outcome).toBe("PASS");
     expect(result.nodes[0].output).toBe('{"verdict":"PASS"}');
-    expect(result.nodes[0].evidence).toContain("output repair passed for structured after attempt 1");
+    expect(result.nodes[0].evidence).toContain(
+      "output repair passed for structured after attempt 1"
+    );
     expect(result.gates[0]).toMatchObject({
       kind: "json_schema",
       passed: true,
     });
-    expect(seen.map((plan) => plan.nodeId)).toEqual(["structured", "structured:output-repair"]);
+    expect(seen.map((plan) => plan.nodeId)).toEqual([
+      "structured",
+      "structured:output-repair",
+    ]);
     expect(seen[1]).toMatchObject({
       outputFormat: "text",
       profileId: "structured:output-repair",
@@ -1462,7 +1668,10 @@ runners:
       config,
       executor: (plan) => ({
         exitCode: 0,
-        stdout: plan.nodeId === "structured:output-repair" ? '{"verdict":"FAIL"}' : "verdict is pass",
+        stdout:
+          plan.nodeId === "structured:output-repair"
+            ? '{"verdict":"FAIL"}'
+            : "verdict is pass",
       }),
       task: "schema",
       workflowId: "structured-flow",
@@ -1470,7 +1679,9 @@ runners:
     });
 
     expect(result.outcome).toBe("FAIL");
-    expect(result.nodes[0].evidence).toContain("output repair failed for structured after attempt 1");
+    expect(result.nodes[0].evidence).toContain(
+      "output repair failed for structured after attempt 1"
+    );
     expect(result.gates[0]).toMatchObject({
       kind: "json_schema",
       passed: false,
@@ -1555,7 +1766,7 @@ runners:
         "acceptance criterion 'AC2' verdict 'FAIL'",
         "extra acceptance criterion 'EXTRA'",
         "missing acceptance criterion 'AC3'",
-      ]),
+      ])
     );
     // Structured refusal (PIPE-90.1): the failed gate carries one actionable
     // unmet entry per criterion, not just the flat evidence strings.
@@ -1576,7 +1787,7 @@ runners:
           evidence: ["criterion 'AC3' absent from acceptance report"],
           reason: "missing acceptance criterion 'AC3'",
         },
-      ]),
+      ])
     );
   });
 
@@ -1603,7 +1814,7 @@ runners:
     const runtimeConfig = withProfilePatch(
       withProfilePatch(config, "a", { scheduling_roles: ["implementation"] }),
       "b",
-      { scheduling_roles: ["coverage"] },
+      { scheduling_roles: ["coverage"] }
     );
     const seen: RunnerLaunchPlan[] = [];
     let reviewAttempt = 0;
@@ -1639,13 +1850,15 @@ runners:
                     ],
                     evidence: ["all criteria pass after remediation"],
                     verdict: "PASS",
-                  },
+                  }
             ),
           };
         }
         return {
           exitCode: 0,
-          stdout: plan.nodeId.includes(":remediate:") ? "remediated implementation output" : "implementation output",
+          stdout: plan.nodeId.includes(":remediate:")
+            ? "remediated implementation output"
+            : "implementation output",
         };
       },
       task: "acceptance remediation",
@@ -1657,7 +1870,12 @@ runners:
     });
 
     expect(result.outcome).toBe("PASS");
-    expect(seen.map((plan) => plan.nodeId)).toEqual(["implement", "review", "implement:remediate:review:1", "review"]);
+    expect(seen.map((plan) => plan.nodeId)).toEqual([
+      "implement",
+      "review",
+      "implement:remediate:review:1",
+      "review",
+    ]);
     expect(seen[2]?.args.join("\n")).toContain("Coverage failure feedback:");
     expect(seen[2]?.args.join("\n")).toContain("acceptance criterion 'AC1'");
     expect(result.nodeStates.review).toMatchObject({
@@ -1697,7 +1915,7 @@ runners:
     const runtimeConfig = withProfilePatch(
       withProfilePatch(config, "a", { scheduling_roles: ["implementation"] }),
       "b",
-      { scheduling_roles: ["coverage"] },
+      { scheduling_roles: ["coverage"] }
     );
     const seen: string[] = [];
     let reviewAttempt = 0;
@@ -1713,15 +1931,19 @@ runners:
             stdout: JSON.stringify(
               reviewAttempt === 1
                 ? {
-                    acceptance: [{ evidence: ["fails"], id: "AC1", verdict: "FAIL" }],
+                    acceptance: [
+                      { evidence: ["fails"], id: "AC1", verdict: "FAIL" },
+                    ],
                     evidence: ["AC1 fails"],
                     verdict: "FAIL",
                   }
                 : {
-                    acceptance: [{ evidence: ["passes"], id: "AC1", verdict: "PASS" }],
+                    acceptance: [
+                      { evidence: ["passes"], id: "AC1", verdict: "PASS" },
+                    ],
                     evidence: ["AC1 passes"],
                     verdict: "PASS",
-                  },
+                  }
             ),
           };
         }
@@ -1787,7 +2009,7 @@ runners:
     const runtimeConfig = withProfilePatch(
       withProfilePatch(config, "a", { scheduling_roles: ["implementation"] }),
       "b",
-      { scheduling_roles: ["coverage"] },
+      { scheduling_roles: ["coverage"] }
     );
     const seen: string[] = [];
     let reviewAttempt = 0;
@@ -1803,15 +2025,19 @@ runners:
             stdout: JSON.stringify(
               reviewAttempt === 1
                 ? {
-                    acceptance: [{ evidence: ["fails"], id: "AC1", verdict: "FAIL" }],
+                    acceptance: [
+                      { evidence: ["fails"], id: "AC1", verdict: "FAIL" },
+                    ],
                     evidence: ["AC1 fails"],
                     verdict: "FAIL",
                   }
                 : {
-                    acceptance: [{ evidence: ["passes"], id: "AC1", verdict: "PASS" }],
+                    acceptance: [
+                      { evidence: ["passes"], id: "AC1", verdict: "PASS" },
+                    ],
                     evidence: ["AC1 passes"],
                     verdict: "PASS",
-                  },
+                  }
             ),
           };
         }
@@ -1865,7 +2091,7 @@ runners:
     const runtimeConfig = withProfilePatch(
       withProfilePatch(config, "a", { scheduling_roles: ["implementation"] }),
       "b",
-      { scheduling_roles: ["coverage"] },
+      { scheduling_roles: ["coverage"] }
     );
     const seen: RunnerLaunchPlan[] = [];
 
@@ -1875,7 +2101,9 @@ runners:
         seen.push(plan);
         return {
           exitCode: 0,
-          stdout: plan.nodeId.includes(":remediate:") ? "remediated implementation output" : "node output",
+          stdout: plan.nodeId.includes(":remediate:")
+            ? "remediated implementation output"
+            : "node output",
         };
       },
       task: "builtin remediation",
@@ -1884,11 +2112,20 @@ runners:
     });
 
     expect(result.outcome).toBe("PASS");
-    expect(seen.map((plan) => plan.nodeId)).toEqual(["implement", "verify", "implement:remediate:verify:1", "verify"]);
+    expect(seen.map((plan) => plan.nodeId)).toEqual([
+      "implement",
+      "verify",
+      "implement:remediate:verify:1",
+      "verify",
+    ]);
     const remediationPrompt = seen[2]?.args.join("\n") ?? "";
     expect(remediationPrompt).toContain("Failed gate:\nverify-typecheck");
-    expect(remediationPrompt).toContain("builtin 'typecheck' exited 1: node -e process.exit(1)");
-    expect(remediationPrompt).toContain("builtin 'typecheck' produced no output");
+    expect(remediationPrompt).toContain(
+      "builtin 'typecheck' exited 1: node -e process.exit(1)"
+    );
+    expect(remediationPrompt).toContain(
+      "builtin 'typecheck' produced no output"
+    );
   });
 
   it("mechanical remediation remediates upstream implementation nodes when downstream mechanical nodes fail", async () => {
@@ -1897,7 +2134,8 @@ runners:
     mockExeca
       .mockRejectedValueOnce({
         exitCode: 1,
-        stderr: "eslint(require-await): Async function has no `await` expression.",
+        stderr:
+          "eslint(require-await): Async function has no `await` expression.",
         stdout: "",
       })
       .mockResolvedValueOnce({ exitCode: 0, stderr: "", stdout: "ok" });
@@ -1923,7 +2161,9 @@ runners:
         seen.push(plan);
         return {
           exitCode: 0,
-          stdout: plan.nodeId.includes(":remediate:") ? "removed async keyword" : "implementation output",
+          stdout: plan.nodeId.includes(":remediate:")
+            ? "removed async keyword"
+            : "implementation output",
         };
       },
       task: "mechanical remediation",
@@ -1932,11 +2172,16 @@ runners:
     });
 
     expect(result.outcome).toBe("PASS");
-    expect(seen.map((plan) => plan.nodeId)).toEqual(["implement", "implement:remediate:mechanical-lint:1"]);
+    expect(seen.map((plan) => plan.nodeId)).toEqual([
+      "implement",
+      "implement:remediate:mechanical-lint:1",
+    ]);
     const remediationPrompt = seen[1]?.args.join("\n") ?? "";
     expect(remediationPrompt).toContain("Coverage node:\nmechanical-lint");
     expect(remediationPrompt).toContain("Failed gate:\nmechanical-lint");
-    expect(remediationPrompt).toContain("eslint(require-await): Async function has no `await` expression.");
+    expect(remediationPrompt).toContain(
+      "eslint(require-await): Async function has no `await` expression."
+    );
     expect(result.nodeStates["mechanical-lint"]).toMatchObject({
       attempts: 2,
       status: "passed",
@@ -1949,7 +2194,8 @@ runners:
     mockExeca
       .mockRejectedValueOnce({
         exitCode: 1,
-        stderr: "eslint(require-await): Async function has no `await` expression.",
+        stderr:
+          "eslint(require-await): Async function has no `await` expression.",
         stdout: "",
       })
       .mockResolvedValueOnce({ exitCode: 0, stderr: "", stdout: "ok" });
@@ -1989,7 +2235,9 @@ runners:
       nodeId: "mechanical-lint",
       status: "passed",
     });
-    expect(seen.map((plan) => plan.nodeId)).toEqual(["implement:remediate:mechanical-lint:1"]);
+    expect(seen.map((plan) => plan.nodeId)).toEqual([
+      "implement:remediate:mechanical-lint:1",
+    ]);
   });
 
   it("injects stdout gate JSON contracts into agent prompts", async () => {
@@ -2017,7 +2265,9 @@ runners:
         return {
           exitCode: 0,
           stdout: JSON.stringify({
-            acceptance: [{ evidence: ["reviewed AC1"], id: "AC1", verdict: "PASS" }],
+            acceptance: [
+              { evidence: ["reviewed AC1"], id: "AC1", verdict: "PASS" },
+            ],
             evidence: ["reviewed all criteria"],
             verdict: "PASS",
           }),
@@ -2111,9 +2361,12 @@ runners:
     expect(prompt).toContain("- AC1: Do the thing");
   });
 
-  it("runs parallel container children concurrently and honors maxParallelNodes", async () => {
-    const project = tempProject();
-    const config = baseConfig(`
+  it.live(
+    "runs parallel container children concurrently and honors maxParallelNodes",
+    () =>
+      testPromise(async () => {
+        const project = tempProject();
+        const config = baseConfig(`
   parallel-container:
     nodes:
       - id: fanout
@@ -2129,42 +2382,43 @@ runners:
             kind: agent
             profile: b
 `);
-    const seen: string[] = [];
-    let active = 0;
-    let maxActive = 0;
+        const seen: string[] = [];
+        let active = 0;
+        let maxActive = 0;
 
-    const result = await runPipelineFromConfig({
-      config,
-      executor: async (plan) => {
-        active += 1;
-        maxActive = Math.max(maxActive, active);
-        seen.push(plan.nodeId);
-        await new Promise((resolve) => setTimeout(resolve, 10));
-        active -= 1;
-        return { exitCode: 0, stdout: `${plan.nodeId} output` };
-      },
-      maxParallelNodes: 2,
-      task: "parallel container",
-      workflowId: "parallel-container",
-      worktreePath: project,
-    });
+        const result = await runPipelineFromConfig({
+          config,
+          executor: async (plan) => {
+            active += 1;
+            maxActive = Math.max(maxActive, active);
+            seen.push(plan.nodeId);
+            await delay(10);
+            active -= 1;
+            return { exitCode: 0, stdout: `${plan.nodeId} output` };
+          },
+          maxParallelNodes: 2,
+          task: "parallel container",
+          workflowId: "parallel-container",
+          worktreePath: project,
+        });
 
-    const fanout = result.nodes.find((node) => node.nodeId === "fanout");
-    if (!fanout) {
-      throw new Error("Expected fanout container result");
-    }
+        const fanout = result.nodes.find((node) => node.nodeId === "fanout");
+        if (!fanout) {
+          throw new Error("Expected fanout container result");
+        }
 
-    expect(result.outcome).toBe("PASS");
-    expect(seen.toSorted()).toEqual(["left", "middle", "right"]);
-    expect(maxActive).toBe(2);
-    expect(JSON.parse(fanout.output)).toEqual({
-      children: {
-        left: "left output",
-        middle: "middle output",
-        right: "right output",
-      },
-    });
-  });
+        expect(result.outcome).toBe("PASS");
+        expect(seen.toSorted()).toEqual(["left", "middle", "right"]);
+        expect(maxActive).toBe(2);
+        expect(JSON.parse(fanout.output)).toEqual({
+          children: {
+            left: "left output",
+            middle: "middle output",
+            right: "right output",
+          },
+        });
+      })
+  );
 
   it("runs a scheduled task addressed to a child of a planned parallel node", async () => {
     const project = tempProject();
@@ -2251,9 +2505,12 @@ runners:
     expect(result.nodeStates.fanout).toMatchObject({ status: "failed" });
   });
 
-  it("stops pending parallel siblings and aborts running siblings when failFast is enabled", async () => {
-    const project = tempProject();
-    const config = baseConfig(`
+  it.live(
+    "stops pending parallel siblings and aborts running siblings when failFast is enabled",
+    () =>
+      testPromise(async () => {
+        const project = tempProject();
+        const config = baseConfig(`
   fail-fast-parallel:
     execution:
       fail_fast: true
@@ -2271,50 +2528,47 @@ runners:
             kind: agent
             profile: a
 `);
-    const started: string[] = [];
-    let slowAbortObserved = false;
+        const started: string[] = [];
+        let slowAbortObserved = false;
 
-    const result = await runPipelineFromConfig({
-      config,
-      executor: async (plan, options) => {
-        started.push(plan.nodeId);
-        if (plan.nodeId === "fail") {
-          await new Promise((resolve) => setTimeout(resolve, 0));
-          return { exitCode: 1, stdout: "failed" };
-        }
-        if (plan.nodeId === "slow") {
-          return await new Promise((resolve) => {
-            options.signal?.addEventListener(
-              "abort",
-              () => {
-                slowAbortObserved = true;
-                resolve({ exitCode: 1, stdout: "aborted" });
-              },
-              { once: true },
-            );
-            setTimeout(() => {
-              resolve({ exitCode: 0, stdout: "slow done" });
-            }, 50);
-          });
-        }
-        return { exitCode: 0, stdout: "pending should not start" };
-      },
-      maxParallelNodes: 2,
-      task: "parallel container",
-      workflowId: "fail-fast-parallel",
-      worktreePath: project,
-    });
+        const result = await runPipelineFromConfig({
+          config,
+          executor: async (plan, options) => {
+            started.push(plan.nodeId);
+            if (plan.nodeId === "fail") {
+              await delay(0);
+              return { exitCode: 1, stdout: "failed" };
+            }
+            if (plan.nodeId === "slow") {
+              return await abortOrDelayResult(
+                Option.fromUndefinedOr(options.signal),
+                () => {
+                  slowAbortObserved = true;
+                },
+                { exitCode: 1, stdout: "aborted" },
+                { exitCode: 0, stdout: "slow done" },
+                50
+              );
+            }
+            return { exitCode: 0, stdout: "pending should not start" };
+          },
+          maxParallelNodes: 2,
+          task: "parallel container",
+          workflowId: "fail-fast-parallel",
+          worktreePath: project,
+        });
 
-    expect(result.outcome).toBe("FAIL");
-    expect(started).toEqual(expect.arrayContaining(["fail", "slow"]));
-    expect(started).not.toContain("pending");
-    expect(slowAbortObserved).toBe(true);
-    expect(result.nodeStates.fanout).toMatchObject({ status: "failed" });
-  });
+        expect(result.outcome).toBe("FAIL");
+        expect(started).toEqual(expect.arrayContaining(["fail", "slow"]));
+        expect(started).not.toContain("pending");
+        expect(slowAbortObserved).toBe(true);
+        expect(result.nodeStates.fanout).toMatchObject({ status: "failed" });
+      })
+  );
 
   it("emits parallel container lifecycle and prefixed child reporter events", async () => {
     const project = tempProject();
-    const events: Record<string, unknown>[] = [];
+    const events: PipelineRuntimeEvent[] = [];
     const config = baseConfig(`
   parallel-events:
     nodes:
@@ -2332,7 +2586,7 @@ runners:
     const result = await runPipelineFromConfig({
       config,
       executor: (plan) => ({ exitCode: 0, stdout: `${plan.nodeId} ok` }),
-      reporter: (event) => events.push(event),
+      reporter: captureEvents(events),
       task: "parallel events",
       workflowId: "parallel-events",
       worktreePath: project,
@@ -2365,7 +2619,7 @@ runners:
           status: "passed",
           type: "node.finish",
         }),
-      ]),
+      ])
     );
   });
 
@@ -2399,7 +2653,10 @@ runners:
 
     expect(result.outcome).toBe("FAIL");
     expect(result.gates[0].evidence).toEqual(
-      expect.arrayContaining(["denied changes: src/app.ts", "missing required changes matching: tests/**/*.test.ts"]),
+      expect.arrayContaining([
+        "denied changes: src/app.ts",
+        "missing required changes matching: tests/**/*.test.ts",
+      ])
     );
   });
 
@@ -2439,9 +2696,14 @@ runners:
     });
 
     expect(result.outcome).toBe("PASS");
-    expect(seen.map((plan) => plan.nodeId)).toEqual(["writer", "writer:remediate:tests-only:1"]);
+    expect(seen.map((plan) => plan.nodeId)).toEqual([
+      "writer",
+      "writer:remediate:tests-only:1",
+    ]);
     expect(seen[1]?.args.join("\n")).toContain("Gate failure feedback:");
-    expect(seen[1]?.args.join("\n")).toContain("missing required changes matching: tests/**/*.test.ts");
+    expect(seen[1]?.args.join("\n")).toContain(
+      "missing required changes matching: tests/**/*.test.ts"
+    );
     expect(result.nodeStates.writer).toMatchObject({
       attempts: 2,
       status: "passed",
@@ -2482,7 +2744,9 @@ runners:
     });
 
     expect(result.outcome).toBe("PASS");
-    expect(result.gates[0].evidence).toEqual(["changed files: tests/existing.test.ts"]);
+    expect(result.gates[0].evidence).toEqual([
+      "changed files: tests/existing.test.ts",
+    ]);
   });
 
   it("counts an already-dirty tracked test file even when the node restores it to clean", async () => {
@@ -2495,8 +2759,16 @@ runners:
     });
     execFileSync(
       "git",
-      ["-c", "user.email=pipeline@example.invalid", "-c", "user.name=Pipeline Test", "commit", "-m", "baseline"],
-      { cwd: project, stdio: "ignore" },
+      [
+        "-c",
+        "user.email=pipeline@example.invalid",
+        "-c",
+        "user.name=Pipeline Test",
+        "commit",
+        "-m",
+        "baseline",
+      ],
+      { cwd: project, stdio: "ignore" }
     );
     writeProjectFile(project, "tests/existing.test.ts", "dirty before\n");
     const config = baseConfig(`
@@ -2524,7 +2796,9 @@ runners:
     });
 
     expect(result.outcome).toBe("PASS");
-    expect(result.gates[0].evidence).toEqual(["changed files: tests/existing.test.ts"]);
+    expect(result.gates[0].evidence).toEqual([
+      "changed files: tests/existing.test.ts",
+    ]);
   });
 
   it("runs command hooks with file input and required failure semantics", async () => {
@@ -2599,7 +2873,7 @@ runners:
           PIPELINE_HOOK_INPUT: expect.any(String),
           PIPELINE_HOOK_RESULT: expect.any(String),
         }),
-      }),
+      })
     );
     expect(result.agentInvocations).toEqual([]);
   });
@@ -2668,7 +2942,10 @@ runners:
     });
 
     expect(result.outcome).toBe("PASS");
-    expect(mockExeca.mock.calls.map((call) => call[1]?.[0])).toEqual(["orchestrator", "workflow"]);
+    expect(mockExeca.mock.calls.map((call) => call[1][0])).toEqual([
+      "orchestrator",
+      "workflow",
+    ]);
   });
 
   it("enforces hook trust policy, sanitized env, output limits, and JSON stdin payloads", async () => {
@@ -2749,7 +3026,7 @@ runners:
         }),
         extendEnv: false,
         maxBuffer: 4,
-      }),
+      })
     );
   });
 
@@ -2810,7 +3087,9 @@ runners:
     });
 
     expect(result.outcome).toBe("FAIL");
-    expect(result.hookFailures[0].evidence).toContain("command hook is not trusted");
+    expect(result.hookFailures[0].evidence).toContain(
+      "command hook is not trusted"
+    );
     expect(mockExeca).not.toHaveBeenCalled();
   });
 
@@ -2831,7 +3110,7 @@ export default async function audit(ctx) {
     }
   };
 }
-`,
+`
     );
     writeProjectFile(
       project,
@@ -2852,7 +3131,7 @@ export default async function audit(ctx) {
         },
         required: ["status", "outputs"],
         type: "object",
-      }),
+      })
     );
     const config = parsePipelineConfigParts(
       {
@@ -2906,14 +3185,14 @@ runners:
       output_formats: [text]
 `,
       },
-      project,
+      project
     );
     const events: PipelineRuntimeEvent[] = [];
 
     const result = await runPipelineFromConfig({
       config,
       executor: executor({ a: "ok" }),
-      reporter: (event) => events.push(event),
+      reporter: captureEvents(events),
       task: "module hook task",
       workflowId: "module-hooks",
       worktreePath: project,
@@ -2936,7 +3215,7 @@ runners:
           type: "hook.result",
           workflowId: "module-hooks",
         }),
-      ]),
+      ])
     );
   });
 
@@ -2997,10 +3276,17 @@ runners:
 `,
     });
     mockExeca.mockImplementationOnce((_command, _args, options) => {
-      const env = options?.env as Record<string, string>;
+      if (!options?.env) {
+        throw new PipelineRuntimeTestError({
+          message: "Expected command hook env",
+        });
+      }
+      const { env } = options;
       expect(env.PIPELINE_HOOK_INPUT).toBeTruthy();
       expect(env.PIPELINE_HOOK_RESULT).toBeTruthy();
-      const payload = JSON.parse(readFileSync(env.PIPELINE_HOOK_INPUT, "utf-8"));
+      const payload = JSON.parse(
+        readFileSync(env.PIPELINE_HOOK_INPUT, "utf-8")
+      );
       expect(payload.node.id).toBe("a");
       writeFileSync(
         env.PIPELINE_HOOK_RESULT,
@@ -3008,7 +3294,7 @@ runners:
           outputs: { messageId: "msg_123" },
           status: "pass",
           summary: "Published node summary",
-        }),
+        })
       );
       return { exitCode: 0, stderr: "", stdout: "ignored" };
     });
@@ -3017,7 +3303,7 @@ runners:
     const result = await runPipelineFromConfig({
       config,
       executor: executor({ a: "ok" }),
-      reporter: (event) => events.push(event),
+      reporter: captureEvents(events),
       task: "command hook task",
       workflowId: "command-hooks",
       worktreePath: project,
@@ -3037,7 +3323,7 @@ runners:
           type: "hook.result",
           workflowId: "command-hooks",
         }),
-      ]),
+      ])
     );
   });
 
@@ -3096,7 +3382,7 @@ runners:
 `,
     });
     mockExeca.mockImplementation(commandHookSuccess("ok"));
-    const events: Record<string, unknown>[] = [];
+    const events: PipelineRuntimeEvent[] = [];
 
     const result = await runPipelineFromConfig({
       config,
@@ -3104,7 +3390,7 @@ runners:
         writeProjectFile(project, "out/result.txt", "artifact");
         return { exitCode: 0, stdout: `${plan.nodeId} ok` };
       },
-      reporter: (event) => events.push(event),
+      reporter: captureEvents(events),
       task: "lifecycle task",
       workflowId: "lifecycle",
       worktreePath: project,
@@ -3212,7 +3498,7 @@ runners:
           type: "workflow.finish",
           workflowId: "lifecycle",
         }),
-      ]),
+      ])
     );
     const indexOf = (type: string) => events.findIndex((e) => e.type === type);
     expect(indexOf("workflow.planned")).toBeLessThan(indexOf("workflow.start"));
@@ -3220,17 +3506,21 @@ runners:
     expect(indexOf("hook.start")).toBeLessThan(indexOf("hook.finish"));
     expect(indexOf("node.start")).toBeLessThan(indexOf("agent.start"));
     expect(indexOf("agent.start")).toBeLessThan(indexOf("agent.finish"));
-    expect(indexOf("agent.finish")).toBeLessThan(indexOf("node.output.recorded"));
+    expect(indexOf("agent.finish")).toBeLessThan(
+      indexOf("node.output.recorded")
+    );
     expect(indexOf("agent.finish")).toBeLessThan(indexOf("gate.start"));
     expect(indexOf("gate.start")).toBeLessThan(indexOf("gate.finish"));
-    expect(indexOf("artifact.check.start")).toBeLessThan(indexOf("artifact.check.finish"));
+    expect(indexOf("artifact.check.start")).toBeLessThan(
+      indexOf("artifact.check.finish")
+    );
     expect(indexOf("node.finish")).toBeLessThan(indexOf("workflow.finish"));
   });
 
   it("returns a structured cancelled outcome and does not schedule dependent nodes after abort", async () => {
     const project = tempProject();
     const controller = new AbortController();
-    const events: Record<string, unknown>[] = [];
+    const events: PipelineRuntimeEvent[] = [];
     const seen: string[] = [];
 
     const result = await runPipelineFromConfig({
@@ -3240,7 +3530,7 @@ runners:
         controller.abort();
         return { exitCode: 0, stdout: "aborted after first node" };
       },
-      reporter: (event) => events.push(event),
+      reporter: captureEvents(events),
       signal: controller.signal,
       task: "cancel",
       worktreePath: project,
@@ -3252,10 +3542,12 @@ runners:
     expect(result.failureDetails).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          evidence: expect.arrayContaining([expect.stringMatching(CANCEL_PATTERN)]),
+          evidence: expect.arrayContaining([
+            expect.stringMatching(CANCEL_PATTERN),
+          ]),
           reason: expect.stringMatching(CANCEL_PATTERN),
         }),
-      ]),
+      ])
     );
     expect(result.gates).toEqual([]);
     expect(events).toEqual(
@@ -3265,7 +3557,7 @@ runners:
           type: "workflow.finish",
           workflowId: "default",
         }),
-      ]),
+      ])
     );
   });
 
@@ -3318,7 +3610,7 @@ runners:
     expect(mockExeca).toHaveBeenCalledWith(
       "agent-bin",
       expect.any(Array),
-      expect.objectContaining({ cancelSignal: controller.signal }),
+      expect.objectContaining({ cancelSignal: controller.signal })
     );
   });
 
@@ -3391,17 +3683,20 @@ runners:
       expect(mockExeca).toHaveBeenCalledWith(
         command,
         expect.any(Array),
-        expect.objectContaining({ cancelSignal: controller.signal }),
+        expect.objectContaining({ cancelSignal: controller.signal })
       );
     }
   });
 
-  it("returns CANCELLED when an execa-backed command node is aborted", async () => {
-    const project = tempProject();
-    const controller = new AbortController();
-    const events: Record<string, unknown>[] = [];
-    const config = parsePipelineConfigParts({
-      pipeline: `
+  it.live(
+    "returns CANCELLED when an execa-backed command node is aborted",
+    () =>
+      testPromise(async () => {
+        const project = tempProject();
+        const controller = new AbortController();
+        const events: PipelineRuntimeEvent[] = [];
+        const config = parsePipelineConfigParts({
+          pipeline: `
 version: 1
 default_workflow: cancel-flow
 orchestrator:
@@ -3417,7 +3712,7 @@ workflows:
         command: [dependent-bin]
         needs: [wait]
 `,
-      profiles: `
+          profiles: `
 version: 1
 profiles:
   orchestrator:
@@ -3425,7 +3720,7 @@ profiles:
     instructions: { inline: Orchestrate }
     tools: []
 `,
-      runners: `
+          runners: `
 version: 1
 runners:
   opencode:
@@ -3435,50 +3730,59 @@ runners:
       native_subagents: true
       output_formats: [text]
 `,
-    });
+        });
 
-    mockExeca.mockImplementation(
-      async (_command: string, _args: string[], options: { cancelSignal?: AbortSignal }) =>
-        await new Promise((_resolve, reject) => {
-          options.cancelSignal?.addEventListener("abort", () => {
-            reject(
-              Object.assign(new Error("cancelled"), {
-                exitCode: 1,
-                stdout: "started",
-              }),
-            );
-          });
-          controller.abort();
-        }),
-    );
+        mockExeca.mockImplementation(
+          async (
+            _command: string,
+            _args: string[],
+            options?: ExecaMockOptions
+          ) => {
+            if (!options?.cancelSignal) {
+              throw new PipelineRuntimeTestError({
+                message: "Expected execa cancelSignal",
+              });
+            }
+            return await rejectOnAbort(options.cancelSignal, () => {
+              controller.abort();
+            });
+          }
+        );
 
-    const result = await runPipelineFromConfig({
-      config,
-      reporter: (event) => events.push(event),
-      signal: controller.signal,
-      task: "cancel",
-      workflowId: "cancel-flow",
-      worktreePath: project,
-    } as Parameters<typeof runPipelineFromConfig>[0] & { signal: AbortSignal });
-
-    expect(result.outcome).toBe("CANCELLED");
-    expect(result.nodes.map((node) => node.nodeId)).toEqual(["wait"]);
-    expect(mockExeca).toHaveBeenCalledWith(
-      "wait-bin",
-      expect.any(Array),
-      expect.objectContaining({ cancelSignal: controller.signal }),
-    );
-    expect(mockExeca).not.toHaveBeenCalledWith("dependent-bin", expect.any(Array), expect.any(Object));
-    expect(events).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          outcome: "CANCELLED",
-          type: "workflow.finish",
+        const result = await runPipelineFromConfig({
+          config,
+          reporter: captureEvents(events),
+          signal: controller.signal,
+          task: "cancel",
           workflowId: "cancel-flow",
-        }),
-      ]),
-    );
-  });
+          worktreePath: project,
+        } as Parameters<typeof runPipelineFromConfig>[0] & {
+          signal: AbortSignal;
+        });
+
+        expect(result.outcome).toBe("CANCELLED");
+        expect(result.nodes.map((node) => node.nodeId)).toEqual(["wait"]);
+        expect(mockExeca).toHaveBeenCalledWith(
+          "wait-bin",
+          expect.any(Array),
+          expect.objectContaining({ cancelSignal: controller.signal })
+        );
+        expect(mockExeca).not.toHaveBeenCalledWith(
+          "dependent-bin",
+          expect.any(Array),
+          expect.any(Object)
+        );
+        expect(events).toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({
+              outcome: "CANCELLED",
+              type: "workflow.finish",
+              workflowId: "cancel-flow",
+            }),
+          ])
+        );
+      })
+  );
 
   describe("PIPE-91.3: db.url presence selects journal store", () => {
     it("runs in-memory when global config has no db.url (absent = in-memory)", async () => {

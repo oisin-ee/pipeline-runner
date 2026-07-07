@@ -16,10 +16,11 @@ const TICKET_ID_RE = new RegExp(`\\b(${TICKET_ID_SOURCE})\\b`, "gu");
 export const parseTicketAndDescription = (input: string): TicketResult => {
   const m = input.match(TICKET_RE);
   if (m !== null) {
-    const description = m[2].trim();
+    const [, ticketId, rawDescription = ""] = m;
+    const description = rawDescription.trim();
     return {
-      description: description.length > 0 ? description : m[1],
-      ticketId: m[1],
+      description: description.length > 0 ? description : ticketId,
+      ticketId,
     };
   }
   return { description: input, ticketId: NO_TICKET_ID };
@@ -29,7 +30,7 @@ export const extractTicketIds = (input: string): string[] => {
   const ids: string[] = [];
   const seen = new Set<string>();
   for (const match of input.matchAll(TICKET_ID_RE)) {
-    const id = match[1];
+    const [, id = ""] = match;
     if (id.length === 0 || seen.has(id)) {
       continue;
     }

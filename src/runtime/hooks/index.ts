@@ -1,1 +1,1 @@
-export * from "./hooks";
+export { dispatchHooks } from "./hooks";

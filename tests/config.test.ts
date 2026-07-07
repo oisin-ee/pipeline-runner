@@ -62,7 +62,7 @@ const repoPipelineYamlSchema = struct({
       default: Schema.optional(Schema.Unknown),
       "epic-drain": Schema.optional(Schema.Unknown),
       infra: Schema.optional(Schema.Unknown),
-    }),
+    })
   ),
 });
 const profileYamlSchema = struct({
@@ -71,9 +71,11 @@ const profileYamlSchema = struct({
       allow: Schema.optional(Schema.mutable(Schema.Array(Schema.String))),
       deny: Schema.optional(Schema.mutable(Schema.Array(Schema.String))),
       mode: Schema.optional(Schema.String),
-    }),
+    })
   ),
-  instructions: Schema.optional(struct({ path: Schema.optional(Schema.String) })),
+  instructions: Schema.optional(
+    struct({ path: Schema.optional(Schema.String) })
+  ),
   mcp_servers: Schema.optional(Schema.mutable(Schema.Array(Schema.String))),
   network: Schema.optional(struct({ mode: Schema.optional(Schema.String) })),
   output: Schema.optional(
@@ -83,10 +85,10 @@ const profileYamlSchema = struct({
         struct({
           enabled: Schema.optional(Schema.Boolean),
           max_attempts: Schema.optional(Schema.Number),
-        }),
+        })
       ),
       schema_path: Schema.optional(Schema.String),
-    }),
+    })
   ),
   runner: Schema.optional(Schema.String),
   skills: Schema.optional(Schema.mutable(Schema.Array(Schema.String))),
@@ -99,25 +101,36 @@ const profilesYamlSchema = struct({
       Schema.String,
       struct({
         path: Schema.optional(Schema.String),
-      }),
-    ),
+      })
+    )
   ),
 });
-const jsonSchemaValue = Schema.Union([Schema.Boolean, Schema.Record(Schema.String, Schema.Unknown)]);
+const jsonSchemaValue = Schema.Union([
+  Schema.Boolean,
+  Schema.Record(Schema.String, Schema.Unknown),
+]);
 const unknownJsonString = Schema.fromJsonString(Schema.Unknown);
 
-class ConfigTestError extends Schema.TaggedErrorClass<ConfigTestError>()("ConfigTestError", {
-  message: Schema.String,
-}) {}
+class ConfigTestError extends Schema.TaggedErrorClass<ConfigTestError>()(
+  "ConfigTestError",
+  {
+    message: Schema.String,
+  }
+) {}
 
-const parseRepoPipelineYaml = (source: string) => parseWithSchema(repoPipelineYamlSchema, parse(source));
+const parseRepoPipelineYaml = (source: string) =>
+  parseWithSchema(repoPipelineYamlSchema, parse(source));
 
-const parseProfilesYaml = (source: string) => parseWithSchema(profilesYamlSchema, parse(source));
+const parseProfilesYaml = (source: string) =>
+  parseWithSchema(profilesYamlSchema, parse(source));
 
-const parseJsonWithSchema = <S extends Schema.ConstraintDecoder<unknown>>(schema: S, source: string): S["Type"] =>
-  parseWithSchema(Schema.fromJsonString(schema), source);
+const parseJsonWithSchema = <S extends Schema.ConstraintDecoder<unknown>>(
+  schema: S,
+  source: string
+): S["Type"] => parseWithSchema(Schema.fromJsonString(schema), source);
 
-const parseJsonSchemaValue = (source: string) => parseJsonWithSchema(jsonSchemaValue, source);
+const parseJsonSchemaValue = (source: string) =>
+  parseJsonWithSchema(jsonSchemaValue, source);
 
 const VALID_RUNNERS_YAML = `
 version: 1
@@ -233,7 +246,7 @@ hooks:
 
 const VALID_PIPELINE_WITHOUT_ORCHESTRATOR_YAML = VALID_PIPELINE_YAML.replace(
   "orchestrator:\n  profile: orchestrator\n",
-  "",
+  ""
 );
 
 const VALID_PARTS: PipelineConfigParts = {
@@ -245,6 +258,11 @@ const VALID_PARTS: PipelineConfigParts = {
 let dirnamePath: (path: string) => string;
 let joinPath: (...paths: string[]) => string;
 let tempDirs: string[] = [];
+
+const removePath = async (path: string): Promise<void> => {
+  const { rm } = await import("node:fs/promises");
+  await rm(path, { force: true, recursive: true });
+};
 
 beforeAll(async () => {
   const { dirname, join } = await import("node:path");
@@ -273,16 +291,11 @@ const makeDir = async (path: string): Promise<void> => {
   await mkdir(path, { recursive: true });
 };
 
-const removePath = async (path: string): Promise<void> => {
-  const { rm } = await import("node:fs/promises");
-  await rm(path, { force: true, recursive: true });
-};
-
 const pathExists = async (path: string): Promise<boolean> => {
   const { access } = await import("node:fs/promises");
   return await access(path).then(
     () => true,
-    () => false,
+    () => false
   );
 };
 
@@ -295,23 +308,35 @@ const makeTempDir = async (prefix: string): Promise<string> => {
   return await mkdtemp(join(tmpdir(), prefix));
 };
 
-const encodeJson = (value: unknown): string => Schema.encodeUnknownSync(unknownJsonString)(value);
+const encodeJson = (value: unknown): string =>
+  Schema.encodeUnknownSync(unknownJsonString)(value);
 
 const ensureParentDirectory = async (path: string): Promise<void> => {
   await makeDir(dirnamePath(path));
 };
 
-const writeProjectFile = async (root: string, path: string, content: string): Promise<void> => {
+const writeProjectFile = async (
+  root: string,
+  path: string,
+  content: string
+): Promise<void> => {
   const fullPath = joinPath(root, path);
   await ensureParentDirectory(fullPath);
   await writeText(fullPath, content);
 };
 
-const writeProjectJson = async (root: string, path: string, value: unknown): Promise<void> => {
+const writeProjectJson = async (
+  root: string,
+  path: string,
+  value: unknown
+): Promise<void> => {
   await writeProjectFile(root, path, encodeJson(value));
 };
 
-const makeProject = async (parts: PipelineConfigParts = VALID_PARTS, writeReferencedFiles = true): Promise<string> => {
+const makeProject = async (
+  parts: PipelineConfigParts = VALID_PARTS,
+  writeReferencedFiles = true
+): Promise<string> => {
   const dir = await makeTempDir("pipeline-config-");
   tempDirs.push(dir);
   await Promise.all([
@@ -322,9 +347,21 @@ const makeProject = async (parts: PipelineConfigParts = VALID_PARTS, writeRefere
   if (writeReferencedFiles) {
     await Promise.all([
       writeProjectFile(dir, "rules/test-first.md", "# Test first\n"),
-      writeProjectFile(dir, ".agents/skills/repo-research/SKILL.md", "# Repo research\n"),
-      writeProjectFile(dir, ".pipeline/prompts/orchestrator.md", "Orchestrate this workflow.\n"),
-      writeProjectFile(dir, ".pipeline/prompts/researcher.md", "Research this repository.\n"),
+      writeProjectFile(
+        dir,
+        ".agents/skills/repo-research/SKILL.md",
+        "# Repo research\n"
+      ),
+      writeProjectFile(
+        dir,
+        ".pipeline/prompts/orchestrator.md",
+        "Orchestrate this workflow.\n"
+      ),
+      writeProjectFile(
+        dir,
+        ".pipeline/prompts/researcher.md",
+        "Research this repository.\n"
+      ),
       writeProjectJson(dir, ".pipeline/schemas/research.schema.json", {
         type: "object",
       }),
@@ -333,26 +370,31 @@ const makeProject = async (parts: PipelineConfigParts = VALID_PARTS, writeRefere
   return dir;
 };
 
-const parseParts = (parts: Partial<PipelineConfigParts>) => parsePipelineConfigParts({ ...VALID_PARTS, ...parts });
+const parseParts = (parts: Partial<PipelineConfigParts>) =>
+  parsePipelineConfigParts({ ...VALID_PARTS, ...parts });
 
 const profilesWithGatewayBackends = (backendsYaml: string): string =>
   VALID_PROFILES_YAML.replace(
     "  authorization_env: PIPELINE_MCP_GATEWAY_AUTHORIZATION",
-    `  authorization_env: PIPELINE_MCP_GATEWAY_AUTHORIZATION\n${backendsYaml}`,
+    `  authorization_env: PIPELINE_MCP_GATEWAY_AUTHORIZATION\n${backendsYaml}`
   );
 
-const parseProjectParts = (projectRoot: string, parts: Partial<PipelineConfigParts> = {}) =>
-  parsePipelineConfigParts({ ...VALID_PARTS, ...parts }, projectRoot);
+const parseProjectParts = (
+  projectRoot: string,
+  parts: Partial<PipelineConfigParts> = {}
+) => parsePipelineConfigParts({ ...VALID_PARTS, ...parts }, projectRoot);
 
-const unknownErrorMessage = (error: unknown): string => String(error);
-
-const captureConfigError = async (action: () => unknown): Promise<PipelineConfigError> => {
+const captureConfigError = async (
+  action: () => unknown
+): Promise<PipelineConfigError> => {
   const result = await Promise.resolve()
     .then(action)
     .then(
       () => new ConfigTestError({ message: "Expected PipelineConfigError" }),
       (error: unknown) =>
-        error instanceof PipelineConfigError ? error : new ConfigTestError({ message: unknownErrorMessage(error) }),
+        error instanceof PipelineConfigError
+          ? error
+          : new ConfigTestError({ message: String(error) })
     );
   if (result instanceof PipelineConfigError) {
     return result;
@@ -360,14 +402,19 @@ const captureConfigError = async (action: () => unknown): Promise<PipelineConfig
   throw result;
 };
 
-const captureGatewayBackendConfigError = async (backendsYaml: string): Promise<PipelineConfigError> =>
+const captureGatewayBackendConfigError = async (
+  backendsYaml: string
+): Promise<PipelineConfigError> =>
   await captureConfigError(() =>
     parseParts({
       profiles: profilesWithGatewayBackends(backendsYaml),
-    }),
+    })
   );
 
-const defaultWorkflowPipeline = (nodesYaml: string, extraWorkflowsYaml = ""): string =>
+const defaultWorkflowPipeline = (
+  nodesYaml: string,
+  extraWorkflowsYaml = ""
+): string =>
   `
 version: 1
 default_workflow: default
@@ -379,11 +426,15 @@ workflows:
 ${nodesYaml}${extraWorkflowsYaml}
 `;
 
-const activePackageProfilesYaml = async (): Promise<string> =>
-  (await readText(joinPath(process.cwd(), ".pipeline/profiles.yaml")))
+const activePackageProfilesYaml = async (): Promise<string> => {
+  const profilesYaml = await readText(
+    joinPath(process.cwd(), ".pipeline/profiles.yaml")
+  );
+  return profilesYaml
     .split(LINE_RE)
     .filter((line) => line.trim() !== "skills: [execute, quick, inspect]")
     .join("\n");
+};
 
 const DEFAULT_PACKAGE_SKILLS = [
   "critique",
@@ -407,14 +458,13 @@ const DEFAULT_PACKAGE_SKILLS = [
 
 const writeDefaultPackageSkills = async (root: string): Promise<void> => {
   await Promise.all(
-    DEFAULT_PACKAGE_SKILLS.map(
-      async (skill) =>
-        await writeProjectFile(
-          root,
-          `.agents/skills/${skill}/SKILL.md`,
-          `---\nname: ${skill}\ndescription: Mock ${skill} skill.\n---\n`,
-        ),
-    ),
+    DEFAULT_PACKAGE_SKILLS.map(async (skill) => {
+      await writeProjectFile(
+        root,
+        `.agents/skills/${skill}/SKILL.md`,
+        `---\nname: ${skill}\ndescription: Mock ${skill} skill.\n---\n`
+      );
+    })
   );
 };
 
@@ -424,11 +474,11 @@ const makePackageDefaultProject = async (input: {
 }): Promise<string> => {
   const project = await makeTempDir(input.prefix);
   tempDirs.push(project);
-  if (input.config) {
-    await writeProjectFile(project, input.config.path, input.config.content);
-  } else {
-    await writeProjectFile(project, ".pipeline/pipeline.yaml", VALID_PIPELINE_YAML);
-  }
+  const projectConfig = input.config ?? {
+    content: VALID_PIPELINE_YAML,
+    path: ".pipeline/pipeline.yaml",
+  };
+  await writeProjectFile(project, projectConfig.path, projectConfig.content);
   await writeDefaultPackageSkills(project);
   return project;
 };
@@ -441,7 +491,10 @@ const expectedPackageScheduledEntrypoints = (): Record<string, unknown> => ({
   quick: { schedule: "quick-schedule" },
 });
 
-const expectedPackageSchedules = (): Record<string, Record<string, string>> => ({
+const expectedPackageSchedules = (): Record<
+  string,
+  Record<string, string>
+> => ({
   "execute-schedule": {
     baseline: "execute",
     node_catalog: "execute",
@@ -454,7 +507,10 @@ const expectedPackageSchedules = (): Record<string, Record<string, string>> => (
   },
 });
 
-const expectedSchedulerCommands = (): Record<string, Record<string, string>> => ({
+const expectedSchedulerCommands = (): Record<
+  string,
+  Record<string, string>
+> => ({
   execute: {
     catalog: "execute",
     schedule: "execute-schedule",
@@ -488,22 +544,20 @@ describe("config module boundaries", () => {
   it("keeps the split config implementation in focused source modules", async () => {
     const ownerFiles = await Promise.all(
       EXPECTED_CONFIG_MODULES.map(async ({ name }) => ({
-        exists: await pathExists(joinPath(process.cwd(), "src", "config", `${name}.ts`)),
+        exists: await pathExists(
+          joinPath(process.cwd(), "src", "config", `${name}.ts`)
+        ),
         name,
-      })),
+      }))
     );
 
     expect(ownerFiles.filter((file) => !file.exists)).toEqual([]);
   });
 
   it("makes each focused config module importable for cohesive reuse", () => {
-    expect(EXPECTED_CONFIG_MODULES.map(({ exportValue }) => typeof exportValue)).toEqual([
-      "string",
-      "object",
-      "function",
-      "function",
-      "function",
-    ]);
+    expect(
+      EXPECTED_CONFIG_MODULES.map(({ exportValue }) => typeof exportValue)
+    ).toEqual(["string", "object", "function", "function", "function"]);
   });
 
   it("preserves the existing public config barrel exports", () => {
@@ -526,7 +580,9 @@ describe("loadPipelineConfig", () => {
 
     expect(await pathExists(joinPath(project, ".pipeline"))).toBe(false);
     expect(config.default_workflow).toBe("inspect");
-    expect(config.entrypoints).toMatchObject(expectedPackageScheduledEntrypoints());
+    expect(config.entrypoints).toMatchObject(
+      expectedPackageScheduledEntrypoints()
+    );
     expect(config.entrypoints.pipe).toBeUndefined();
     expect(config.entrypoints.epic).toBeUndefined();
     expect(config.runners.opencode.type).toBe("opencode");
@@ -544,7 +600,9 @@ describe("loadPipelineConfig", () => {
       "moka-learner",
     ];
 
-    expect(mokaProfileIds.map((id) => [id, config.profiles[id].runner])).toEqual([
+    expect(
+      mokaProfileIds.map((id) => [id, config.profiles[id].runner])
+    ).toEqual([
       ["moka-orchestrator", "opencode"],
       ["moka-researcher", "opencode"],
       ["moka-ticket-scoper", "opencode"],
@@ -557,14 +615,30 @@ describe("loadPipelineConfig", () => {
       ["moka-verifier", "opencode"],
       ["moka-learner", "opencode"],
     ]);
-    expect(config.schedules["execute-schedule"]).toMatchObject(expectedPackageSchedules()["execute-schedule"]);
-    expect(config.schedules["quick-schedule"]).toMatchObject(expectedPackageSchedules()["quick-schedule"]);
-    expect(config.scheduler.commands).toMatchObject(expectedSchedulerCommands());
-    expect(config.scheduler.node_catalogs.execute.required_categories).toEqual(expectedExecuteRequiredCategories());
-    expect(config.scheduler.node_catalogs.execute.nodes["red-tests"].models).toEqual(expect.any(Array));
-    expect(config.workflows.inspect.nodes.map((node) => node.id)).toEqual(["inspect"]);
-    expect(config.profiles["moka-code-writer"].scheduling_roles).toEqual(["implementation"]);
-    expect(config.profiles["moka-test-writer"].scheduling_roles).toEqual(["implementation"]);
+    expect(config.schedules["execute-schedule"]).toMatchObject(
+      expectedPackageSchedules()["execute-schedule"]
+    );
+    expect(config.schedules["quick-schedule"]).toMatchObject(
+      expectedPackageSchedules()["quick-schedule"]
+    );
+    expect(config.scheduler.commands).toMatchObject(
+      expectedSchedulerCommands()
+    );
+    expect(config.scheduler.node_catalogs.execute.required_categories).toEqual(
+      expectedExecuteRequiredCategories()
+    );
+    expect(
+      config.scheduler.node_catalogs.execute.nodes["red-tests"].models
+    ).toEqual(expect.any(Array));
+    expect(config.workflows.inspect.nodes.map((node) => node.id)).toEqual([
+      "inspect",
+    ]);
+    expect(config.profiles["moka-code-writer"].scheduling_roles).toEqual([
+      "implementation",
+    ]);
+    expect(config.profiles["moka-test-writer"].scheduling_roles).toEqual([
+      "implementation",
+    ]);
     expect(config.profiles["moka-test-writer"].output).toMatchObject({
       format: "json_schema",
       repair: {
@@ -573,44 +647,53 @@ describe("loadPipelineConfig", () => {
       },
       schema_path: ".pipeline/schemas/implementation.schema.json",
     });
-    expect(config.profiles["moka-test-writer"].instructions.inline).toContain("Only edit files matching test paths");
     expect(config.profiles["moka-test-writer"].instructions.inline).toContain(
-      "This scheduled node is already dispatched by Moka",
+      "Only edit files matching test paths"
     );
     expect(config.profiles["moka-test-writer"].instructions.inline).toContain(
-      "Do not invoke `moka run`, `moka submit`, `$dispatch`, `$scope`, `$execute`, or any nested Moka/workflow supervisor",
+      "This scheduled node is already dispatched by Moka"
+    );
+    expect(config.profiles["moka-test-writer"].instructions.inline).toContain(
+      "Do not invoke `moka run`, `moka submit`, `$dispatch`, `$scope`, `$execute`, or any nested Moka/workflow supervisor"
     );
     expect(config.profiles["moka-code-writer"].instructions.inline).toContain(
-      "This scheduled node is already dispatched by Moka",
+      "This scheduled node is already dispatched by Moka"
     );
     expect(config.profiles["moka-code-writer"].instructions.inline).toContain(
-      "Do not invoke `moka run`, `moka submit`, `$dispatch`, `$scope`, `$execute`, or any nested Moka/workflow supervisor",
+      "Do not invoke `moka run`, `moka submit`, `$dispatch`, `$scope`, `$execute`, or any nested Moka/workflow supervisor"
     );
     expect(config.profiles["moka-researcher"].timeout_ms).toBe(900_000);
     expect(config.profiles["moka-schedule-planner"].timeout_ms).toBe(300_000);
     expect(config.profiles["moka-test-writer"].timeout_ms).toBe(1_800_000);
     expect(config.profiles["moka-code-writer"].timeout_ms).toBe(1_800_000);
     expect(config.profiles["moka-researcher"].instructions.inline).toContain(
-      "do not perform open-ended repository exploration",
+      "do not perform open-ended repository exploration"
     );
-    expect(config.profiles["moka-verifier"].scheduling_roles).toEqual(["coverage"]);
-    const acceptanceInstructions = config.profiles["moka-acceptance-reviewer"].instructions.inline ?? "";
+    expect(config.profiles["moka-verifier"].scheduling_roles).toEqual([
+      "coverage",
+    ]);
+    const acceptanceInstructions =
+      config.profiles["moka-acceptance-reviewer"].instructions.inline ?? "";
     expect(acceptanceInstructions).toContain("Return only valid JSON");
     expect(acceptanceInstructions).toContain('"acceptance"');
-    const verifierInstructions = config.profiles["moka-verifier"].instructions.inline ?? "";
+    const verifierInstructions =
+      config.profiles["moka-verifier"].instructions.inline ?? "";
     expect(verifierInstructions).toContain("Return only valid JSON");
     expect(verifierInstructions).toContain('"verdict"');
     expect(config.hooks.on["workflow.start"]).toEqual([
       expect.objectContaining({ function: "generated-defaults-audit" }),
     ]);
-    const generatedDefaultsAudit = config.hooks.functions["generated-defaults-audit"];
+    const generatedDefaultsAudit =
+      config.hooks.functions["generated-defaults-audit"];
     expect(generatedDefaultsAudit.kind).toBe("command");
     if (generatedDefaultsAudit.kind !== "command") {
       throw new ConfigTestError({
         message: "expected generated defaults audit command hook",
       });
     }
-    expect(generatedDefaultsAudit.command.join(" ")).toContain("PIPELINE_HOOK_RESULT");
+    expect(generatedDefaultsAudit.command.join(" ")).toContain(
+      "PIPELINE_HOOK_RESULT"
+    );
     // Dependency/toolchain bootstrap is repo-owned and required: the default
     // first setup step runs the repo's declared bootstrap (.moka/bootstrap.sh or
     // a "moka:setup" script) and fails loudly otherwise — moka never guesses it.
@@ -648,7 +731,10 @@ describe("loadPipelineConfig", () => {
       email: "git@oisin.ee",
       name: "oisin-bot",
     });
-    expect(config.workflows.default.nodes.map((node) => node.id)).toEqual(["research", "red"]);
+    expect(config.workflows.default.nodes.map((node) => node.id)).toEqual([
+      "research",
+      "red",
+    ]);
     expect(config.workflows.default.nodes[0]).toMatchObject({
       retries: {
         backoff_ms: 100,
@@ -673,7 +759,9 @@ describe("loadPipelineConfig", () => {
       schema_path: ".pipeline/schemas/ticket-plan.schema.json",
     });
     expect(profile.instructions.inline).toContain("scope skill contract");
-    expect(profile.instructions.inline).toContain("Do not emit partial tickets");
+    expect(profile.instructions.inline).toContain(
+      "Do not emit partial tickets"
+    );
   });
 
   it("parses a minimal custom pipeline config without an orchestrator", async () => {
@@ -687,7 +775,10 @@ describe("loadPipelineConfig", () => {
     });
 
     expect(config.default_workflow).toBe("default");
-    expect(config.workflows.default.nodes.map((node) => node.id)).toEqual(["research", "red"]);
+    expect(config.workflows.default.nodes.map((node) => node.id)).toEqual([
+      "research",
+      "red",
+    ]);
   });
 
   it("accepts a configured runner command git committer", () => {
@@ -705,16 +796,20 @@ describe("loadPipelineConfig", () => {
     const config = parseParts({
       profiles: VALID_PROFILES_YAML.replace(
         "    model: gpt-5-agent\n    runner: opencode",
-        "    model: gpt-5-agent\n    host_models:\n      opencode: openai/gpt-5.3\n    runner: opencode",
+        "    model: gpt-5-agent\n    host_models:\n      opencode: openai/gpt-5.3\n    runner: opencode"
       ),
       runners: VALID_RUNNERS_YAML.replace(
         "    model: gpt-5-runner",
-        "    model: gpt-5-runner\n    host_models:\n      opencode: openai/gpt-5.3",
+        "    model: gpt-5-runner\n    host_models:\n      opencode: openai/gpt-5.3"
       ),
     });
 
-    expect(config.runners.opencode.host_models?.opencode).toBe("openai/gpt-5.3");
-    expect(config.profiles.researcher.host_models?.opencode).toBe("openai/gpt-5.3");
+    expect(config.runners.opencode.host_models?.opencode).toBe(
+      "openai/gpt-5.3"
+    );
+    expect(config.profiles.researcher.host_models?.opencode).toBe(
+      "openai/gpt-5.3"
+    );
   });
 
   it("rejects direct MCP server registry entries in profiles config", async () => {
@@ -724,7 +819,7 @@ describe("loadPipelineConfig", () => {
   docs:
     command: npx
     args: ["-y", "@example/docs-mcp"]
-profiles:`,
+profiles:`
     );
 
     const error = await captureConfigError(() => parseParts({ profiles }));
@@ -740,18 +835,22 @@ profiles:`,
     ref:
       path: .mcp.json
       id: serena
-profiles:`,
+profiles:`
     );
     const project = await makeProject({ ...VALID_PARTS, profiles });
     await writeProjectJson(project, ".mcp.json", { mcpServers: {} });
 
-    const error = await captureConfigError(() => parseProjectParts(project, { profiles }));
+    const error = await captureConfigError(() =>
+      parseProjectParts(project, { profiles })
+    );
 
     expect(error.message).toContain("mcp_servers.docs");
   });
 
   it("loads package-owned defaults when repo-local config files are incomplete", async () => {
-    const config = loadPackageDefaults(await makePackageDefaultProject({ prefix: "pipeline-config-missing-" }));
+    const config = loadPackageDefaults(
+      await makePackageDefaultProject({ prefix: "pipeline-config-missing-" })
+    );
 
     expect(config.default_workflow).toBe("inspect");
     expect(config.profiles["moka-researcher"]).toBeDefined();
@@ -762,7 +861,7 @@ profiles:`,
       await makePackageDefaultProject({
         config: { content: "[phases]\n", path: ".pipeline/config.toml" },
         prefix: "pipeline-config-legacy-",
-      }),
+      })
     );
 
     expect(config.default_workflow).toBe("inspect");
@@ -770,7 +869,9 @@ profiles:`,
   });
 
   it("rejects malformed explicit custom YAML with a parse error", async () => {
-    const error = await captureConfigError(() => parseParts({ pipeline: "version: 1\nworkflows: [" }));
+    const error = await captureConfigError(() =>
+      parseParts({ pipeline: "version: 1\nworkflows: [" })
+    );
 
     expect(error.code).toBe("PIPELINE_CONFIG_PARSE_ERROR");
     expect(error.message).toContain("Failed to parse");
@@ -780,7 +881,9 @@ profiles:`,
 
 describe("parsePipelineConfigParts", () => {
   it("rejects unknown top-level keys in the pipeline file", async () => {
-    const error = await captureConfigError(() => parseParts({ pipeline: `${VALID_PIPELINE_YAML}\nprofiles: {}\n` }));
+    const error = await captureConfigError(() =>
+      parseParts({ pipeline: `${VALID_PIPELINE_YAML}\nprofiles: {}\n` })
+    );
 
     expect(error.code).toBe("PIPELINE_CONFIG_VALIDATION_ERROR");
     expect(error.message).toContain("Unrecognized key");
@@ -789,8 +892,11 @@ describe("parsePipelineConfigParts", () => {
   it("rejects missing runner references", async () => {
     const error = await captureConfigError(() =>
       parseParts({
-        profiles: VALID_PROFILES_YAML.replace("runner: opencode", "runner: missing-runner"),
-      }),
+        profiles: VALID_PROFILES_YAML.replace(
+          "runner: opencode",
+          "runner: missing-runner"
+        ),
+      })
     );
 
     expect(error.code).toBe("PIPELINE_CONFIG_VALIDATION_ERROR");
@@ -800,8 +906,11 @@ describe("parsePipelineConfigParts", () => {
   it("requires a configured orchestrator profile", async () => {
     const error = await captureConfigError(() =>
       parseParts({
-        pipeline: VALID_PIPELINE_YAML.replace("profile: orchestrator", "profile: missing-orchestrator"),
-      }),
+        pipeline: VALID_PIPELINE_YAML.replace(
+          "profile: orchestrator",
+          "profile: missing-orchestrator"
+        ),
+      })
     );
 
     expect(error.code).toBe("PIPELINE_CONFIG_VALIDATION_ERROR");
@@ -811,11 +920,16 @@ describe("parsePipelineConfigParts", () => {
   it("validates orchestrator references and runner capabilities", async () => {
     const profiles = VALID_PROFILES_YAML.replace(
       "mcp_servers: [pipeline-gateway]\n    tools: [read, list, grep, glob, bash]\n    filesystem:",
-      "mcp_servers: [missing]\n    tools: [read, write]\n    filesystem:",
+      "mcp_servers: [missing]\n    tools: [read, write]\n    filesystem:"
     );
-    const runners = VALID_RUNNERS_YAML.replace("tools: [read, list, grep, glob, bash, edit, write]", "tools: [read]");
+    const runners = VALID_RUNNERS_YAML.replace(
+      "tools: [read, list, grep, glob, bash, edit, write]",
+      "tools: [read]"
+    );
 
-    const error = await captureConfigError(() => parseParts({ profiles, runners }));
+    const error = await captureConfigError(() =>
+      parseParts({ profiles, runners })
+    );
 
     expect(error.code).toBe("PIPELINE_CONFIG_VALIDATION_ERROR");
     expect(error.message).toContain("profiles.orchestrator.mcp_servers");
@@ -827,8 +941,11 @@ describe("parsePipelineConfigParts", () => {
   it("rejects missing profile references in workflow nodes", async () => {
     const error = await captureConfigError(() =>
       parseParts({
-        pipeline: VALID_PIPELINE_YAML.replace("profile: test-writer", "profile: missing-profile"),
-      }),
+        pipeline: VALID_PIPELINE_YAML.replace(
+          "profile: test-writer",
+          "profile: missing-profile"
+        ),
+      })
     );
 
     expect(error.code).toBe("PIPELINE_CONFIG_VALIDATION_ERROR");
@@ -896,17 +1013,17 @@ workflows:
     expect(config.task_context?.type).toBe("markdown");
     expect(config.workflows.default.nodes[0]).toMatchObject({
       task_context: {
-        acceptance_criteria: [{ id: "1", text: "Agent prompts include node-specific context." }],
+        acceptance_criteria: [
+          { id: "1", text: "Agent prompts include node-specific context." },
+        ],
         description: "Carry child ticket context into this node.",
         id: "PIPE-41.7",
         title: "Propagate node-level task context",
       },
     });
-    expect(config.workflows.default.nodes[0].gates?.map((gate) => gate.kind)).toEqual([
-      "verdict",
-      "acceptance",
-      "changed_files",
-    ]);
+    expect(
+      config.workflows.default.nodes[0].gates?.map((gate) => gate.kind)
+    ).toEqual(["verdict", "acceptance", "changed_files"]);
   });
 
   it("warns when a configured entrypoint shadows the builtin ticket command", async () => {
@@ -957,7 +1074,7 @@ workflows:
         kind: agent
         profile: researcher
 `,
-      }),
+      })
     );
 
     expect(error.code).toBe("PIPELINE_CONFIG_VALIDATION_ERROR");
@@ -1032,11 +1149,13 @@ workflows:
           - kind: builtin
             builtin: drain-merge
 `,
-      }),
+      })
     );
 
     expect(error.code).toBe("PIPELINE_CONFIG_VALIDATION_ERROR");
-    expect(error.message).toContain("workflows.default.nodes.0.gates.0.builtin");
+    expect(error.message).toContain(
+      "workflows.default.nodes.0.gates.0.builtin"
+    );
     expect(error.message).toContain("Invalid option");
   });
 
@@ -1058,11 +1177,13 @@ workflows:
         kind: agent
         profile: researcher
 `,
-      }),
+      })
     );
 
     expect(error.code).toBe("PIPELINE_CONFIG_VALIDATION_ERROR");
-    expect(error.message).toContain("entrypoint 'bad' references missing workflow");
+    expect(error.message).toContain(
+      "entrypoint 'bad' references missing workflow"
+    );
   });
 
   it("rejects scheduled entrypoints pointing at missing schedule policies", async () => {
@@ -1083,11 +1204,13 @@ workflows:
         kind: agent
         profile: researcher
 `,
-      }),
+      })
     );
 
     expect(error.code).toBe("PIPELINE_CONFIG_VALIDATION_ERROR");
-    expect(error.message).toContain("entrypoint 'bad' references missing schedule");
+    expect(error.message).toContain(
+      "entrypoint 'bad' references missing schedule"
+    );
   });
 
   it("rejects schedules pointing at missing planner profiles", async () => {
@@ -1109,11 +1232,13 @@ workflows:
         kind: agent
         profile: researcher
 `,
-      }),
+      })
     );
 
     expect(error.code).toBe("PIPELINE_CONFIG_VALIDATION_ERROR");
-    expect(error.message).toContain("schedule 'bad-schedule' references missing planner profile");
+    expect(error.message).toContain(
+      "schedule 'bad-schedule' references missing planner profile"
+    );
   });
 
   it("rejects invalid gate shapes by kind", async () => {
@@ -1133,7 +1258,7 @@ workflows:
         gates:
           - kind: changed_files
 `,
-      }),
+      })
     );
 
     expect(error.code).toBe("PIPELINE_CONFIG_VALIDATION_ERROR");
@@ -1141,7 +1266,10 @@ workflows:
   });
 
   it("rejects missing rule, skill, and MCP server references", async () => {
-    const profiles = VALID_PROFILES_YAML.replace("rules: [test-first]", "rules: [missing]")
+    const profiles = VALID_PROFILES_YAML.replace(
+      "rules: [test-first]",
+      "rules: [missing]"
+    )
       .replace("skills: [repo-research]", "skills: [missing]")
       .replace("mcp_servers: [pipeline-gateway]", "mcp_servers: [missing]");
 
@@ -1188,7 +1316,9 @@ workflows:
       },
     });
     expect(config.mcp_servers).toEqual({});
-    expect(config.profiles.orchestrator.mcp_servers).toEqual(["pipeline-gateway"]);
+    expect(config.profiles.orchestrator.mcp_servers).toEqual([
+      "pipeline-gateway",
+    ]);
   });
 
   it("rejects unknown gateway backend keys", async () => {
@@ -1224,26 +1354,30 @@ workflows:
       tool_prefixes: [serena]`);
 
     expect(error.code).toBe("PIPELINE_CONFIG_VALIDATION_ERROR");
-    expect(error.message).toContain("repo-local gateway backend must declare workspace_path_source");
+    expect(error.message).toContain(
+      "repo-local gateway backend must declare workspace_path_source"
+    );
   });
 
   it("rejects direct upstream MCP grants when mcp_gateway is configured", async () => {
     const profiles = VALID_PROFILES_YAML.replace(
       "mcp_servers: [pipeline-gateway]",
-      "mcp_servers: [pipeline-gateway, serena]",
+      "mcp_servers: [pipeline-gateway, serena]"
     );
 
     const error = await captureConfigError(() => parseParts({ profiles }));
 
     expect(error.code).toBe("PIPELINE_CONFIG_VALIDATION_ERROR");
-    expect(error.message).toContain("profiles.orchestrator.mcp_servers must only reference pipeline-gateway");
+    expect(error.message).toContain(
+      "profiles.orchestrator.mcp_servers must only reference pipeline-gateway"
+    );
   });
 
   it("rejects duplicate workflow node ids", async () => {
     const error = await captureConfigError(() =>
       parseParts({
         pipeline: VALID_PIPELINE_YAML.replace("id: red", "id: research"),
-      }),
+      })
     );
 
     expect(error.code).toBe("PIPELINE_CONFIG_VALIDATION_ERROR");
@@ -1253,8 +1387,11 @@ workflows:
   it("rejects invalid needs references", async () => {
     const error = await captureConfigError(() =>
       parseParts({
-        pipeline: VALID_PIPELINE_YAML.replace("needs: [research]", "needs: [missing-node]"),
-      }),
+        pipeline: VALID_PIPELINE_YAML.replace(
+          "needs: [research]",
+          "needs: [missing-node]"
+        ),
+      })
     );
 
     expect(error.code).toBe("PIPELINE_CONFIG_VALIDATION_ERROR");
@@ -1265,7 +1402,7 @@ workflows:
     const error = await captureConfigError(() =>
       parseParts({
         pipeline: VALID_PIPELINE_YAML.replace("kind: agent", "kind: phase"),
-      }),
+      })
     );
 
     expect(error.code).toBe("PIPELINE_CONFIG_VALIDATION_ERROR");
@@ -1277,9 +1414,9 @@ workflows:
       parseParts({
         pipeline: VALID_PIPELINE_YAML.replace(
           "profile: researcher",
-          "profile: researcher\n        command: [echo, bad]",
+          "profile: researcher\n        command: [echo, bad]"
         ),
-      }),
+      })
     );
 
     expect(error.code).toBe("PIPELINE_CONFIG_VALIDATION_ERROR");
@@ -1300,9 +1437,9 @@ workflows:
       - id: research
         kind: agent
         profile: researcher
-`,
+`
         ),
-      }),
+      })
     );
 
     expect(error.code).toBe("PIPELINE_CONFIG_VALIDATION_ERROR");
@@ -1344,8 +1481,12 @@ workflows:
 `,
     });
 
-    const grouped = config.workflows.default.nodes.find((node) => node.id === "grouped");
-    const fanout = config.workflows.default.nodes.find((node) => node.id === "fanout");
+    const grouped = config.workflows.default.nodes.find(
+      (node) => node.id === "grouped"
+    );
+    const fanout = config.workflows.default.nodes.find(
+      (node) => node.id === "fanout"
+    );
 
     expect(grouped).toMatchObject({
       kind: "group",
@@ -1353,10 +1494,16 @@ workflows:
     });
     expect(fanout).toMatchObject({ kind: "parallel" });
     if (fanout?.kind !== "parallel") {
-      throw new PipelineConfigError("PIPELINE_CONFIG_VALIDATION_ERROR", "expected fanout parallel node");
+      throw new PipelineConfigError(
+        "PIPELINE_CONFIG_VALIDATION_ERROR",
+        "expected fanout parallel node"
+      );
     }
     expect(fanout.kind).toBe("parallel");
-    expect(fanout.nodes.map((node) => node.id)).toEqual(["child-command", "nested"]);
+    expect(fanout.nodes.map((node) => node.id)).toEqual([
+      "child-command",
+      "nested",
+    ]);
     expect(fanout.nodes[1]).toMatchObject({
       kind: "parallel",
       nodes: [
@@ -1374,14 +1521,16 @@ workflows:
         kind: parallel
         nodes: []
 `),
-      }),
+      })
     );
 
     expect(error.code).toBe("PIPELINE_CONFIG_VALIDATION_ERROR");
     expect(
       error.issues.some(
-        (issue) => issue.path === "workflows.default.nodes.0.nodes" && MIN_ITEMS_MESSAGE_RE.test(issue.message),
-      ),
+        (issue) =>
+          issue.path === "workflows.default.nodes.0.nodes" &&
+          MIN_ITEMS_MESSAGE_RE.test(issue.message)
+      )
     ).toBe(true);
   });
 
@@ -1392,7 +1541,7 @@ workflows:
       - id: child
         kind: workflow
 `),
-      }),
+      })
     );
 
     expect(error.code).toBe("PIPELINE_CONFIG_VALIDATION_ERROR");
@@ -1402,8 +1551,11 @@ workflows:
   it("rejects unsupported hook events", async () => {
     const error = await captureConfigError(() =>
       parseParts({
-        pipeline: VALID_PIPELINE_YAML.replace("workflow.complete:", "workflow.done:"),
-      }),
+        pipeline: VALID_PIPELINE_YAML.replace(
+          "workflow.complete:",
+          "workflow.done:"
+        ),
+      })
     );
 
     expect(error.code).toBe("PIPELINE_CONFIG_VALIDATION_ERROR");
@@ -1413,8 +1565,11 @@ workflows:
   it("rejects tool grants outside runner capabilities", async () => {
     const error = await captureConfigError(() =>
       parseParts({
-        runners: VALID_RUNNERS_YAML.replace("tools: [read, list, grep, glob, bash, edit, write]", "tools: [read]"),
-      }),
+        runners: VALID_RUNNERS_YAML.replace(
+          "tools: [read, list, grep, glob, bash, edit, write]",
+          "tools: [read]"
+        ),
+      })
     );
 
     expect(error.code).toBe("PIPELINE_CONFIG_VALIDATION_ERROR");
@@ -1424,21 +1579,26 @@ workflows:
   it("rejects filesystem, network, and output grants outside runner capabilities", async () => {
     const runners = VALID_RUNNERS_YAML.replace(
       "filesystem: [read-only, workspace-write]",
-      "filesystem: [workspace-write]",
+      "filesystem: [workspace-write]"
     )
       .replace("network: [inherit]", "network: [disabled]")
-      .replace("output_formats: [text, json, jsonl, json_schema]", "output_formats: [text]");
+      .replace(
+        "output_formats: [text, json, jsonl, json_schema]",
+        "output_formats: [text]"
+      );
 
     const error = await captureConfigError(() => parseParts({ runners }));
 
     expect(error.code).toBe("PIPELINE_CONFIG_VALIDATION_ERROR");
-    expect(error.message).toContain("does not support filesystem mode 'read-only'");
+    expect(error.message).toContain(
+      "does not support filesystem mode 'read-only'"
+    );
   });
 
   it("rejects missing output repair runner references", async () => {
     const profiles = VALID_PROFILES_YAML.replace(
       "max_attempts: 1",
-      "max_attempts: 1\n        runner: missing-repair-runner",
+      "max_attempts: 1\n        runner: missing-repair-runner"
     );
 
     const error = await captureConfigError(() => parseParts({ profiles }));
@@ -1479,7 +1639,9 @@ workflows:
       });
 
       // Deprecation diagnostic must name the removed field and the replacement.
-      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("durability"));
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining("durability")
+      );
       expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("db.url"));
       // The returned config must NOT carry the durability block.
       expect(config).not.toHaveProperty("durability");
@@ -1496,7 +1658,9 @@ workflows:
 });
 
 const readRepoPipelineYaml = async () =>
-  parseRepoPipelineYaml(await readText(joinPath(process.cwd(), ".pipeline/pipeline.yaml")));
+  parseRepoPipelineYaml(
+    await readText(joinPath(process.cwd(), ".pipeline/pipeline.yaml"))
+  );
 
 describe("execute/quick scheduler integration", () => {
   it("declares scheduled execute/quick entrypoints and removes legacy entrypoints", async () => {
@@ -1508,8 +1672,12 @@ describe("execute/quick scheduler integration", () => {
     expect(entrypoints.inspect).toMatchObject({ workflow: "inspect" });
     expect(entrypoints.pipe).toBeUndefined();
     expect(entrypoints.epic).toBeUndefined();
-    expect(schedules["execute-schedule"]).toMatchObject(expectedPackageSchedules()["execute-schedule"]);
-    expect(schedules["quick-schedule"]).toMatchObject(expectedPackageSchedules()["quick-schedule"]);
+    expect(schedules["execute-schedule"]).toMatchObject(
+      expectedPackageSchedules()["execute-schedule"]
+    );
+    expect(schedules["quick-schedule"]).toMatchObject(
+      expectedPackageSchedules()["quick-schedule"]
+    );
     expect(config.workflows?.default).toBeUndefined();
     expect(config.workflows?.infra).toBeUndefined();
     expect(config.workflows?.["epic-drain"]).toBeUndefined();
@@ -1518,7 +1686,8 @@ describe("execute/quick scheduler integration", () => {
   it("declares configurable scheduler node catalogs with model fallback arrays", async () => {
     const config = await readRepoPipelineYaml();
     const { commands } = config.scheduler;
-    const { execute: executeCatalog, quick: quickCatalog } = config.scheduler.node_catalogs;
+    const { execute: executeCatalog, quick: quickCatalog } =
+      config.scheduler.node_catalogs;
 
     expect([
       ["execute", commands.execute.schedule],
@@ -1529,24 +1698,37 @@ describe("execute/quick scheduler integration", () => {
     ]);
     expect(commands.execute).toMatchObject(expectedSchedulerCommands().execute);
     expect(commands.quick).toMatchObject(expectedSchedulerCommands().quick);
-    expect(executeCatalog.required_categories).toEqual(expectedExecuteRequiredCategories());
+    expect(executeCatalog.required_categories).toEqual(
+      expectedExecuteRequiredCategories()
+    );
     expect([
       executeCatalog.nodes["red-tests"].models,
       executeCatalog.nodes["green-backend"].models,
       executeCatalog.nodes["green-frontend"].models,
     ]).toEqual([expect.any(Array), expect.any(Array), expect.any(Array)]);
-    expect(quickCatalog.nodes["green-implementation"].models).toEqual(expect.any(Array));
+    expect(quickCatalog.nodes["green-implementation"].models).toEqual(
+      expect.any(Array)
+    );
     expect(executeCatalog.nodes["red-tests"].models.length).toBeGreaterThan(1);
-    expect(executeCatalog.nodes["green-backend"].models.length).toBeGreaterThan(1);
+    expect(executeCatalog.nodes["green-backend"].models.length).toBeGreaterThan(
+      1
+    );
   });
 
   it("prefers non-Kimi first-choice models for progress-critical scheduler nodes", async () => {
     const config = await readRepoPipelineYaml();
-    const { execute: executeCatalog, quick: quickCatalog } = config.scheduler.node_catalogs;
+    const { execute: executeCatalog, quick: quickCatalog } =
+      config.scheduler.node_catalogs;
 
-    expect(quickCatalog.nodes["green-implementation"].models[0]).not.toBe("kimi-for-coding/k2p6");
-    expect(executeCatalog.nodes.research.models[0]).not.toBe("kimi-for-coding/k2p6");
-    expect(executeCatalog.nodes["green-frontend"].models[0]).not.toBe("kimi-for-coding/k2p6");
+    expect(quickCatalog.nodes["green-implementation"].models[0]).not.toBe(
+      "kimi-for-coding/k2p6"
+    );
+    expect(executeCatalog.nodes.research.models[0]).not.toBe(
+      "kimi-for-coding/k2p6"
+    );
+    expect(executeCatalog.nodes["green-frontend"].models[0]).not.toBe(
+      "kimi-for-coding/k2p6"
+    );
   });
 
   it("keeps legacy epic-router package assets out of the active profile graph", async () => {
@@ -1554,11 +1736,14 @@ describe("execute/quick scheduler integration", () => {
     const profilesConfig = parseProfilesYaml(profilesYaml);
 
     expect(profilesConfig.profiles?.["moka-epic-router"]).toBeUndefined();
-    expect(profilesConfig.profiles?.["moka-thermo-nuclear-reviewer"]).toBeDefined();
+    expect(
+      profilesConfig.profiles?.["moka-thermo-nuclear-reviewer"]
+    ).toBeDefined();
   });
 
   it("ignores pipeline run worktrees", async () => {
-    const gitignore = (await readText(joinPath(process.cwd(), ".gitignore"))).split(LINE_RE).map((line) => line.trim());
+    const gitignoreText = await readText(joinPath(process.cwd(), ".gitignore"));
+    const gitignore = gitignoreText.split(LINE_RE).map((line) => line.trim());
 
     expect(gitignore).toContain(".pipeline/runs/");
   });
@@ -1567,9 +1752,13 @@ describe("execute/quick scheduler integration", () => {
 describe("opencode profile integration", () => {
   it("declares the installed critique skill and reviewer profile contract", async () => {
     const profilesYaml = await activePackageProfilesYaml();
-    const runnersYaml = await readText(joinPath(process.cwd(), ".pipeline/runners.yaml"));
+    const runnersYaml = await readText(
+      joinPath(process.cwd(), ".pipeline/runners.yaml")
+    );
     const parsed = parsePipelineConfigParts({
-      pipeline: await readText(joinPath(process.cwd(), ".pipeline/pipeline.yaml")),
+      pipeline: await readText(
+        joinPath(process.cwd(), ".pipeline/pipeline.yaml")
+      ),
       profiles: profilesYaml,
       runners: runnersYaml,
     });
@@ -1606,7 +1795,9 @@ describe("opencode profile integration", () => {
 
 describe("final review asset bundle", () => {
   it("declares the installed critique skill and reviewer profile contract", async () => {
-    const profilesYaml = await readText(joinPath(process.cwd(), ".pipeline/profiles.yaml"));
+    const profilesYaml = await readText(
+      joinPath(process.cwd(), ".pipeline/profiles.yaml")
+    );
     const profilesConfig = parseProfilesYaml(profilesYaml);
 
     expect(profilesConfig.skills?.critique).toEqual({
@@ -1614,7 +1805,10 @@ describe("final review asset bundle", () => {
     });
 
     const profile = profilesConfig.profiles?.["moka-thermo-nuclear-reviewer"];
-    expect(profile, "profiles.moka-thermo-nuclear-reviewer should exist in .pipeline/profiles.yaml").toBeDefined();
+    expect(
+      profile,
+      "profiles.moka-thermo-nuclear-reviewer should exist in .pipeline/profiles.yaml"
+    ).toBeDefined();
     expect(profile).toMatchObject({
       filesystem: {
         allow: ["**/*"],
@@ -1642,7 +1836,9 @@ describe("final review asset bundle", () => {
 
   it("validates the final review output schema contract", async () => {
     const schema = parseJsonSchemaValue(
-      await readText(joinPath(process.cwd(), ".pipeline/schemas/review.schema.json")),
+      await readText(
+        joinPath(process.cwd(), ".pipeline/schemas/review.schema.json")
+      )
     );
     const ajv = new Ajv({ allErrors: true, strict: false });
     const validate = ajv.compile(schema);
@@ -1661,19 +1857,25 @@ describe("final review asset bundle", () => {
         summary: "No blocking issues found.",
         verdict: "PASS",
       }),
-      encodeJson(validate.errors),
+      encodeJson(validate.errors)
     ).toBe(true);
     expect(validate({ findings: [], verdict: "FAIL" })).toBe(true);
     expect(validate({ findings: [] }), "verdict is required").toBe(false);
-    expect(validate({ findings: [], verdict: "MAYBE" }), "verdict must be PASS or FAIL").toBe(false);
+    expect(
+      validate({ findings: [], verdict: "MAYBE" }),
+      "verdict must be PASS or FAIL"
+    ).toBe(false);
     expect(validate({ verdict: "FAIL" }), "findings is required").toBe(false);
-    expect(validate({ findings: [{}], verdict: "FAIL" }), "findings require severity and message").toBe(false);
+    expect(
+      validate({ findings: [{}], verdict: "FAIL" }),
+      "findings require severity and message"
+    ).toBe(false);
     expect(
       validate({
         findings: [{ line: 0, message: "bad", severity: "critical" }],
         verdict: "FAIL",
       }),
-      "finding line numbers are 1-based",
+      "finding line numbers are 1-based"
     ).toBe(false);
   });
 
@@ -1685,7 +1887,9 @@ describe("final review asset bundle", () => {
     const config = loadPackagePipelineConfig(process.cwd());
 
     expect(config.skills.critique).toBeDefined();
-    expect(config.profiles["moka-thermo-nuclear-reviewer"]?.skills).toContain("critique");
+    expect(config.profiles["moka-thermo-nuclear-reviewer"]?.skills).toContain(
+      "critique"
+    );
   });
 });
 
@@ -1727,7 +1931,7 @@ token_budget:
     const error = await captureConfigError(() =>
       parseParts({
         pipeline: `${VALID_PIPELINE_YAML}\ntoken_budget:\n  max_context_pct: 150\n`,
-      }),
+      })
     );
     expect(error.message).toMatch(MAX_CONTEXT_PCT_RE);
   });
@@ -1736,7 +1940,7 @@ token_budget:
     const error = await captureConfigError(() =>
       parseParts({
         pipeline: `${VALID_PIPELINE_YAML}\ntoken_budget:\n  default_context_window: -1\n`,
-      }),
+      })
     );
     expect(error).toBeInstanceOf(PipelineConfigError);
   });
@@ -1745,7 +1949,7 @@ token_budget:
     const error = await captureConfigError(() =>
       parseParts({
         pipeline: `${VALID_PIPELINE_YAML}\ntoken_budget:\n  fan_out_width:\n    by_category:\n      green: 2\n`,
-      }),
+      })
     );
     expect(error.message).toMatch(UNKNOWN_CATEGORY_RE);
   });

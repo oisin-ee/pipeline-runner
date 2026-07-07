@@ -23,7 +23,13 @@ describe("evaluateJsonSchemaGate", () => {
       schema_path: "schema.json",
       target: "artifact",
     };
-    const result = evaluateJsonSchemaGate(gate, "js:node", "node", ctx, attempt("{}"));
+    const result = evaluateJsonSchemaGate(
+      gate,
+      "js:node",
+      "node",
+      ctx,
+      attempt("{}")
+    );
     // Artifact is missing, so it fails with a specific reason.
     expect(result.passed).toBe(false);
     expect(result.reason).toContain("missing JSON artifact");
@@ -40,7 +46,13 @@ describe("evaluateJsonSchemaGate", () => {
       schema_path: "does-not-exist-schema.json",
       target: "stdout",
     };
-    const result = evaluateJsonSchemaGate(gate, "js:node", "node", ctx, attempt("{}"));
+    const result = evaluateJsonSchemaGate(
+      gate,
+      "js:node",
+      "node",
+      ctx,
+      attempt("{}")
+    );
     // Result is determined by schema validation, not artifact lookup.
     expect(result.kind).toBe("json_schema");
     expect(result.evidence).toBeDefined();

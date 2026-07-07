@@ -1,4 +1,10 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
+import {
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  statSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { isAbsolute, join, relative, sep } from "node:path";
 
@@ -41,17 +47,19 @@ interface RunControlStoreModule {
       nodeIds: string[];
       runId: string;
       target: RunTarget;
-    },
+    }
   ) => Awaitable<MokaRunManifest>;
   listRuns: (input: StoreContext) => Awaitable<MokaRunManifest[]>;
   readRun: typeof readRun;
-  recordEvent: (input: StoreContext & { event: MokaRunEvent; runId: string }) => Awaitable<void>;
+  recordEvent: (
+    input: StoreContext & { event: MokaRunEvent; runId: string }
+  ) => Awaitable<void>;
   updateNodeSession: (
     input: StoreContext & {
       nodeId: string;
       runId: string;
       sessionId: string;
-    },
+    }
   ) => Awaitable<void>;
   updateNodeStatus: (
     input: StoreContext & {
@@ -59,17 +67,17 @@ interface RunControlStoreModule {
       nodeId: string;
       runId: string;
       status: MokaNodeStatus;
-    },
+    }
   ) => Awaitable<void>;
   updateRunController: (
-    input: StoreContext & { controller: MokaRunController; runId: string },
+    input: StoreContext & { controller: MokaRunController; runId: string }
   ) => Awaitable<MokaRunManifest>;
   updateRunStatus: (
     input: StoreContext & {
       at: string;
       runId: string;
       status: MokaRunStatus;
-    },
+    }
   ) => Awaitable<void>;
   writeNodeArtifact: (
     input: StoreContext & {
@@ -78,7 +86,7 @@ interface RunControlStoreModule {
       name: string;
       nodeId: string;
       runId: string;
-    },
+    }
   ) => Awaitable<{ path: string }>;
 }
 
@@ -93,7 +101,8 @@ const runStore: RunControlStoreModule = {
   updateRunStatus,
   writeNodeArtifact,
 };
-const WRITER_NODE_ARTIFACT_PATH = /^\.pipeline\/runs\/run-layout\/nodes\/writer\//u;
+const WRITER_NODE_ARTIFACT_PATH =
+  /^\.pipeline\/runs\/run-layout\/nodes\/writer\//u;
 
 const loadRunStore = (): RunControlStoreModule => runStore;
 
@@ -168,9 +177,14 @@ describe("file-backed run-control store", () => {
       workspaceRoot,
     });
 
-    const artifactRelativePath = normalizeRelativePath(workspaceRoot, artifact.path);
+    const artifactRelativePath = normalizeRelativePath(
+      workspaceRoot,
+      artifact.path
+    );
     expect(artifactRelativePath).toMatch(WRITER_NODE_ARTIFACT_PATH);
-    expect(readFileSync(join(workspaceRoot, artifactRelativePath), "utf-8")).toBe('{"result":"ok"}\n');
+    expect(
+      readFileSync(join(workspaceRoot, artifactRelativePath), "utf-8")
+    ).toBe('{"result":"ok"}\n');
   });
 
   it("appends recorded events as JSONL in the order they are received", async () => {
@@ -203,10 +217,16 @@ describe("file-backed run-control store", () => {
       type: "node.status",
     };
 
-    const beforeRecordedEvents = readFileSync(runPath(workspaceRoot, runId, "events.jsonl"), "utf-8");
+    const beforeRecordedEvents = readFileSync(
+      runPath(workspaceRoot, runId, "events.jsonl"),
+      "utf-8"
+    );
     await store.recordEvent({ event: first, runId, workspaceRoot });
     await store.recordEvent({ event: second, runId, workspaceRoot });
-    const beforeThirdAppend = readFileSync(runPath(workspaceRoot, runId, "events.jsonl"), "utf-8");
+    const beforeThirdAppend = readFileSync(
+      runPath(workspaceRoot, runId, "events.jsonl"),
+      "utf-8"
+    );
     await store.recordEvent({ event: third, runId, workspaceRoot });
 
     const eventsPath = runPath(workspaceRoot, runId, "events.jsonl");
@@ -219,7 +239,7 @@ describe("file-backed run-control store", () => {
         .slice(beforeRecordedEvents.length)
         .split("\n")
         .filter((line) => line.trim().length > 0)
-        .map((line) => JSON.parse(line)),
+        .map((line) => JSON.parse(line))
     ).toEqual([first, second, third]);
   });
 

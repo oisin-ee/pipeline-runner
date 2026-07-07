@@ -11,7 +11,9 @@ import {
 } from "../argo/model";
 
 export const runnerPodSubmitOptionShape = {
-  activeDeadlineSeconds: Schema.optional(argoWorkflowActiveDeadlineSecondsSchema),
+  activeDeadlineSeconds: Schema.optional(
+    argoWorkflowActiveDeadlineSecondsSchema
+  ),
   brokerAuth: brokerAuthOptionSchema,
   dbAuth: Schema.optional(dbAuthOptionSchema),
   eventAuthSecretKey: Schema.optional(requiredString),

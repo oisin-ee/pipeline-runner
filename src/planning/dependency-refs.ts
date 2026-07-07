@@ -7,7 +7,7 @@ import type { PlannedWorkflowNode } from "./compile";
  */
 export const indexPlannedNodesById = (
   nodes: readonly PlannedWorkflowNode[],
-  into = new Map<string, PlannedWorkflowNode>(),
+  into = new Map<string, PlannedWorkflowNode>()
 ): Map<string, PlannedWorkflowNode> => {
   for (const node of nodes) {
     into.set(node.id, node);
@@ -30,7 +30,7 @@ export const indexPlannedNodesById = (
  */
 export const resolveExecutableDependencyIds = (
   nodeById: ReadonlyMap<string, PlannedWorkflowNode>,
-  needs: readonly string[],
+  needs: readonly string[]
 ): string[] => {
   const resolveOne = (nodeId: string): string[] => {
     const node = nodeById.get(nodeId);
@@ -47,15 +47,19 @@ export const resolveExecutableDependencyIds = (
       case "group": {
         // Groups normalize their members into `needs` during planning, but keep
         // the `nodes` list too; resolve through both for robustness.
-        return uniqueStrings([...(node.nodes ?? []), ...node.needs].flatMap(resolveOne));
+        return uniqueStrings(
+          [...(node.nodes ?? []), ...node.needs].flatMap(resolveOne)
+        );
       }
       case "parallel": {
-        return uniqueStrings((node.children ?? []).flatMap((child) => resolveOne(child.id)));
+        return uniqueStrings(
+          (node.children ?? []).flatMap((child) => resolveOne(child.id))
+        );
       }
       default: {
         const exhaustive: never = kind;
         throw new Error(
-          `resolveExecutableDependencyIds: unsupported node kind '${String(exhaustive)}' on '${node.id}'`,
+          `resolveExecutableDependencyIds: unsupported node kind '${String(exhaustive)}' on '${node.id}'`
         );
       }
     }

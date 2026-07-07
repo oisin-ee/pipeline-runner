@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import type { AcceptanceCriterion, AcceptanceGateSpec, NodeAttemptResult } from "../../../contracts";
+import type {
+  AcceptanceCriterion,
+  AcceptanceGateSpec,
+  NodeAttemptResult,
+} from "../../../contracts";
 import type { AcceptanceContext } from "../json-source";
 import { acceptanceUnmetCriteria, evaluateAcceptanceGate } from "./acceptance";
 
@@ -37,7 +41,7 @@ describe("evaluateAcceptanceGate", () => {
           { evidence: ["ok"], id: "A", verdict: "PASS" },
           { evidence: ["fine"], id: "B", verdict: "PASS" },
         ],
-      }),
+      })
     );
     expect(result.passed).toBe(true);
     expect(result.kind).toBe("acceptance");
@@ -49,7 +53,13 @@ describe("evaluateAcceptanceGate", () => {
       ...ctx,
       taskContext: { acceptanceCriteria: [{ id: "A", text: "Alpha" }] },
     };
-    const result = evaluateAcceptanceGate(gate, "accept:node", "node", contextWithTask, attempt({ acceptance: [] }));
+    const result = evaluateAcceptanceGate(
+      gate,
+      "accept:node",
+      "node",
+      contextWithTask,
+      attempt({ acceptance: [] })
+    );
     expect(result.passed).toBe(false);
     expect(result.reason).toBe("acceptance coverage failed");
   });
@@ -60,7 +70,13 @@ describe("evaluateAcceptanceGate", () => {
       required: false,
       target: "stdout",
     };
-    const result = evaluateAcceptanceGate(gate, "accept:node", "node", ctx, attempt({}));
+    const result = evaluateAcceptanceGate(
+      gate,
+      "accept:node",
+      "node",
+      ctx,
+      attempt({})
+    );
     expect(result.passed).toBe(true);
   });
 });
@@ -68,7 +84,11 @@ describe("evaluateAcceptanceGate", () => {
 describe("acceptanceUnmetCriteria", () => {
   it("returns empty when all criteria are met with evidence", () => {
     const expected: AcceptanceCriterion[] = [{ id: "A", text: "Alpha" }];
-    expect(acceptanceUnmetCriteria(expected, [{ evidence: ["ok"], id: "A", verdict: "PASS" }])).toEqual([]);
+    expect(
+      acceptanceUnmetCriteria(expected, [
+        { evidence: ["ok"], id: "A", verdict: "PASS" },
+      ])
+    ).toEqual([]);
   });
 
   it("reports a missing criterion when the entry list is empty", () => {

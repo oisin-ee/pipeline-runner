@@ -1,1 +1,1 @@
-export * from "./parallel-node";
+export { executeParallelNode } from "./parallel-node";

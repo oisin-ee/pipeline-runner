@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "@effect/vitest";
 
 import { parsePipelineConfigParts } from "../../config";
 import { compileWorkflowPlan } from "../../planning/compile";
@@ -12,7 +12,9 @@ import {
   runtimeNodeActorDescriptor,
 } from "./events";
 
-const runtimeContextForEvents = (reporter: (event: PipelineRuntimeEvent) => void): RuntimeContext => {
+const runtimeContextForEvents = (
+  reporter: (event: PipelineRuntimeEvent) => void
+): RuntimeContext => {
   const config = parsePipelineConfigParts({
     pipeline: `
 version: 1
@@ -79,7 +81,9 @@ runners:
 describe("runtime events", () => {
   it("emits planned workflow nodes with runner metadata", () => {
     const events: PipelineRuntimeEvent[] = [];
-    const context = runtimeContextForEvents((event) => events.push(event));
+    const context = runtimeContextForEvents((event) => {
+      events.push(event);
+    });
 
     emitWorkflowPlanned(context);
 
@@ -104,7 +108,9 @@ describe("runtime events", () => {
 
   it("records structured node output in reporter events", () => {
     const events: PipelineRuntimeEvent[] = [];
-    const context = runtimeContextForEvents((event) => events.push(event));
+    const context = runtimeContextForEvents((event) => {
+      events.push(event);
+    });
     const node = context.plan.graph.node("a");
     expect(node).toBeDefined();
 
@@ -126,8 +132,10 @@ describe("runtime events", () => {
   it("prefixes nested child events consistently", () => {
     const events: PipelineRuntimeEvent[] = [];
     const reporter = childReporter(
-      runtimeContextForEvents((event) => events.push(event)),
-      "parent",
+      runtimeContextForEvents((event) => {
+        events.push(event);
+      }),
+      "parent"
     );
 
     reporter?.({
@@ -157,10 +165,14 @@ describe("runtime events", () => {
   it("maps runtime observability events to public reporter events", () => {
     const events: PipelineRuntimeEvent[] = [];
     const actor = runtimeNodeActorDescriptor(
-      runtimeContextForEvents((event) => events.push(event)),
-      "node-a",
+      runtimeContextForEvents((event) => {
+        events.push(event);
+      }),
+      "node-a"
     );
-    const emit = createPublicRuntimeObservabilityEmitter((event) => events.push(event), "default");
+    const emit = createPublicRuntimeObservabilityEmitter((event) => {
+      events.push(event);
+    }, "default");
 
     emit({
       actor,

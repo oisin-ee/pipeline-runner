@@ -1,7 +1,8 @@
 import { Effect, Schedule, Semaphore } from "effect";
 import { describe, expect, it } from "vitest";
 
-const runEffect = async <A, E>(effect: Effect.Effect<A, E>): Promise<A> => await Effect.runPromise(effect);
+const runEffect = async <A, E>(effect: Effect.Effect<A, E>): Promise<A> =>
+  await Effect.runPromise(effect);
 
 /**
  * PIPE-83.8: de-risking PoC for the chosen runtime substrate (Effect, per the
@@ -31,14 +32,17 @@ describe("Effect substrate PoC (PIPE-83.8)", () => {
             maxActive = Math.max(maxActive, active);
             yield* Effect.sleep("5 millis");
             active -= 1;
-          }),
+          })
         );
 
-        yield* Effect.all([candidate, candidate, candidate, candidate, candidate], {
-          concurrency: "unbounded",
-        });
+        yield* Effect.all(
+          [candidate, candidate, candidate, candidate, candidate],
+          {
+            concurrency: "unbounded",
+          }
+        );
         expect(maxActive).toBeLessThanOrEqual(2);
-      }),
+      })
     );
   });
 
@@ -48,13 +52,18 @@ describe("Effect substrate PoC (PIPE-83.8)", () => {
         let attempts = 0;
         const flaky = Effect.suspend(() => {
           attempts += 1;
-          return attempts < 3 ? Effect.fail("transient" as const) : Effect.succeed(attempts);
+          return attempts < 3
+            ? Effect.fail("transient" as const)
+            : Effect.succeed(attempts);
         });
-        const policy = Schedule.both(Schedule.exponential("1 millis"), Schedule.recurs(5)).pipe(Schedule.jittered);
+        const policy = Schedule.both(
+          Schedule.exponential("1 millis"),
+          Schedule.recurs(5)
+        ).pipe(Schedule.jittered);
 
         const result = yield* Effect.retry(flaky, policy);
         expect(result).toBe(3);
-      }),
+      })
     );
   });
 
@@ -62,9 +71,11 @@ describe("Effect substrate PoC (PIPE-83.8)", () => {
     await runEffect(
       Effect.gen(function* effectBody() {
         const failing = Effect.fail({ _tag: "OverBudget" as const });
-        const recovered = yield* failing.pipe(Effect.catch((error) => Effect.succeed(error._tag)));
+        const recovered = yield* failing.pipe(
+          Effect.catch((error) => Effect.succeed(error._tag))
+        );
         expect(recovered).toBe("OverBudget");
-      }),
+      })
     );
   });
 });

@@ -1,5 +1,9 @@
 {
   "$schema": "https://fallow.dev/schema.json",
+  "entry": [
+    "defaults/opencode/plugins/pipeline-goal-context.ts",
+    "oxfmt.config.ts"
+  ],
   "ignoreDependencies": [
     "@mpsuesser/oxlint-plugin-effect",
     "tree-sitter-javascript",

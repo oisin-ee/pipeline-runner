@@ -2,9 +2,17 @@ import { Effect } from "effect";
 
 import type { PlannedWorkflowNode } from "../../planning/compile";
 import { runtimeActorId } from "../actor-ids";
-import type { GateSpec, NodeAttemptResult, RuntimeContext, RuntimeGateResult } from "../contracts";
+import type {
+  GateSpec,
+  NodeAttemptResult,
+  RuntimeContext,
+  RuntimeGateResult,
+} from "../contracts";
 import { emitGateFinish, emitGateStart, runtimeSystemId } from "../events";
-import { CommandExecutor, CommandExecutorLive } from "../services/command-executor-service";
+import {
+  CommandExecutor,
+  CommandExecutorLive,
+} from "../services/command-executor-service";
 import type { CommandExecutorService, GateFailureHook } from "./contract";
 import { evaluateGate } from "./registry";
 
@@ -14,7 +22,7 @@ const recordGateResult = (
   context: RuntimeContext,
   gate: GateSpec,
   result: RuntimeGateResult,
-  results: RuntimeGateResult[],
+  results: RuntimeGateResult[]
 ): void => {
   context.gates.push(result);
   results.push(result);
@@ -25,7 +33,7 @@ const handleGateFailure = async (
   gate: GateSpec,
   node: PlannedWorkflowNode,
   result: RuntimeGateResult,
-  onGateFailure?: GateFailureHook,
+  onGateFailure?: GateFailureHook
 ): Promise<GateLoopAction> => {
   if (result.passed) {
     return "continue";
@@ -42,7 +50,7 @@ const resolveGateResult = async (
   nodeId: string,
   context: RuntimeContext,
   attempt: NodeAttemptResult,
-  executor: CommandExecutorService,
+  executor: CommandExecutorService
 ): Promise<RuntimeGateResult> => {
   try {
     const node = context.plan.graph.node(nodeId);
@@ -67,7 +75,11 @@ const resolveGateResult = async (
   }
 };
 
-const runtimeGateActor = (context: RuntimeContext, gateId: string, nodeId: string) => ({
+const runtimeGateActor = (
+  context: RuntimeContext,
+  gateId: string,
+  nodeId: string
+) => ({
   id: runtimeActorId("gate", {
     gateId,
     nodeId,
@@ -80,7 +92,12 @@ const runtimeGateActor = (context: RuntimeContext, gateId: string, nodeId: strin
 
 const runtimeTimestamp = (): string => new Date().toISOString();
 
-const emitRuntimeGateStarted = (context: RuntimeContext, gate: GateSpec, gateId: string, nodeId: string): void => {
+const emitRuntimeGateStarted = (
+  context: RuntimeContext,
+  gate: GateSpec,
+  gateId: string,
+  nodeId: string
+): void => {
   context.observability?.({
     actor: runtimeGateActor(context, gateId, nodeId),
     gateId,
@@ -91,7 +108,10 @@ const emitRuntimeGateStarted = (context: RuntimeContext, gate: GateSpec, gateId:
   });
 };
 
-const emitRuntimeGateResult = (context: RuntimeContext, result: RuntimeGateResult): void => {
+const emitRuntimeGateResult = (
+  context: RuntimeContext,
+  result: RuntimeGateResult
+): void => {
   const actor = runtimeGateActor(context, result.gateId, result.nodeId);
   context.observability?.({
     actor,
@@ -122,10 +142,17 @@ const runGateEvaluation = async (
   nodeId: string,
   context: RuntimeContext,
   attempt: NodeAttemptResult,
-  executor: CommandExecutorService,
+  executor: CommandExecutorService
 ): Promise<RuntimeGateResult> => {
   emitRuntimeGateStarted(context, gate, gateId, nodeId);
-  const result = await resolveGateResult(gate, gateId, nodeId, context, attempt, executor);
+  const result = await resolveGateResult(
+    gate,
+    gateId,
+    nodeId,
+    context,
+    attempt,
+    executor
+  );
   emitRuntimeGateResult(context, result);
   return result;
 };
@@ -136,10 +163,17 @@ const runObservedGate = async (
   nodeId: string,
   context: RuntimeContext,
   attempt: NodeAttemptResult,
-  executor: CommandExecutorService,
+  executor: CommandExecutorService
 ): Promise<RuntimeGateResult> => {
   emitGateStart(context, nodeId, gate, gateId);
-  return await runGateEvaluation(gate, gateId, nodeId, context, attempt, executor);
+  return await runGateEvaluation(
+    gate,
+    gateId,
+    nodeId,
+    context,
+    attempt,
+    executor
+  );
 };
 
 const emitRuntimeGateCancelled = (
@@ -147,7 +181,7 @@ const emitRuntimeGateCancelled = (
   gate: GateSpec,
   gateId: string,
   nodeId: string,
-  reason: string,
+  reason: string
 ): void => {
   context.observability?.({
     actor: runtimeGateActor(context, gateId, nodeId),
@@ -167,12 +201,17 @@ const artifactGateSpecs = (node: PlannedWorkflowNode): GateSpec[] =>
       kind: "artifact",
       path: artifact.path,
       required: artifact.required,
-    }),
+    })
   );
 
-const schemaGateSpecs = (node: PlannedWorkflowNode, context: RuntimeContext): GateSpec[] => {
+const schemaGateSpecs = (
+  node: PlannedWorkflowNode,
+  context: RuntimeContext
+): GateSpec[] => {
   const profile =
-    node.profile !== undefined && node.profile.length > 0 ? context.config.profiles[node.profile] : undefined;
+    node.profile !== undefined && node.profile.length > 0
+      ? context.config.profiles[node.profile]
+      : undefined;
   if (
     profile?.output?.format !== "json_schema" ||
     profile.output.schema_path === undefined ||
@@ -190,13 +229,17 @@ const schemaGateSpecs = (node: PlannedWorkflowNode, context: RuntimeContext): Ga
   ];
 };
 
-const nodeGateSpecs = (node: PlannedWorkflowNode, context: RuntimeContext): GateSpec[] => [
+const nodeGateSpecs = (
+  node: PlannedWorkflowNode,
+  context: RuntimeContext
+): GateSpec[] => [
   ...(node.gates ?? []),
   ...artifactGateSpecs(node),
   ...schemaGateSpecs(node, context),
 ];
 
-const isCancelled = (context: RuntimeContext): boolean => context.signal?.aborted === true;
+const isCancelled = (context: RuntimeContext): boolean =>
+  context.signal?.aborted === true;
 
 const evaluateNodeGateIteration = async (
   gate: GateSpec,
@@ -205,14 +248,21 @@ const evaluateNodeGateIteration = async (
   attempt: NodeAttemptResult,
   executor: CommandExecutorService,
   results: RuntimeGateResult[],
-  onGateFailure?: GateFailureHook,
+  onGateFailure?: GateFailureHook
 ): Promise<GateLoopAction> => {
   const gateId = gate.id ?? `${gate.kind}:${node.id}`;
   if (isCancelled(context)) {
     emitRuntimeGateCancelled(context, gate, gateId, node.id, "gate cancelled");
     return "stop";
   }
-  const result = await runObservedGate(gate, gateId, node.id, context, attempt, executor);
+  const result = await runObservedGate(
+    gate,
+    gateId,
+    node.id,
+    context,
+    attempt,
+    executor
+  );
   recordGateResult(context, gate, result, results);
   return await handleGateFailure(gate, node, result, onGateFailure);
 };
@@ -222,11 +272,19 @@ const evaluateNodeGatesWithExecutor = async (
   context: RuntimeContext,
   attempt: NodeAttemptResult,
   executor: CommandExecutorService,
-  onGateFailure?: GateFailureHook,
+  onGateFailure?: GateFailureHook
 ): Promise<RuntimeGateResult[]> => {
   const results: RuntimeGateResult[] = [];
   for (const gate of nodeGateSpecs(node, context)) {
-    const action = await evaluateNodeGateIteration(gate, node, context, attempt, executor, results, onGateFailure);
+    const action = await evaluateNodeGateIteration(
+      gate,
+      node,
+      context,
+      attempt,
+      executor,
+      results,
+      onGateFailure
+    );
     if (action === "stop") {
       break;
     }
@@ -238,12 +296,19 @@ const evaluateNodeGatesEffect = (
   node: PlannedWorkflowNode,
   context: RuntimeContext,
   attempt: NodeAttemptResult,
-  onGateFailure?: GateFailureHook,
+  onGateFailure?: GateFailureHook
 ): Effect.Effect<RuntimeGateResult[], unknown, CommandExecutor> =>
   Effect.gen(function* effectBody() {
     const executor = yield* CommandExecutor;
     return yield* Effect.tryPromise(
-      async () => await evaluateNodeGatesWithExecutor(node, context, attempt, executor, onGateFailure),
+      async () =>
+        await evaluateNodeGatesWithExecutor(
+          node,
+          context,
+          attempt,
+          executor,
+          onGateFailure
+        )
     );
   });
 
@@ -251,8 +316,11 @@ export const evaluateNodeGates = async (
   node: PlannedWorkflowNode,
   context: RuntimeContext,
   attempt: NodeAttemptResult,
-  onGateFailure?: GateFailureHook,
+  onGateFailure?: GateFailureHook
 ): Promise<RuntimeGateResult[]> =>
   await Effect.runPromise(
-    Effect.provide(evaluateNodeGatesEffect(node, context, attempt, onGateFailure), CommandExecutorLive),
+    Effect.provide(
+      evaluateNodeGatesEffect(node, context, attempt, onGateFailure),
+      CommandExecutorLive
+    )
   );

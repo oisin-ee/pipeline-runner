@@ -32,7 +32,12 @@ import {
   instructionsPointer,
   invocationForHost,
 } from "./shared";
-import type { ActiveCommandHost, CommandDefinition, HostAdapter, MergeDefinitionResult } from "./shared";
+import type {
+  ActiveCommandHost,
+  CommandDefinition,
+  HostAdapter,
+  MergeDefinitionResult,
+} from "./shared";
 
 const CLAUDE_CODE_HOST: ActiveCommandHost = "claude-code";
 const CLAUDE_ALLOWED_TOOLS = "Bash(moka run *)";
@@ -41,7 +46,9 @@ const MOKA_PROFILE_PREFIX = "moka-";
 
 const claudeSettingsProjectionSchema = struct({
   mcpServers: Schema.optional(Schema.Record(Schema.String, Schema.Unknown)),
-  permissions: Schema.optional(struct({ allow: Schema.optional(mutableArray(Schema.String)) })),
+  permissions: Schema.optional(
+    struct({ allow: Schema.optional(mutableArray(Schema.String)) })
+  ),
 });
 
 type ProfileConfig = PipelineConfig["profiles"][string];
@@ -51,15 +58,24 @@ interface DistinctCliProfilesState {
   seen: HashSet.HashSet<string>;
 }
 
-const parseClaudeSettingsProjection = (source: string): ClaudeSettingsProjection =>
-  parseWithSchema(claudeSettingsProjectionSchema, parseJson(source, "Claude settings projection"));
+const parseClaudeSettingsProjection = (
+  source: string
+): ClaudeSettingsProjection =>
+  parseWithSchema(
+    claudeSettingsProjectionSchema,
+    parseJson(source, "Claude settings projection")
+  );
 
 const claudeAgentNameForProfile = (profileId: string): string =>
-  profileId.startsWith(MOKA_PROFILE_PREFIX) ? profileId : `${MOKA_PROFILE_PREFIX}${profileId}`;
+  profileId.startsWith(MOKA_PROFILE_PREFIX)
+    ? profileId
+    : `${MOKA_PROFILE_PREFIX}${profileId}`;
 
 const cliRoutesForConfig = (config: PipelineConfig): AgentDispatchRoute[] =>
   entrypointEntries(config).flatMap(([, entrypoint]) =>
-    "workflow" in entrypoint ? agentDispatchRoutes(CLAUDE_CODE_HOST, config, entrypoint.workflow) : [],
+    "workflow" in entrypoint
+      ? agentDispatchRoutes(CLAUDE_CODE_HOST, config, entrypoint.workflow)
+      : []
   );
 
 const distinctCliProfilesInitial = (): DistinctCliProfilesState => ({
@@ -69,7 +85,7 @@ const distinctCliProfilesInitial = (): DistinctCliProfilesState => ({
 
 const appendDistinctCliProfile = (
   state: DistinctCliProfilesState,
-  route: AgentDispatchRoute,
+  route: AgentDispatchRoute
 ): DistinctCliProfilesState =>
   route.kind !== "cli" || HashSet.has(state.seen, route.profileId)
     ? state
@@ -79,14 +95,16 @@ const appendDistinctCliProfile = (
       };
 
 const distinctCliProfiles = (config: PipelineConfig): AgentDispatchRoute[] =>
-  Arr.reduce(cliRoutesForConfig(config), distinctCliProfilesInitial(), appendDistinctCliProfile).profiles.toSorted(
-    (a, b) => a.profileId.localeCompare(b.profileId),
-  );
+  Arr.reduce(
+    cliRoutesForConfig(config),
+    distinctCliProfilesInitial(),
+    appendDistinctCliProfile
+  ).profiles.toSorted((a, b) => a.profileId.localeCompare(b.profileId));
 
 const commandDispatchBody = (
   config: PipelineConfig,
   id: string,
-  entrypoint: PipelineConfig["entrypoints"][string],
+  entrypoint: PipelineConfig["entrypoints"][string]
 ): string => entrypointDispatchBlock(CLAUDE_CODE_HOST, config, id, entrypoint);
 
 const commandDefinitions = (config: PipelineConfig): CommandDefinition[] =>
@@ -105,14 +123,17 @@ const commandDefinitions = (config: PipelineConfig): CommandDefinition[] =>
         "Load and follow the `execute` skill for the execution doctrine before dispatching work.",
         "",
         commandDispatchBody(config, id, entrypoint),
-      ]).join("\n"),
+      ]).join("\n")
     ),
     host: CLAUDE_CODE_HOST,
     invocation: invocationForHost(CLAUDE_CODE_HOST, id),
     path: `.claude/commands/${commandIdForHost(CLAUDE_CODE_HOST, id)}.md`,
   }));
 
-const agentModelProjection = (config: PipelineConfig, profile: ProfileConfig): Record<string, string> => {
+const agentModelProjection = (
+  config: PipelineConfig,
+  profile: ProfileConfig
+): Record<string, string> => {
   const model = resolvedHostModel(config, CLAUDE_CODE_HOST, profile);
   return model === "" ? {} : { model };
 };
@@ -144,7 +165,7 @@ const agentDefinitions = (config: PipelineConfig): CommandDefinition[] =>
           grants(profile),
           "",
           instructionsPointer(profile),
-        ].join("\n"),
+        ].join("\n")
       ),
       host: CLAUDE_CODE_HOST,
       invocation: invocationForHost(CLAUDE_CODE_HOST),
@@ -170,11 +191,19 @@ const settingsDefinition = (): CommandDefinition[] => {
 
 const claudeCodeDefinitions = (
   config: PipelineConfig,
-  cwd: string,
+  cwd: string
 ): Effect.Effect<CommandDefinition[], never, Path.Path> =>
   Effect.gen(function* effectBody() {
-    const agentsMdDefinition = yield* projectAgentsMdDefinitionEffect(cwd, CLAUDE_CODE_HOST);
-    return [...commandDefinitions(config), ...agentDefinitions(config), ...settingsDefinition(), agentsMdDefinition];
+    const agentsMdDefinition = yield* projectAgentsMdDefinitionEffect(
+      cwd,
+      CLAUDE_CODE_HOST
+    );
+    return [
+      ...commandDefinitions(config),
+      ...agentDefinitions(config),
+      ...settingsDefinition(),
+      agentsMdDefinition,
+    ];
   });
 
 /**
@@ -183,13 +212,18 @@ const claudeCodeDefinitions = (
  */
 export const claudeCodeAdapter: HostAdapter = {
   definitions(config: PipelineConfig, cwd: string): CommandDefinition[] {
-    return runRepoIoSync(Effect.provide(claudeCodeDefinitions(config, cwd), Path.layer));
+    return runRepoIoSync(
+      Effect.provide(claudeCodeDefinitions(config, cwd), Path.layer)
+    );
   },
   host: "claude-code",
   isAlwaysForced(definition: CommandDefinition): boolean {
     return definition.path === CLAUDE_PROJECT_CONFIG_PATH;
   },
-  mergeDefinition(definition: CommandDefinition, existingContent: string): Option.Option<MergeDefinitionResult> {
+  mergeDefinition(
+    definition: CommandDefinition,
+    existingContent: string
+  ): Option.Option<MergeDefinitionResult> {
     if (definition.path !== CLAUDE_PROJECT_CONFIG_PATH) {
       return Option.none();
     }

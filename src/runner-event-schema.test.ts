@@ -14,15 +14,19 @@ const PR_DELIVERY_ACTIONS: ("opened" | "updated")[] = ["opened", "updated"];
 
 const expectEventType: <T extends RunnerEventRecord["type"]>(
   event: RunnerEventRecord,
-  type: T,
-) => asserts event is Extract<RunnerEventRecord, { type: T }> = (event, type) => {
+  type: T
+) => asserts event is Extract<RunnerEventRecord, { type: T }> = (
+  event,
+  type
+) => {
   expect(event.type).toBe(type);
   if (event.type !== type) {
     throw new Error(`Expected ${type}, received ${event.type}`);
   }
 };
 
-const parseRunnerEvent = (event: unknown): RunnerEventRecord => parseWithSchema(runnerEventRecordSchema, event);
+const parseRunnerEvent = (event: unknown): RunnerEventRecord =>
+  parseWithSchema(runnerEventRecordSchema, event);
 
 describe("loop.* event definitions — AC1: round-trip through runnerEventRecordSchema", () => {
   it("loop.start round-trips with projectId, strategy, and optional root", () => {
@@ -126,21 +130,24 @@ describe("loop.* event definitions — AC1: round-trip through runnerEventRecord
 });
 
 describe("delivery.pull-request event schema", () => {
-  it.each(PR_DELIVERY_ACTIONS)("round-trips a %s pull-request delivery event", (action) => {
-    const event = {
-      ...ENVELOPE,
-      deliveryPullRequest: {
-        action,
-        url: `https://github.com/owner/repo/pull/${action === "opened" ? "1" : "2"}`,
-      },
-      type: "delivery.pull-request",
-    };
+  it.each(PR_DELIVERY_ACTIONS)(
+    "round-trips a %s pull-request delivery event",
+    (action) => {
+      const event = {
+        ...ENVELOPE,
+        deliveryPullRequest: {
+          action,
+          url: `https://github.com/owner/repo/pull/${action === "opened" ? "1" : "2"}`,
+        },
+        type: "delivery.pull-request",
+      };
 
-    const parsed = parseRunnerEvent(event);
+      const parsed = parseRunnerEvent(event);
 
-    expectEventType(parsed, "delivery.pull-request");
-    expect(parsed.deliveryPullRequest).toEqual(event.deliveryPullRequest);
-  });
+      expectEventType(parsed, "delivery.pull-request");
+      expect(parsed.deliveryPullRequest).toEqual(event.deliveryPullRequest);
+    }
+  );
 });
 
 describe("loopState — AC3: single exported source of truth", () => {

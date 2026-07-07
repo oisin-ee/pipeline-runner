@@ -2,9 +2,15 @@ import { describe, expect, it } from "vitest";
 
 import type { PlannedWorkflowNode } from "../src/planning/compile";
 import type { RetryReason } from "../src/runtime/actor-ids";
-import { decideNodeRetry, nodeRetryPolicy, retryDelayMs } from "../src/runtime/retry";
+import {
+  decideNodeRetry,
+  nodeRetryPolicy,
+  retryDelayMs,
+} from "../src/runtime/retry";
 
-const nodeWithRetries = (retries?: PlannedWorkflowNode["retries"]): PlannedWorkflowNode => ({
+const nodeWithRetries = (
+  retries?: PlannedWorkflowNode["retries"]
+): PlannedWorkflowNode => ({
   command: ["false"],
   dependents: [],
   id: "flaky",
@@ -30,8 +36,8 @@ describe("runtime retry policy", () => {
           max_attempts: 4,
           multiplier: 3,
           retry_on: ["timeout"],
-        }),
-      ),
+        })
+      )
     ).toEqual({
       backoffMs: 250,
       maxAttempts: 4,
@@ -69,7 +75,7 @@ describe("runtime retry policy", () => {
         policy,
         reason: "gate failed",
         retryReason: "gate_failure",
-      }),
+      })
     ).toEqual({
       attempt: 2,
       delayMs: 100,
@@ -89,7 +95,7 @@ describe("runtime retry policy", () => {
         policy,
         reason: "node exited with code 1",
         retryReason: "exit_nonzero",
-      }),
+      })
     ).toMatchObject({ delayMs: 0, exhausted: true, scheduled: false });
 
     expect(
@@ -100,7 +106,7 @@ describe("runtime retry policy", () => {
         policy,
         reason: "node timed out",
         retryReason: "timeout",
-      }),
+      })
     ).toMatchObject({ delayMs: 0, exhausted: true, scheduled: false });
   });
 });

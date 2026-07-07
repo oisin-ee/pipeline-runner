@@ -1,6 +1,6 @@
 import { CustomObjectsApi, KubeConfig } from "@kubernetes/client-node";
-import { Duration } from "effect";
-import { Effect } from "effect";
+import { Cause, Duration, Effect } from "effect";
+import * as Option from "effect/Option";
 
 import { isRecord } from "../safe-json";
 
@@ -9,7 +9,7 @@ import { isRecord } from "../safe-json";
 // ──────────────────────────────────────────────────────────────────────────────
 
 /** Workflow is still executing. Empty string = Argo pending (not yet scheduled). */
-export type RunningPhase = "Running" | "Pending" | ""; // quality-gate:allow RunningPhase is a union-narrowed type; "" is the Argo spec's pre-scheduled/pending literal
+export type RunningPhase = "Running" | "Pending" | "";
 
 /**
  * The blank string Argo uses before a workflow is scheduled.
@@ -23,11 +23,20 @@ export type TerminalPhase = "Succeeded" | "Failed" | "Error";
 /** All phases Argo Workflow may report. */
 export type WorkflowPhase = RunningPhase | TerminalPhase;
 
-const TERMINAL_PHASES: ReadonlySet<string> = new Set(["Succeeded", "Failed", "Error"]);
+const TERMINAL_PHASES: ReadonlySet<string> = new Set([
+  "Succeeded",
+  "Failed",
+  "Error",
+]);
 
-const KNOWN_RUNNING_PHASES: ReadonlySet<string> = new Set(["Running", "Pending", ""]);
+const KNOWN_RUNNING_PHASES: ReadonlySet<string> = new Set([
+  "Running",
+  "Pending",
+  "",
+]);
 
-const isTerminal = (phase: WorkflowPhase): phase is TerminalPhase => TERMINAL_PHASES.has(phase);
+const isTerminal = (phase: WorkflowPhase): phase is TerminalPhase =>
+  TERMINAL_PHASES.has(phase);
 
 const classifyPhase = function classifyPhase(raw: string): WorkflowPhase {
   if (TERMINAL_PHASES.has(raw)) {
@@ -53,7 +62,8 @@ const classifyPhase = function classifyPhase(raw: string): WorkflowPhase {
 };
 
 /** Exported for reuse in KubernetesArgoService. */
-export const classifyArgoPhase = (raw: string): WorkflowPhase => classifyPhase(raw);
+export const classifyArgoPhase = (raw: string): WorkflowPhase =>
+  classifyPhase(raw);
 
 // ──────────────────────────────────────────────────────────────────────────────
 // DI seam for the k8s client
@@ -79,9 +89,14 @@ interface KubernetesClientOptions {
   kubeconfigPath?: string;
 }
 
-const buildWorkflowReadApi = (options: KubernetesClientOptions): WorkflowReadApi => {
+const buildWorkflowReadApi = (
+  options: KubernetesClientOptions
+): WorkflowReadApi => {
   const kc = new KubeConfig();
-  if (options.kubeconfigPath !== undefined && options.kubeconfigPath.length > 0) {
+  if (
+    options.kubeconfigPath !== undefined &&
+    options.kubeconfigPath.length > 0
+  ) {
     kc.loadFromFile(options.kubeconfigPath);
   } else {
     kc.loadFromDefault();
@@ -116,7 +131,9 @@ const extractRawPhase = (resource: unknown): string => {
  * Unknown phase values are mapped to Running so the poll loop continues
  * until Argo reports a known terminal phase.
  */
-const getWorkflowPhase = (options: GetWorkflowPhaseOptions): Effect.Effect<WorkflowPhase, unknown> =>
+const getWorkflowPhase = (
+  options: GetWorkflowPhaseOptions
+): Effect.Effect<WorkflowPhase, unknown> =>
   Effect.tryPromise({
     catch: (error) => error,
     try: async () =>
@@ -134,7 +151,8 @@ const getWorkflowPhase = (options: GetWorkflowPhaseOptions): Effect.Effect<Workf
  * Returns "" (Argo pending) when the field is absent or not a string.
  * Exported for reuse in KubernetesArgoService.
  */
-export const extractArgoRawPhase = (resource: unknown): string => extractRawPhase(resource);
+export const extractArgoRawPhase = (resource: unknown): string =>
+  extractRawPhase(resource);
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Poller
@@ -180,8 +198,12 @@ interface PollLoopState {
   workflowReadApi: WorkflowReadApi;
 }
 
-const pollLoop = function pollLoop(state: PollLoopState): Effect.Effect<TerminalPhase, unknown> {
-  const handlePollError = (error: unknown): Effect.Effect<TerminalPhase, unknown> => {
+const pollLoop = function pollLoop(
+  state: PollLoopState
+): Effect.Effect<TerminalPhase, unknown> {
+  const handlePollError = (
+    error: unknown
+  ): Effect.Effect<TerminalPhase, unknown> => {
     const nextErrorCount = state.errorCount + 1;
     state.onTransientError?.(error, nextErrorCount);
 
@@ -189,8 +211,23 @@ const pollLoop = function pollLoop(state: PollLoopState): Effect.Effect<Terminal
       return Effect.fail(error);
     }
 
-    const delay = Duration.millis(RETRY_BASE_DELAY_MS * 2 ** (nextErrorCount - 1));
-    return Effect.sleep(delay).pipe(Effect.andThen(pollLoop({ ...state, errorCount: nextErrorCount })));
+    const delay = Duration.millis(
+      RETRY_BASE_DELAY_MS * 2 ** (nextErrorCount - 1)
+    );
+    return Effect.sleep(delay).pipe(
+      Effect.andThen(pollLoop({ ...state, errorCount: nextErrorCount }))
+    );
+  };
+  const handlePollCause = (
+    cause: Cause.Cause<unknown>
+  ): Effect.Effect<TerminalPhase, unknown> => {
+    if (Cause.hasDies(cause) || Cause.hasInterrupts(cause)) {
+      return Effect.failCause(cause);
+    }
+    return Option.match(Cause.findErrorOption(cause), {
+      onNone: () => Effect.failCause(cause),
+      onSome: handlePollError,
+    });
   };
 
   return getWorkflowPhase({
@@ -204,17 +241,19 @@ const pollLoop = function pollLoop(state: PollLoopState): Effect.Effect<Terminal
       }
       // Non-terminal: sleep then poll again with a fresh error count.
       return Effect.sleep(Duration.millis(state.pollIntervalMs)).pipe(
-        Effect.andThen(pollLoop({ ...state, errorCount: 0 })),
+        Effect.andThen(pollLoop({ ...state, errorCount: 0 }))
       );
     }),
-    Effect.catch(handlePollError),
+    Effect.catchCause(handlePollCause)
   );
 };
 
 export const pollWorkflowPhaseUntilTerminal = (
-  options: PollWorkflowPhaseOptions,
+  options: PollWorkflowPhaseOptions
 ): Effect.Effect<TerminalPhase, unknown> => {
-  const api = options.workflowReadApi ?? buildWorkflowReadApi({ kubeconfigPath: options.kubeconfigPath });
+  const api =
+    options.workflowReadApi ??
+    buildWorkflowReadApi({ kubeconfigPath: options.kubeconfigPath });
   const pollIntervalMs = options.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS;
   const maxRetries = options.maxRetries ?? DEFAULT_MAX_RETRIES;
 

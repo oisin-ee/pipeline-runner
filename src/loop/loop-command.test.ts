@@ -1,13 +1,28 @@
 import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
 
+import { parsePipelineConfigParts } from "../config";
 import type { PipelineConfig } from "../config";
 import type { MokaSubmitInput, MokaSubmitResult } from "../moka-submit";
 import type { BacklogTaskRecord } from "../tickets/backlog-task-store";
-import { loopControllerArgv, parseLoopFlags, runLoopSubmit } from "./loop-command";
+import {
+  loopControllerArgv,
+  parseLoopFlags,
+  runLoopSubmit,
+} from "./loop-command";
 import type { LoopSubmitInput } from "./loop-command";
 
-const UNUSED_CONFIG = {} as PipelineConfig; // quality-gate:allow test fixture: config flows untouched through the injected submit seam
+const UNUSED_CONFIG: PipelineConfig = parsePipelineConfigParts({
+  pipeline: `
+version: 1
+default_workflow: default
+workflows:
+  default:
+    nodes: []
+`,
+  profiles: "version: 1\n",
+  runners: "version: 1\n",
+});
 
 const STRATEGY_ERROR = /--strategy/u;
 const MERGE_TIMEOUT_ERROR = /--merge-timeout/u;
@@ -17,7 +32,7 @@ const NO_READY_TICKET_ERROR = /no ready ticket/u;
 const task = (
   id: string,
   dependencies: readonly string[] = [],
-  status: BacklogTaskRecord["status"] = "To Do",
+  status: BacklogTaskRecord["status"] = "To Do"
 ): BacklogTaskRecord => ({
   acceptanceCriteria: [],
   dependencies,
@@ -43,7 +58,10 @@ const submitResult = (workflowName: string): MokaSubmitResult => ({
   workflowName,
 });
 
-const submitInput = (flags: LoopSubmitInput["flags"], overrides: Partial<LoopSubmitInput> = {}): LoopSubmitInput => ({
+const submitInput = (
+  flags: LoopSubmitInput["flags"],
+  overrides: Partial<LoopSubmitInput> = {}
+): LoopSubmitInput => ({
   brokerAuth: {
     secretKey: "api-key",
     secretName: "broker-api-key",
@@ -60,7 +78,7 @@ const submitInput = (flags: LoopSubmitInput["flags"], overrides: Partial<LoopSub
 
 /** A submit seam that records inputs and flips a flag when called. */
 const recordingSubmit = (
-  workflowName: string,
+  workflowName: string
 ): {
   submit: (input: MokaSubmitInput) => Promise<MokaSubmitResult>;
   submits: MokaSubmitInput[];
@@ -96,7 +114,7 @@ describe("parseLoopFlags", () => {
         mergeTimeout: "30",
         root: "PIPE-88",
         strategy: "dfs",
-      }),
+      })
     ).toEqual({
       maxMergePolls: 30,
       maxRemediationAttempts: 3,
@@ -106,11 +124,15 @@ describe("parseLoopFlags", () => {
   });
 
   it("rejects an unknown strategy", () => {
-    expect(() => parseLoopFlags({ strategy: "random" })).toThrow(STRATEGY_ERROR);
+    expect(() => parseLoopFlags({ strategy: "random" })).toThrow(
+      STRATEGY_ERROR
+    );
   });
 
   it("rejects a non-positive bound", () => {
-    expect(() => parseLoopFlags({ mergeTimeout: "0" })).toThrow(MERGE_TIMEOUT_ERROR);
+    expect(() => parseLoopFlags({ mergeTimeout: "0" })).toThrow(
+      MERGE_TIMEOUT_ERROR
+    );
   });
 });
 
@@ -141,7 +163,12 @@ describe("loopControllerArgv — AC2 flag forwarding", () => {
   });
 
   it("omits absent optional flags", () => {
-    expect(loopControllerArgv({ strategy: "priority" })).toEqual(["moka", "loop-controller", "--strategy", "priority"]);
+    expect(loopControllerArgv({ strategy: "priority" })).toEqual([
+      "moka",
+      "loop-controller",
+      "--strategy",
+      "priority",
+    ]);
   });
 });
 
@@ -161,14 +188,15 @@ describe("runLoopSubmit — AC1 cloud submission", () => {
       }),
       {
         // Epic PIPE-88 with one ready child so the --root scope has work.
-        loadTasks: () => Effect.succeed([task("PIPE-88"), child("PIPE-88.1", "PIPE-88")]),
+        loadTasks: () =>
+          Effect.succeed([task("PIPE-88"), child("PIPE-88.1", "PIPE-88")]),
         submitMoka: submit,
-      },
+      }
     );
 
     expect(result.workflowName).toBe("moka-loop-abc");
     expect(submits).toHaveLength(1);
-    const submit0 = submits[0];
+    const [submit0] = submits;
     expect(submit0.type).toBe("command");
     if (submit0.type === "command") {
       expect(submit0.commandArgv).toEqual([
@@ -200,7 +228,7 @@ describe("runLoopSubmit — AC5 refuses unstartable backlog", () => {
       runLoopSubmit(submitInput({ strategy: "bfs" }), {
         loadTasks: () => Effect.succeed([task("A", ["B"]), task("B", ["A"])]),
         submitMoka: submit,
-      }),
+      })
     ).rejects.toThrow(CYCLE_ERROR);
     expect(submits).toHaveLength(0);
   });
@@ -211,7 +239,7 @@ describe("runLoopSubmit — AC5 refuses unstartable backlog", () => {
       runLoopSubmit(submitInput({ strategy: "priority" }), {
         loadTasks: () => Effect.succeed([]),
         submitMoka: submit,
-      }),
+      })
     ).rejects.toThrow(NO_READY_TICKET_ERROR);
     expect(submits).toHaveLength(0);
   });
@@ -220,9 +248,10 @@ describe("runLoopSubmit — AC5 refuses unstartable backlog", () => {
     const { submit, submits } = recordingSubmit("never");
     await expect(
       runLoopSubmit(submitInput({ strategy: "priority" }), {
-        loadTasks: () => Effect.succeed([task("A", [], "Done"), task("B", ["A"], "Done")]),
+        loadTasks: () =>
+          Effect.succeed([task("A", [], "Done"), task("B", ["A"], "Done")]),
         submitMoka: submit,
-      }),
+      })
     ).rejects.toThrow(NO_READY_TICKET_ERROR);
     expect(submits).toHaveLength(0);
   });

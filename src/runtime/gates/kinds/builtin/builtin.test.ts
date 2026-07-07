@@ -1,17 +1,19 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { baseGateRuntimeFields, gateNodeStateStore } from "../../../../../tests/gate-test-context";
+import {
+  baseGateRuntimeFields,
+  gateNodeStateStore,
+} from "../../../../../tests/gate-test-context";
 import { parsePipelineConfigParts } from "../../../../config/load";
 import { compileWorkflowPlan } from "../../../../planning/compile";
+import { executeBuiltin } from "../../../builtins";
 import type { BuiltinGateSpec, RuntimeContext } from "../../../contracts";
+import { evaluateBuiltinGate } from "./builtin";
 
 // Mock executeBuiltin so no actual builtins (tests, linting) are invoked.
 vi.mock("../../../builtins", () => ({
   executeBuiltin: vi.fn(),
 }));
-
-import { executeBuiltin } from "../../../builtins";
-import { evaluateBuiltinGate } from "./builtin";
 
 const testContext = (): RuntimeContext => {
   const config = parsePipelineConfigParts(
@@ -22,7 +24,7 @@ const testContext = (): RuntimeContext => {
       runners:
         "version: 1\nrunners:\n  local:\n    type: command\n    command: node\n    capabilities: { native_subagents: false }\n",
     },
-    "/tmp/builtin-gate-test",
+    "/tmp/builtin-gate-test"
   );
   return {
     ...baseGateRuntimeFields(),
@@ -46,7 +48,12 @@ describe("evaluateBuiltinGate", () => {
       exitCode: 0,
       output: "",
     });
-    const result = await evaluateBuiltinGate(gate, "builtin:node", "node", testContext());
+    const result = await evaluateBuiltinGate(
+      gate,
+      "builtin:node",
+      "node",
+      testContext()
+    );
     expect(result.passed).toBe(true);
     expect(result.kind).toBe("builtin");
     expect(result.reason).toBeUndefined();
@@ -58,7 +65,12 @@ describe("evaluateBuiltinGate", () => {
       exitCode: 1,
       output: "",
     });
-    const result = await evaluateBuiltinGate(gate, "builtin:node", "node", testContext());
+    const result = await evaluateBuiltinGate(
+      gate,
+      "builtin:node",
+      "node",
+      testContext()
+    );
     expect(result.passed).toBe(false);
     expect(result.reason).toMatch(BUILTIN_FAILED_RE);
   });

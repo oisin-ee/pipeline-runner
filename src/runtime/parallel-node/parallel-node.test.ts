@@ -1,17 +1,43 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "@effect/vitest";
+import { createOpencodeClient } from "@opencode-ai/sdk/v2";
+import * as Effect from "effect/Effect";
+import { vi } from "vitest";
 
 import type { PipelineConfig } from "../../config";
 import type { PlannedWorkflowNode } from "../../planning/compile";
+import { createDependencyGraph } from "../../planning/graph";
 import type { RuntimeContext, RuntimeNodeResult } from "../contracts";
 import { NodeStateStore } from "../node-state-store";
+import type { leaseOpencodeRuntime } from "../opencode-runtime";
+import type { OpencodeServerHandle } from "../opencode-server";
 import { executeParallelNode } from "./parallel-node";
 
+interface OpencodeRuntimeModule {
+  readonly leaseOpencodeRuntime: typeof leaseOpencodeRuntime;
+}
+
 const worktreeRecords = vi.hoisted(() => ({ creates: 0, releases: 0 }));
-const opencodeRecords = vi.hoisted(() => ({
-  executor: undefined as unknown,
-  leases: 0,
-  releases: 0,
-}));
+const opencodeRecords = vi.hoisted(
+  (): {
+    executor: unknown;
+    leases: number;
+    releases: number;
+  } => ({
+    executor: undefined,
+    leases: 0,
+    releases: 0,
+  })
+);
+
+const testOpencodeServer = async (): Promise<OpencodeServerHandle> =>
+  await Promise.resolve({
+    client: createOpencodeClient({ baseUrl: "http://127.0.0.1:0" }),
+    close: async () => {
+      await Promise.resolve();
+    },
+    owned: true,
+    url: "http://127.0.0.1:0",
+  });
 
 vi.mock("../parallel-worktrees/parallel-worktrees", () => ({
   createChildWorktree: () => {
@@ -27,19 +53,16 @@ vi.mock("../parallel-worktrees/parallel-worktrees", () => ({
 }));
 
 vi.mock("../opencode-runtime", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../opencode-runtime")>();
+  const actual = await importOriginal<OpencodeRuntimeModule>();
   return {
     ...actual,
-    leaseOpencodeRuntime: async (input: Parameters<typeof actual.leaseOpencodeRuntime>[0]) => {
+    leaseOpencodeRuntime: async (
+      input: Parameters<typeof actual.leaseOpencodeRuntime>[0]
+    ) => {
       opencodeRecords.leases += 1;
       const lease = await actual.leaseOpencodeRuntime({
         ...input,
-        openServer: async () => ({
-          client: {} as never,
-          close: async () => {},
-          owned: true,
-          url: "http://127.0.0.1:0",
-        }),
+        openServer: async () => await testOpencodeServer(),
       });
       opencodeRecords.executor = lease.executor;
       return {
@@ -53,6 +76,10 @@ vi.mock("../opencode-runtime", async (importOriginal) => {
   };
 });
 
+const promiseResult = async (
+  result: RuntimeNodeResult
+): Promise<RuntimeNodeResult> => await Promise.resolve(result);
+
 const passedNodeResult = (nodeId: string): RuntimeNodeResult => ({
   attempts: 1,
   evidence: [],
@@ -62,7 +89,10 @@ const passedNodeResult = (nodeId: string): RuntimeNodeResult => ({
   status: "passed",
 });
 
-const plannedNode = (id: string, kind: PlannedWorkflowNode["kind"]): PlannedWorkflowNode => ({
+const plannedNode = (
+  id: string,
+  kind: PlannedWorkflowNode["kind"]
+): PlannedWorkflowNode => ({
   dependents: [],
   id,
   index: 0,
@@ -80,41 +110,56 @@ const parallelWith = (childIds: string[]): PlannedWorkflowNode => ({
   children: childIds.map((id) => plannedNode(id, "agent")),
 });
 
-const opencodeConfig = (): PipelineConfig =>
-  ({
-    default_workflow: "workflow",
-    hooks: { functions: {}, on: {} },
-    parallel_worktrees: { enabled: true },
-    runner_command: {
-      environment: { setup: [], smoke: [] },
-      git: { committer: { email: "bot@example.com", name: "Bot" } },
-    },
-    runners: {
-      opencode: { capabilities: {}, type: "opencode" },
-    },
-    scheduler: { commands: {}, node_catalogs: {} },
-    token_budget: {
-      default_context_window: 200_000,
-      fan_out_width: { by_category: {}, default: 4 },
-      max_context_pct: 50,
-      model_context_windows: {},
-    },
-    workflows: {},
-  }) as unknown as PipelineConfig;
+const emptyWorkflowGraph = () =>
+  createDependencyGraph<PlannedWorkflowNode, PlannedWorkflowNode>([], {
+    dependenciesOf: (node) => node.needs,
+    valueOf: (node) => node,
+  });
 
-const plainConfig = (byCategory: Record<string, number> = {}): PipelineConfig =>
-  ({
-    ...opencodeConfig(),
-    parallel_worktrees: { enabled: false },
-    token_budget: {
-      default_context_window: 200_000,
-      fan_out_width: { by_category: byCategory, default: 4 },
-      max_context_pct: 50,
-      model_context_windows: {},
-    },
-  }) as unknown as PipelineConfig;
+const opencodeConfig = (): PipelineConfig => ({
+  default_workflow: "workflow",
+  entrypoints: {},
+  hooks: { functions: {}, on: {} },
+  mcp_servers: {},
+  parallel_worktrees: { enabled: true },
+  profiles: {},
+  rules: {},
+  runner_command: {
+    environment: { setup: [], smoke: [] },
+    git: { committer: { email: "bot@example.com", name: "Bot" } },
+  },
+  runners: {
+    opencode: { capabilities: {}, type: "opencode" },
+  },
+  scheduler: { commands: {}, node_catalogs: {} },
+  schedules: {},
+  skills: {},
+  token_budget: {
+    default_context_window: 200_000,
+    fan_out_width: { by_category: {}, default: 4 },
+    max_context_pct: 50,
+    model_context_windows: {},
+  },
+  version: 1,
+  workflows: {},
+});
 
-const runtimeContext = (executor: RuntimeContext["executor"]): Parameters<typeof executeParallelNode>[1] => ({
+const plainConfig = (
+  byCategory: Record<string, number> = {}
+): PipelineConfig => ({
+  ...opencodeConfig(),
+  parallel_worktrees: { enabled: false },
+  token_budget: {
+    default_context_window: 200_000,
+    fan_out_width: { by_category: byCategory, default: 4 },
+    max_context_pct: 50,
+    model_context_windows: {},
+  },
+});
+
+const runtimeContext = (
+  executor: RuntimeContext["executor"]
+): Parameters<typeof executeParallelNode>[1] => ({
   agentInvocations: [],
   config: opencodeConfig(),
   executor,
@@ -132,7 +177,7 @@ const runtimeContext = (executor: RuntimeContext["executor"]): Parameters<typeof
   nodeStateStore: new NodeStateStore(),
   plan: {
     execution: { failFast: false },
-    graph: {} as never,
+    graph: emptyWorkflowGraph(),
     parallelBatches: [],
     topologicalOrder: [],
     workflowId: "workflow",
@@ -144,136 +189,188 @@ const runtimeContext = (executor: RuntimeContext["executor"]): Parameters<typeof
 
 const runtimeContextWith = (
   executor: RuntimeContext["executor"],
-  config: PipelineConfig,
+  config: PipelineConfig
 ): Parameters<typeof executeParallelNode>[1] => ({
   ...runtimeContext(executor),
   config,
 });
 
 describe("runtime parallel node", () => {
-  it("uses a per-worktree opencode executor for isolated opencode children", async () => {
-    worktreeRecords.creates = 0;
-    worktreeRecords.releases = 0;
-    opencodeRecords.executor = undefined;
-    opencodeRecords.leases = 0;
-    opencodeRecords.releases = 0;
+  it.effect(
+    "uses a per-worktree opencode executor for isolated opencode children",
+    () =>
+      Effect.gen(function* effectBody() {
+        worktreeRecords.creates = 0;
+        worktreeRecords.releases = 0;
+        opencodeRecords.executor = undefined;
+        opencodeRecords.leases = 0;
+        opencodeRecords.releases = 0;
 
-    const parentExecutor = vi.fn();
-    let childExecutor: unknown;
-    const result = await executeParallelNode(parallelNode(), runtimeContext(parentExecutor), {
-      executeNode: async (_child, context) => {
-        childExecutor = context.executor;
-        return passedNodeResult(_child.id);
-      },
-      markNodeReady: () => {},
-    });
-
-    expect(result.exitCode).toBe(0);
-    expect(worktreeRecords.creates).toBe(1);
-    expect(worktreeRecords.releases).toBe(1);
-    expect(opencodeRecords.leases).toBe(1);
-    expect(opencodeRecords.releases).toBe(1);
-    expect(childExecutor).toBe(opencodeRecords.executor);
-    expect(childExecutor).not.toBe(parentExecutor);
-  });
-
-  it("reports successful child completion in the aggregate evidence", async () => {
-    const result = await executeParallelNode(
-      parallelWith(["green-a", "green-b"]),
-      runtimeContextWith(vi.fn(), plainConfig()),
-      {
-        executeNode: async (child) => passedNodeResult(child.id),
-        markNodeReady: () => {},
-      },
-    );
-
-    expect(result.exitCode).toBe(0);
-    expect(result.evidence).toEqual(["parallel node 'green' completed 2 child nodes"]);
-  });
-
-  it("surfaces failed children in the aggregate evidence", async () => {
-    const result = await executeParallelNode(
-      parallelWith(["green-a", "green-b"]),
-      runtimeContextWith(vi.fn(), plainConfig()),
-      {
-        executeNode: async (child) =>
-          child.id === "green-b"
-            ? {
-                attempts: 1,
-                evidence: ["green-b failed"],
-                exitCode: 1,
-                nodeId: child.id,
-                output: "",
-                status: "failed",
+        const parentExecutor = vi.fn();
+        let childExecutor: unknown;
+        const result = yield* Effect.tryPromise({
+          catch: (error) => error,
+          try: async () =>
+            await executeParallelNode(
+              parallelNode(),
+              runtimeContext(parentExecutor),
+              {
+                executeNode: async (child, context) => {
+                  childExecutor = context.executor;
+                  return await promiseResult(passedNodeResult(child.id));
+                },
+                markNodeReady: () => {},
               }
-            : passedNodeResult(child.id),
-        markNodeReady: () => {},
-      },
-    );
+            ),
+        });
 
-    expect(result.exitCode).toBe(1);
-    expect(result.evidence).toContain("parallel node 'green' failed with 1 failed child nodes");
-    expect(result.evidence).toContain("green-b failed");
-  });
+        expect(result.exitCode).toBe(0);
+        expect(worktreeRecords.creates).toBe(1);
+        expect(worktreeRecords.releases).toBe(1);
+        expect(opencodeRecords.leases).toBe(1);
+        expect(opencodeRecords.releases).toBe(1);
+        expect(childExecutor).toBe(opencodeRecords.executor);
+        expect(childExecutor).not.toBe(parentExecutor);
+      })
+  );
 
-  it("serializes child outputs in declaration order", async () => {
-    const result = await executeParallelNode(
-      parallelWith(["left", "right"]),
-      runtimeContextWith(vi.fn(), plainConfig()),
-      {
-        executeNode: async (child) => ({
-          ...passedNodeResult(child.id),
-          output: child.id === "left" ? "L" : "R",
-        }),
-        markNodeReady: () => {},
-      },
-    );
+  it.effect(
+    "reports successful child completion in the aggregate evidence",
+    () =>
+      Effect.gen(function* effectBody() {
+        const result = yield* Effect.tryPromise({
+          catch: (error) => error,
+          try: async () =>
+            await executeParallelNode(
+              parallelWith(["green-a", "green-b"]),
+              runtimeContextWith(vi.fn(), plainConfig()),
+              {
+                executeNode: async (child) =>
+                  await promiseResult(passedNodeResult(child.id)),
+                markNodeReady: () => {},
+              }
+            ),
+        });
 
-    expect(JSON.parse(result.output)).toEqual({
-      children: { left: "L", right: "R" },
-    });
-  });
+        expect(result.exitCode).toBe(0);
+        expect(result.evidence).toEqual([
+          "parallel node 'green' completed 2 child nodes",
+        ]);
+      })
+  );
 
-  it("throttles children that share a fan-out category", async () => {
-    let active = 0;
-    let maxActive = 0;
-    const result = await executeParallelNode(
-      parallelWith(["green-1", "green-2"]),
-      runtimeContextWith(vi.fn(), plainConfig({ green: 1 })),
-      {
-        executeNode: async (child) => {
-          active += 1;
-          maxActive = Math.max(maxActive, active);
-          await new Promise((resolve) => setTimeout(resolve, 0));
-          active -= 1;
-          return passedNodeResult(child.id);
-        },
-        markNodeReady: () => {},
-      },
-    );
+  it.effect("surfaces failed children in the aggregate evidence", () =>
+    Effect.gen(function* effectBody() {
+      const result = yield* Effect.tryPromise({
+        catch: (error) => error,
+        try: async () =>
+          await executeParallelNode(
+            parallelWith(["green-a", "green-b"]),
+            runtimeContextWith(vi.fn(), plainConfig()),
+            {
+              executeNode: async (child) => {
+                if (child.id === "green-b") {
+                  return await promiseResult({
+                    attempts: 1,
+                    evidence: ["green-b failed"],
+                    exitCode: 1,
+                    nodeId: child.id,
+                    output: "",
+                    status: "failed",
+                  });
+                }
+                return await promiseResult(passedNodeResult(child.id));
+              },
+              markNodeReady: () => {},
+            }
+          ),
+      });
 
-    expect(result.exitCode).toBe(0);
-    expect(maxActive).toBe(1);
-  });
+      expect(result.exitCode).toBe(1);
+      expect(result.evidence).toContain(
+        "parallel node 'green' failed with 1 failed child nodes"
+      );
+      expect(result.evidence).toContain("green-b failed");
+    })
+  );
 
-  it("does not throttle children outside the capped category", async () => {
-    let active = 0;
-    let maxActive = 0;
-    await executeParallelNode(
-      parallelWith(["intake-1", "intake-2"]),
-      runtimeContextWith(vi.fn(), plainConfig({ green: 1 })),
-      {
-        executeNode: async (child) => {
-          active += 1;
-          maxActive = Math.max(maxActive, active);
-          await new Promise((resolve) => setTimeout(resolve, 0));
-          active -= 1;
-          return passedNodeResult(child.id);
-        },
-        markNodeReady: () => {},
-      },
-    );
+  it.effect("serializes child outputs in declaration order", () =>
+    Effect.gen(function* effectBody() {
+      const result = yield* Effect.tryPromise({
+        catch: (error) => error,
+        try: async () =>
+          await executeParallelNode(
+            parallelWith(["left", "right"]),
+            runtimeContextWith(vi.fn(), plainConfig()),
+            {
+              executeNode: async (child) =>
+                await promiseResult({
+                  ...passedNodeResult(child.id),
+                  output: child.id === "left" ? "L" : "R",
+                }),
+              markNodeReady: () => {},
+            }
+          ),
+      });
 
-    expect(maxActive).toBe(2);
-  });
+      expect(JSON.parse(result.output)).toEqual({
+        children: { left: "L", right: "R" },
+      });
+    })
+  );
+
+  it.effect("throttles children that share a fan-out category", () =>
+    Effect.gen(function* effectBody() {
+      let active = 0;
+      let maxActive = 0;
+      const result = yield* Effect.tryPromise({
+        catch: (error) => error,
+        try: async () =>
+          await executeParallelNode(
+            parallelWith(["green-1", "green-2"]),
+            runtimeContextWith(vi.fn(), plainConfig({ green: 1 })),
+            {
+              executeNode: async (child) => {
+                active += 1;
+                maxActive = Math.max(maxActive, active);
+                await Promise.resolve();
+                active -= 1;
+                return passedNodeResult(child.id);
+              },
+              markNodeReady: () => {},
+            }
+          ),
+      });
+
+      expect(result.exitCode).toBe(0);
+      expect(maxActive).toBe(1);
+    })
+  );
+
+  it.effect("does not throttle children outside the capped category", () =>
+    Effect.gen(function* effectBody() {
+      let active = 0;
+      let maxActive = 0;
+      yield* Effect.tryPromise({
+        catch: (error) => error,
+        try: async () =>
+          await executeParallelNode(
+            parallelWith(["intake-1", "intake-2"]),
+            runtimeContextWith(vi.fn(), plainConfig({ green: 1 })),
+            {
+              executeNode: async (child) => {
+                active += 1;
+                maxActive = Math.max(maxActive, active);
+                await Promise.resolve();
+                active -= 1;
+                return passedNodeResult(child.id);
+              },
+              markNodeReady: () => {},
+            }
+          ),
+      });
+
+      expect(maxActive).toBe(2);
+    })
+  );
 });

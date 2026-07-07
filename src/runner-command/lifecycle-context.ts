@@ -9,14 +9,20 @@ import {
   parsePipelineConfigParts,
   RUNNERS_CONFIG_PATH,
 } from "../config";
-import { compileScheduleArtifact, parseScheduleArtifact } from "../planning/generate";
+import {
+  compileScheduleArtifact,
+  parseScheduleArtifact,
+} from "../planning/generate";
 import { readPersistedScheduleEffect } from "../run-control/next-node";
 import { withRunControlStoreScoped } from "../run-control/run-control-store";
 import { parseRunnerCommandPayload } from "../runner-command-contract";
 import type { createRunnerEventSink } from "../runner-event-sink";
 import type { RuntimeContext } from "../runtime/contracts";
 import { initialNodeStateStore } from "../runtime/node-state-store";
-import { createRunnerCommandEventSink, RunnerCommandIoService } from "../runtime/services/runner-command-io-service";
+import {
+  createRunnerCommandEventSink,
+  RunnerCommandIoService,
+} from "../runtime/services/runner-command-io-service";
 import { runnerTaskTextEffect } from "./run";
 
 interface RunnerLifecycleContextOptions {
@@ -29,7 +35,7 @@ interface RunnerLifecycleContextOptions {
 
 const prepareRunnerWorktreeEffect = (
   payload: ReturnType<typeof parseRunnerCommandPayload>,
-  cwd: Option.Option<string>,
+  cwd: Option.Option<string>
 ): Effect.Effect<string, unknown, RunnerCommandIoService> =>
   Effect.gen(function* effectBody() {
     const io = yield* RunnerCommandIoService;
@@ -51,7 +57,7 @@ const lifecycleScheduleYamlEffect = (input: {
 }): Effect.Effect<string, unknown, RunnerCommandIoService> => {
   if (input.scheduleSource === "db") {
     return withRunControlStoreScoped(input.worktreePath, (store) =>
-      readPersistedScheduleEffect(store, input.payload.run.id),
+      readPersistedScheduleEffect(store, input.payload.run.id)
     );
   }
   return Effect.gen(function* effectBody() {
@@ -60,21 +66,31 @@ const lifecycleScheduleYamlEffect = (input: {
   });
 };
 
-const lifecycleScheduleSourceLabel = (input: { scheduleFile?: string; scheduleSource: "db" | "file" }): string =>
-  input.scheduleSource === "db" ? "persisted schedule" : (input.scheduleFile ?? "schedule.yaml");
+const lifecycleScheduleSourceLabel = (input: {
+  scheduleFile?: string;
+  scheduleSource: "db" | "file";
+}): string =>
+  input.scheduleSource === "db"
+    ? "persisted schedule"
+    : (input.scheduleFile ?? "schedule.yaml");
 
-const assertWorkflowIdsMatch = (payloadWorkflowId: string, scheduleWorkflowId: string): Effect.Effect<void, Error> => {
+const assertWorkflowIdsMatch = (
+  payloadWorkflowId: string,
+  scheduleWorkflowId: string
+): Effect.Effect<void, Error> => {
   if (payloadWorkflowId === scheduleWorkflowId) {
     return Effect.void;
   }
   return Effect.fail(
     new Error(
-      `Runner payload workflow '${payloadWorkflowId}' does not match schedule workflow '${scheduleWorkflowId}'`,
-    ),
+      `Runner payload workflow '${payloadWorkflowId}' does not match schedule workflow '${scheduleWorkflowId}'`
+    )
   );
 };
 
-const runnerHookPolicy = (payload: ReturnType<typeof parseRunnerCommandPayload>) => {
+const runnerHookPolicy = (
+  payload: ReturnType<typeof parseRunnerCommandPayload>
+) => {
   const {
     allowCommandHooks = true,
     allowUntrustedCommandHooks = true,
@@ -118,7 +134,9 @@ const buildRunnerRuntimeContext = (options: {
   worktreePath: options.worktreePath,
 });
 
-const hasRunnerLifecycleConfigParts = (paths: string[]): Effect.Effect<boolean, unknown, RunnerCommandIoService> =>
+const hasRunnerLifecycleConfigParts = (
+  paths: string[]
+): Effect.Effect<boolean, unknown, RunnerCommandIoService> =>
   Effect.gen(function* effectBody() {
     const io = yield* RunnerCommandIoService;
     for (const path of paths) {
@@ -134,7 +152,11 @@ const readRunnerLifecycleConfigParts = (paths: {
   pipelinePath: string;
   profilesPath: string;
   runnersPath: string;
-}): Effect.Effect<{ pipeline: string; profiles: string; runners: string }, unknown, RunnerCommandIoService> =>
+}): Effect.Effect<
+  { pipeline: string; profiles: string; runners: string },
+  unknown,
+  RunnerCommandIoService
+> =>
   Effect.gen(function* effectBody() {
     const io = yield* RunnerCommandIoService;
     return {
@@ -144,11 +166,16 @@ const readRunnerLifecycleConfigParts = (paths: {
     };
   });
 
-const attemptSync = <T>(try_: () => T): Effect.Effect<T, unknown> => Effect.try({ catch: (error) => error, try: try_ });
+const attemptSync = <T>(try_: () => T): Effect.Effect<T, unknown> =>
+  Effect.try({ catch: (error) => error, try: try_ });
 
 const readRunnerPayloadEffect = (
-  payloadFile: string,
-): Effect.Effect<ReturnType<typeof parseRunnerCommandPayload>, unknown, RunnerCommandIoService> =>
+  payloadFile: string
+): Effect.Effect<
+  ReturnType<typeof parseRunnerCommandPayload>,
+  unknown,
+  RunnerCommandIoService
+> =>
   Effect.gen(function* effectBody() {
     const io = yield* RunnerCommandIoService;
     const payloadRaw = yield* io.readText(payloadFile);
@@ -167,21 +194,32 @@ const compileRunnerScheduleEffect = (input: {
     const compiled = yield* attemptSync(() =>
       compileScheduleArtifact(
         input.config,
-        parseScheduleArtifact(scheduleYaml, lifecycleScheduleSourceLabel(input)),
-        input.worktreePath,
-      ),
+        parseScheduleArtifact(
+          scheduleYaml,
+          lifecycleScheduleSourceLabel(input)
+        ),
+        input.worktreePath
+      )
     );
     return { compiled, scheduleYaml };
   });
 
 const loadRunnerLifecycleConfigEffect = (
-  worktreePath: string,
-): Effect.Effect<ReturnType<typeof loadPipelineConfig>, unknown, RunnerCommandIoService> =>
+  worktreePath: string
+): Effect.Effect<
+  ReturnType<typeof loadPipelineConfig>,
+  unknown,
+  RunnerCommandIoService
+> =>
   Effect.gen(function* effectBody() {
     const pipelinePath = join(worktreePath, PIPELINE_CONFIG_PATH);
     const profilesPath = join(worktreePath, PROFILES_CONFIG_PATH);
     const runnersPath = join(worktreePath, RUNNERS_CONFIG_PATH);
-    const hasConfigParts = yield* hasRunnerLifecycleConfigParts([pipelinePath, profilesPath, runnersPath]);
+    const hasConfigParts = yield* hasRunnerLifecycleConfigParts([
+      pipelinePath,
+      profilesPath,
+      runnersPath,
+    ]);
     if (hasConfigParts) {
       const parts = yield* readRunnerLifecycleConfigParts({
         pipelinePath,
@@ -201,19 +239,19 @@ const loadRunnerLifecycleConfigEffect = (
             profiles: PROFILES_CONFIG_PATH,
             runners: RUNNERS_CONFIG_PATH,
           },
-          { allowMissingLintFileReferences: true },
-        ),
+          { allowMissingLintFileReferences: true }
+        )
       );
     }
     return yield* attemptSync(() =>
       loadPipelineConfig(worktreePath, {
         allowMissingLintFileReferences: true,
-      }),
+      })
     );
   });
 
 export const createRunnerLifecycleContextEffect = (
-  options: RunnerLifecycleContextOptions,
+  options: RunnerLifecycleContextOptions
 ): Effect.Effect<RunnerLifecycleContext, unknown, RunnerCommandIoService> =>
   Effect.gen(function* effectBody() {
     const payload = yield* readRunnerPayloadEffect(options.payloadFile);
@@ -221,7 +259,10 @@ export const createRunnerLifecycleContextEffect = (
       fetch: options.fetch,
       payload,
     });
-    const worktreePath = yield* prepareRunnerWorktreeEffect(payload, Option.fromNullishOr(options.cwd));
+    const worktreePath = yield* prepareRunnerWorktreeEffect(
+      payload,
+      Option.fromNullishOr(options.cwd)
+    );
     const config = yield* loadRunnerLifecycleConfigEffect(worktreePath);
     const { compiled, scheduleYaml } = yield* compileRunnerScheduleEffect({
       config,

@@ -1,2 +1,5 @@
 export const isNotFound = (error: unknown): boolean =>
-  typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT";
+  typeof error === "object" &&
+  error !== null &&
+  "code" in error &&
+  error.code === "ENOENT";

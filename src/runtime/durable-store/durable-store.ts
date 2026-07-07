@@ -32,7 +32,11 @@ export interface DurableRunStore {
   /** Retrieve the full record for a `(runId, nodeId)` pair, or none if not yet recorded. */
   get(runId: string, nodeId: string): Option.Option<DurableNodeRecord>;
   /** Durably record a node's terminal result keyed by `(runId, nodeId)`. */
-  record(runId: string, nodeId: string, entry: Omit<DurableNodeRecord, "recordedAt">): void;
+  record(
+    runId: string,
+    nodeId: string,
+    entry: Omit<DurableNodeRecord, "recordedAt">
+  ): void;
   /** Passed node results for a `runId` — the resume seed (mirrors `RunJournal.resumeCompleted`). */
   resumeCompleted(runId: string): RuntimeNodeResult[];
   /**
@@ -45,7 +49,7 @@ export interface DurableRunStore {
 
 const makeBucket = (
   store: Map<string, Map<string, DurableNodeRecord>>,
-  runId: string,
+  runId: string
 ): Map<string, DurableNodeRecord> => {
   let bucket = store.get(runId);
   if (!bucket) {
@@ -70,7 +74,9 @@ export const inMemoryDurableRunStore = (): DurableRunStore => {
     if (!bucket) {
       return [];
     }
-    return [...bucket.values()].filter((rec) => rec.result.status === "passed").map((rec) => rec.result);
+    return [...bucket.values()]
+      .filter((rec) => rec.result.status === "passed")
+      .map((rec) => rec.result);
   };
 
   const runStore: DurableRunStore = {

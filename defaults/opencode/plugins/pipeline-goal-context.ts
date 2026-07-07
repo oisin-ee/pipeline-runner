@@ -2,7 +2,7 @@ interface PipelineCompactionOutput {
   context: string[];
 }
 
-export const PipelineGoalContext = async () => ({
+export const PipelineGoalContext = () => ({
   "experimental.session.compacting": (
     _input: unknown,
     output: PipelineCompactionOutput

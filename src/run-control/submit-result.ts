@@ -46,7 +46,11 @@ export const recordSubmitResult = (input: SubmitResultInput): void => {
   });
 };
 
-const submitResultEffect = (runId: string, nodeId: string, resultJson: string): Effect.Effect<void, unknown> =>
+const submitResultEffect = (
+  runId: string,
+  nodeId: string,
+  resultJson: string
+): Effect.Effect<void, unknown> =>
   // Scoped so the store's release runs before the process exits: for the
   // Postgres branch that flushes the enqueued write-through and closes the
   // connection pool, persisting the record durably. Without that flush the
@@ -61,8 +65,10 @@ const submitResultEffect = (runId: string, nodeId: string, resultJson: string): 
           recordSubmitResult({ nodeId, resultJson, runId, store });
         },
       });
-      process.stdout.write(`Recorded result for run ${runId} node ${nodeId}.\n`);
-    }),
+      process.stdout.write(
+        `Recorded result for run ${runId} node ${nodeId}.\n`
+      );
+    })
   );
 
 /**
@@ -78,7 +84,10 @@ export const registerSubmitResultSubcommand = (program: Command): void => {
     .description("Persist a node's terminal result into the durable run store")
     .argument("<run-id>", "the run id to persist the result under")
     .argument("<node-id>", "the node id whose result is being submitted")
-    .requiredOption("--json <payload>", "the RuntimeNodeResult as a JSON string")
+    .requiredOption(
+      "--json <payload>",
+      "the RuntimeNodeResult as a JSON string"
+    )
     .action(async (runId: string, nodeId: string, flags: { json: string }) => {
       await Effect.runPromise(submitResultEffect(runId, nodeId, flags.json));
     });

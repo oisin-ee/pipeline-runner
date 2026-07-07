@@ -56,12 +56,19 @@ const VALID_PLAN = {
 
 describe("ticket plan contract", () => {
   it("parses structured ticket plans and renders deterministic dry-run commands", async () => {
-    const { parseTicketPlanEffect } = await import("../src/tickets/ticket-plan");
-    const { renderTicketPlanDryRun } = await import("../src/tickets/ticket-plan-render");
+    const { parseTicketPlanEffect } =
+      await import("../src/tickets/ticket-plan");
+    const { renderTicketPlanDryRun } =
+      await import("../src/tickets/ticket-plan-render");
 
-    const plan = await Effect.runPromise(parseTicketPlanEffect(JSON.stringify(VALID_PLAN)));
+    const plan = await Effect.runPromise(
+      parseTicketPlanEffect(JSON.stringify(VALID_PLAN))
+    );
 
-    expect(plan.tickets.map((ticket) => ticket.key)).toEqual(["schema", "render"]);
+    expect(plan.tickets.map((ticket) => ticket.key)).toEqual([
+      "schema",
+      "render",
+    ]);
     expect(renderTicketPlanDryRun(plan)).toMatchInlineSnapshot(`
       "# Dry run: no Backlog files were written.
       backlog task create 'Epic: Add ticket orchestration' --description 'Create the ticket orchestration epic.' --priority high --ac 'Dry-run renders Backlog commands.; evidence: Focused CLI tests assert the dry-run output.' --plan 'Create tickets without mutating Backlog during dry-run.' --ref defaults/profiles.yaml --modified-file src/commands/ticket-command.ts --plain
@@ -71,7 +78,8 @@ describe("ticket plan contract", () => {
   });
 
   it("rejects missing acceptance evidence and unknown local dependency keys", async () => {
-    const { parseTicketPlanEffect } = await import("../src/tickets/ticket-plan");
+    const { parseTicketPlanEffect } =
+      await import("../src/tickets/ticket-plan");
 
     const missingEvidence = await Effect.runPromiseExit(
       parseTicketPlanEffect(
@@ -85,8 +93,8 @@ describe("ticket plan contract", () => {
               title: "Invalid ticket",
             },
           ],
-        }),
-      ),
+        })
+      )
     );
     expect(Exit.isFailure(missingEvidence)).toBe(true);
     expect(String(missingEvidence)).toContain("acceptance_criteria.0.evidence");
@@ -96,7 +104,9 @@ describe("ticket plan contract", () => {
         JSON.stringify({
           tickets: [
             {
-              acceptance_criteria: [{ evidence: "Focused test.", text: "Has evidence." }],
+              acceptance_criteria: [
+                { evidence: "Focused test.", text: "Has evidence." },
+              ],
               depends_on: ["missing"],
               description: "Invalid ticket.",
               key: "invalid",
@@ -104,10 +114,12 @@ describe("ticket plan contract", () => {
               title: "Invalid ticket",
             },
           ],
-        }),
-      ),
+        })
+      )
     );
     expect(Exit.isFailure(unknownDependency)).toBe(true);
-    expect(String(unknownDependency)).toContain("unknown dependency key 'missing'");
+    expect(String(unknownDependency)).toContain(
+      "unknown dependency key 'missing'"
+    );
   });
 });

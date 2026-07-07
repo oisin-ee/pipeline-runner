@@ -4,11 +4,14 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 const ROOT = process.cwd();
-const FIND_PLANNED_NODE_DECLARATION_RE = /(?:function findPlannedNode\b|const findPlannedNode\s*=)/gu;
+const FIND_PLANNED_NODE_DECLARATION_RE =
+  /(?:function findPlannedNode\b|const findPlannedNode\s*=)/gu;
 const TOML_IMPORT_RE = /from ["'](?:\.\/|\.\.\/)toml["']/u;
-const UNIQUE_STRINGS_DECLARATION_RE = /(?:function uniqueStrings\b|const uniqueStrings\s*=)/gu;
+const UNIQUE_STRINGS_DECLARATION_RE =
+  /(?:function uniqueStrings\b|const uniqueStrings\s*=)/gu;
 
-const readProjectFile = (path: string): string => readFileSync(join(ROOT, path), "utf-8");
+const readProjectFile = (path: string): string =>
+  readFileSync(join(ROOT, path), "utf-8");
 
 const walkSourceFiles = (dir: string): string[] =>
   readdirSync(dir)
@@ -18,7 +21,9 @@ const walkSourceFiles = (dir: string): string[] =>
         return walkSourceFiles(fullPath);
       }
       const projectPath = fullPath.slice(ROOT.length + 1);
-      return projectPath.endsWith(".ts") && !projectPath.endsWith(".test.ts") ? [projectPath] : [];
+      return projectPath.endsWith(".ts") && !projectPath.endsWith(".test.ts")
+        ? [projectPath]
+        : [];
     })
     .toSorted();
 
@@ -35,7 +40,8 @@ describe("PIPE-58 cleanup contracts", () => {
 
   it("keeps only one shared uniqueStrings implementation", () => {
     const declarations = sourceFilePaths().flatMap((path) => {
-      const matches = readProjectFile(path).match(UNIQUE_STRINGS_DECLARATION_RE) ?? [];
+      const matches =
+        readProjectFile(path).match(UNIQUE_STRINGS_DECLARATION_RE) ?? [];
       return matches.map(() => path);
     });
 
@@ -44,7 +50,8 @@ describe("PIPE-58 cleanup contracts", () => {
 
   it("keeps planned-node lookup centralized while preserving public exports", () => {
     const declarations = sourceFilePaths().flatMap((path) => {
-      const matches = readProjectFile(path).match(FIND_PLANNED_NODE_DECLARATION_RE) ?? [];
+      const matches =
+        readProjectFile(path).match(FIND_PLANNED_NODE_DECLARATION_RE) ?? [];
       return matches.map(() => path);
     });
     const pkg = JSON.parse(readProjectFile("package.json")) as {

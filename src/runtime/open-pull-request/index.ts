@@ -1,1 +1,1 @@
-export * from "./open-pull-request";
+export { executeOpenPullRequestBuiltin } from "./open-pull-request";

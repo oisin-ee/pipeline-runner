@@ -43,23 +43,14 @@
     }
   },
   "src/cli/bootstrap-commands.ts": {
-    "effect/avoid-direct-json": {
-      "count": 1
-    },
     "effect/avoid-process-env": {
       "count": 3
     },
     "effect/avoid-untagged-errors": {
       "count": 1
     },
-    "effect/use-console-service": {
-      "count": 3
-    },
     "effect/use-path-service": {
       "count": 1
-    },
-    "no-console": {
-      "count": 3
     }
   },
   "src/cli/doctor.ts": {
@@ -112,12 +103,6 @@
     },
     "effect/prefer-effect-is": {
       "count": 1
-    },
-    "effect/use-console-service": {
-      "count": 2
-    },
-    "no-console": {
-      "count": 2
     }
   },
   "src/cli/format.ts": {
@@ -125,7 +110,7 @@
       "count": 1
     },
     "effect/avoid-native-object-helpers": {
-      "count": 2
+      "count": 1
     },
     "effect/imperative-loops": {
       "count": 3
@@ -138,18 +123,6 @@
     },
     "effect/prefer-effect-is": {
       "count": 1
-    },
-    "effect/prefer-match-over-switch": {
-      "count": 5
-    },
-    "effect/use-console-service": {
-      "count": 1
-    },
-    "no-console": {
-      "count": 1
-    },
-    "typescript/switch-exhaustiveness-check": {
-      "count": 5
     }
   },
   "src/cli/loop-commands.ts": {
@@ -157,12 +130,6 @@
       "count": 2
     },
     "effect/avoid-untagged-errors": {
-      "count": 1
-    },
-    "effect/use-console-service": {
-      "count": 1
-    },
-    "no-console": {
       "count": 1
     }
   },
@@ -172,18 +139,6 @@
     },
     "effect/avoid-untagged-errors": {
       "count": 4
-    },
-    "effect/no-length-comparison": {
-      "count": 1
-    },
-    "effect/prefer-arr-match": {
-      "count": 1
-    },
-    "effect/use-console-service": {
-      "count": 5
-    },
-    "no-console": {
-      "count": 5
     }
   },
   "src/cli/plan-commands.ts": {
@@ -208,14 +163,8 @@
     "effect/prefer-arr-match": {
       "count": 6
     },
-    "effect/use-console-service": {
-      "count": 3
-    },
     "effect/use-filesystem-service": {
       "count": 1
-    },
-    "no-console": {
-      "count": 3
     }
   },
   "src/cli/program.ts": {
@@ -244,14 +193,6 @@
       "count": 1
     }
   },
-  "src/cli/run-commands.ts": {
-    "effect/use-console-service": {
-      "count": 2
-    },
-    "no-console": {
-      "count": 2
-    }
-  },
   "src/cli/run-resolver.ts": {
     "effect/avoid-untagged-errors": {
       "count": 2
@@ -268,7 +209,7 @@
       "count": 2
     },
     "effect/avoid-try-catch": {
-      "count": 2
+      "count": 1
     },
     "effect/avoid-untagged-errors": {
       "count": 5
@@ -279,19 +220,10 @@
     "effect/no-barrel-imports": {
       "count": 1
     },
-    "effect/use-console-service": {
-      "count": 5
-    },
     "effect/use-filesystem-service": {
       "count": 1
     },
     "effect/use-path-service": {
-      "count": 1
-    },
-    "no-console": {
-      "count": 5
-    },
-    "typescript/promise-function-async": {
       "count": 1
     }
   },
@@ -481,12 +413,6 @@
     },
     "effect/prefer-namespace-imports": {
       "count": 1
-    },
-    "effect/use-console-service": {
-      "count": 1
-    },
-    "no-console": {
-      "count": 1
     }
   },
   "src/commands/ticket/start.ts": {
@@ -522,7 +448,7 @@
   },
   "src/config/load.ts": {
     "effect/imperative-loops": {
-      "count": 2
+      "count": 1
     },
     "effect/no-length-comparison": {
       "count": 1
@@ -645,9 +571,6 @@
     }
   },
   "src/credentials/opencode-config.ts": {
-    "effect/prefer-effect-is": {
-      "count": 1
-    },
     "typescript/no-unsafe-assignment": {
       "count": 1
     }
@@ -749,9 +672,6 @@
     },
     "typescript/no-unnecessary-condition": {
       "count": 1
-    },
-    "typescript/require-await": {
-      "count": 6
     }
   },
   "src/factory/git-credentials.ts": {
@@ -1034,7 +954,7 @@
       "count": 2
     },
     "effect/no-barrel-imports": {
-      "count": 2
+      "count": 1
     },
     "effect/no-length-comparison": {
       "count": 1
@@ -1064,22 +984,10 @@
     "effect/avoid-try-catch": {
       "count": 1
     },
-    "effect/avoid-untagged-errors": {
-      "count": 1
-    },
-    "effect/casting-awareness": {
-      "count": 1
-    },
     "effect/effect-run-in-body": {
       "count": 10
     },
     "effect/no-barrel-imports": {
-      "count": 1
-    },
-    "typescript/consistent-type-assertions": {
-      "count": 1
-    },
-    "typescript/no-unsafe-type-assertion": {
       "count": 1
     }
   },
@@ -1126,7 +1034,7 @@
       "count": 10
     },
     "effect/no-barrel-imports": {
-      "count": 3
+      "count": 1
     },
     "effect/prefer-namespace-imports": {
       "count": 1
@@ -1137,7 +1045,7 @@
       "count": 5
     },
     "effect/avoid-untagged-errors": {
-      "count": 2
+      "count": 1
     },
     "effect/imperative-loops": {
       "count": 2
@@ -1200,16 +1108,7 @@
     "effect/avoid-expect-in-if": {
       "count": 1
     },
-    "effect/casting-awareness": {
-      "count": 1
-    },
     "effect/no-barrel-imports": {
-      "count": 1
-    },
-    "typescript/consistent-type-assertions": {
-      "count": 1
-    },
-    "typescript/no-unsafe-type-assertion": {
       "count": 1
     }
   },
@@ -1295,9 +1194,6 @@
     "effect/avoid-untagged-errors": {
       "count": 1
     },
-    "effect/effect-catchall-default": {
-      "count": 2
-    },
     "effect/no-barrel-imports": {
       "count": 1
     },
@@ -1342,9 +1238,6 @@
       "count": 3
     },
     "effect/avoid-untagged-errors": {
-      "count": 4
-    },
-    "effect/effect-catchall-default": {
       "count": 3
     },
     "effect/no-barrel-imports": {
@@ -1649,9 +1542,6 @@
     }
   },
   "src/remote/submit/compilation.ts": {
-    "effect/no-barrel-imports": {
-      "count": 1
-    },
     "effect/no-length-comparison": {
       "count": 3
     },
@@ -1659,9 +1549,6 @@
       "count": 3
     },
     "effect/prefer-effect-is": {
-      "count": 1
-    },
-    "effect/prefer-namespace-imports": {
       "count": 1
     }
   },
@@ -1725,9 +1612,6 @@
       "count": 1
     },
     "effect/prefer-arr-match": {
-      "count": 1
-    },
-    "typescript/await-thenable": {
       "count": 1
     }
   },
@@ -1942,9 +1826,6 @@
     "effect/avoid-native-object-helpers": {
       "count": 2
     },
-    "effect/avoid-untagged-errors": {
-      "count": 3
-    },
     "effect/no-barrel-imports": {
       "count": 1
     },
@@ -1961,11 +1842,6 @@
       "count": 1
     },
     "effect/use-filesystem-service": {
-      "count": 1
-    }
-  },
-  "src/run-control/run-state-lock.test.ts": {
-    "effect/avoid-untagged-errors": {
       "count": 1
     }
   },
@@ -2094,9 +1970,6 @@
   },
   "src/run-control/store.ts": {
     "effect/avoid-direct-json": {
-      "count": 4
-    },
-    "effect/avoid-untagged-errors": {
       "count": 4
     },
     "effect/no-barrel-imports": {
@@ -2259,14 +2132,8 @@
     "effect/prefer-effect-is": {
       "count": 2
     },
-    "effect/prefer-match-over-switch": {
-      "count": 5
-    },
     "effect/use-filesystem-service": {
       "count": 1
-    },
-    "typescript/switch-exhaustiveness-check": {
-      "count": 5
     }
   },
   "src/runner-command/dynamic-command.ts": {
@@ -2278,9 +2145,6 @@
     }
   },
   "src/runner-command/finalize.ts": {
-    "effect/effect-catchall-default": {
-      "count": 1
-    },
     "effect/no-barrel-imports": {
       "count": 1
     },
@@ -2321,9 +2185,6 @@
     "effect/avoid-untagged-errors": {
       "count": 2
     },
-    "effect/effect-catchall-default": {
-      "count": 2
-    },
     "effect/prefer-effect-is": {
       "count": 2
     }
@@ -2340,9 +2201,6 @@
     },
     "effect/avoid-untagged-errors": {
       "count": 7
-    },
-    "effect/effect-catchall-default": {
-      "count": 1
     },
     "effect/imperative-loops": {
       "count": 1
@@ -2372,9 +2230,6 @@
     },
     "effect/avoid-untagged-errors": {
       "count": 7
-    },
-    "effect/effect-catchall-default": {
-      "count": 4
     },
     "effect/effect-run-in-body": {
       "count": 1
@@ -2523,7 +2378,7 @@
       "count": 4
     },
     "effect/avoid-direct-json": {
-      "count": 4
+      "count": 3
     },
     "effect/avoid-native-object-helpers": {
       "count": 6
@@ -2565,9 +2420,6 @@
     }
   },
   "src/runtime/agent-node/handoff-finalization.ts": {
-    "effect/effect-catchall-default": {
-      "count": 1
-    },
     "effect/no-barrel-imports": {
       "count": 1
     },
@@ -2617,7 +2469,7 @@
   },
   "src/runtime/agent-node/prompt-rendering.ts": {
     "effect/effect-catchall-default": {
-      "count": 2
+      "count": 1
     },
     "effect/imperative-loops": {
       "count": 1
@@ -2734,9 +2586,6 @@
     },
     "effect/use-temp-file-scoped": {
       "count": 1
-    },
-    "typescript/require-await": {
-      "count": 1
     }
   },
   "src/runtime/changed-files/changed-files.ts": {
@@ -2821,10 +2670,10 @@
       "count": 3
     },
     "effect/no-length-comparison": {
-      "count": 3
+      "count": 2
     },
     "effect/prefer-arr-match": {
-      "count": 3
+      "count": 2
     }
   },
   "src/runtime/contracts/contracts.test.ts": {
@@ -2866,16 +2715,10 @@
     "effect/avoid-direct-json": {
       "count": 1
     },
-    "effect/avoid-direct-tag-checks": {
-      "count": 1
-    },
     "effect/avoid-native-object-helpers": {
       "count": 1
     },
     "effect/avoid-untagged-errors": {
-      "count": 1
-    },
-    "effect/effect-catchall-default": {
       "count": 1
     },
     "effect/effect-run-in-body": {
@@ -3494,9 +3337,6 @@
     }
   },
   "src/runtime/hooks/module-hook.ts": {
-    "effect/avoid-node-imports": {
-      "count": 1
-    },
     "effect/avoid-try-catch": {
       "count": 2
     },
@@ -3510,9 +3350,6 @@
       "count": 1
     },
     "effect/prefer-namespace-imports": {
-      "count": 1
-    },
-    "effect/use-path-service": {
       "count": 1
     }
   },
@@ -3700,9 +3537,6 @@
     "effect/avoid-untagged-errors": {
       "count": 1
     },
-    "effect/effect-catchall-default": {
-      "count": 4
-    },
     "effect/effect-run-in-body": {
       "count": 1
     },
@@ -3739,20 +3573,11 @@
     },
     "effect/prefer-namespace-imports": {
       "count": 1
-    },
-    "typescript/require-await": {
-      "count": 1
     }
   },
   "src/runtime/opencode-runtime.ts": {
     "effect/avoid-native-object-helpers": {
       "count": 3
-    },
-    "effect/effect-promise-vs-trypromise": {
-      "count": 2
-    },
-    "effect/effect-run-in-body": {
-      "count": 2
     },
     "effect/no-barrel-imports": {
       "count": 1
@@ -3767,15 +3592,6 @@
     },
     "effect/avoid-untagged-errors": {
       "count": 2
-    },
-    "typescript/consistent-type-assertions": {
-      "count": 1
-    },
-    "typescript/no-unsafe-type-assertion": {
-      "count": 1
-    },
-    "typescript/require-await": {
-      "count": 1
     }
   },
   "src/runtime/opencode-server.ts": {
@@ -3820,17 +3636,8 @@
     "effect/prefer-arr-match": {
       "count": 1
     },
-    "effect/prefer-option-over-null": {
-      "count": 1
-    },
-    "typescript/no-unnecessary-condition": {
-      "count": 1
-    },
-    "typescript/only-throw-error": {
-      "count": 1
-    },
     "typescript/require-await": {
-      "count": 13
+      "count": 2
     }
   },
   "src/runtime/opencode-session-executor.ts": {
@@ -3842,9 +3649,6 @@
     },
     "effect/avoid-untagged-errors": {
       "count": 6
-    },
-    "effect/effect-catchall-default": {
-      "count": 1
     },
     "effect/effect-run-in-body": {
       "count": 3
@@ -3875,26 +3679,11 @@
     }
   },
   "src/runtime/parallel-node/parallel-node.test.ts": {
-    "effect/avoid-any": {
-      "count": 2
-    },
     "effect/avoid-direct-json": {
       "count": 1
     },
     "effect/avoid-native-object-helpers": {
       "count": 1
-    },
-    "effect/casting-awareness": {
-      "count": 2
-    },
-    "typescript/consistent-type-assertions": {
-      "count": 7
-    },
-    "typescript/no-unsafe-type-assertion": {
-      "count": 4
-    },
-    "typescript/require-await": {
-      "count": 5
     }
   },
   "src/runtime/parallel-node/parallel-node.ts": {
@@ -4192,13 +3981,7 @@
     }
   },
   "src/runtime/services/git-porcelain-service.ts": {
-    "effect/avoid-node-imports": {
-      "count": 1
-    },
     "effect/no-barrel-imports": {
-      "count": 1
-    },
-    "effect/use-command-executor-service": {
       "count": 1
     }
   },
@@ -4212,9 +3995,6 @@
   },
   "src/runtime/services/kubernetes-argo-service.ts": {
     "effect/avoid-untagged-errors": {
-      "count": 1
-    },
-    "effect/effect-catchall-default": {
       "count": 1
     },
     "effect/no-barrel-imports": {
@@ -4241,9 +4021,6 @@
       "count": 5
     },
     "effect/avoid-untagged-errors": {
-      "count": 1
-    },
-    "effect/effect-catchall-default": {
       "count": 1
     },
     "effect/imperative-loops": {
@@ -4531,13 +4308,7 @@
     "effect/prefer-arr-match": {
       "count": 1
     },
-    "effect/prefer-match-over-switch": {
-      "count": 1
-    },
     "effect/prefer-namespace-imports": {
-      "count": 1
-    },
-    "typescript/switch-exhaustiveness-check": {
       "count": 1
     }
   },
@@ -4910,7 +4681,7 @@
       "count": 1
     },
     "effect/avoid-node-imports": {
-      "count": 2
+      "count": 1
     },
     "effect/avoid-process-env": {
       "count": 94
@@ -4948,14 +4719,8 @@
     "typescript/no-base-to-string": {
       "count": 1
     },
-    "typescript/no-misused-promises": {
-      "count": 1
-    },
     "typescript/no-unsafe-assignment": {
       "count": 1
-    },
-    "typescript/require-await": {
-      "count": 11
     }
   },
   "tests/command-artifacts.test.ts": {
@@ -4981,9 +4746,6 @@
     }
   },
   "tests/detached-run.test.ts": {
-    "effect/avoid-native-object-helpers": {
-      "count": 1
-    },
     "effect/avoid-process-env": {
       "count": 1
     },
@@ -4997,9 +4759,6 @@
       "count": 1
     },
     "effect/use-clock-service": {
-      "count": 1
-    },
-    "effect/use-command-executor-service": {
       "count": 1
     },
     "effect/use-filesystem-service": {
@@ -5037,10 +4796,10 @@
       "count": 3
     },
     "effect/avoid-native-object-helpers": {
-      "count": 9
+      "count": 8
     },
     "effect/avoid-process-env": {
-      "count": 16
+      "count": 9
     },
     "effect/avoid-sync-fs": {
       "count": 16
@@ -5048,14 +4807,11 @@
     "effect/avoid-try-catch": {
       "count": 2
     },
-    "effect/avoid-untagged-errors": {
-      "count": 1
-    },
     "effect/casting-awareness": {
       "count": 1
     },
     "effect/imperative-loops": {
-      "count": 5
+      "count": 3
     },
     "effect/no-length-comparison": {
       "count": 2
@@ -5085,12 +4841,6 @@
       "count": 1
     },
     "typescript/no-unsafe-type-assertion": {
-      "count": 1
-    },
-    "typescript/only-throw-error": {
-      "count": 1
-    },
-    "typescript/require-await": {
       "count": 1
     }
   },
@@ -5136,11 +4886,8 @@
     "effect/avoid-process-env": {
       "count": 1
     },
-    "effect/effect-promise-vs-trypromise": {
-      "count": 1
-    },
     "effect/effect-run-in-body": {
-      "count": 3
+      "count": 2
     },
     "effect/no-barrel-imports": {
       "count": 1
@@ -5152,9 +4899,6 @@
       "count": 1
     },
     "effect/prefer-option-over-null": {
-      "count": 6
-    },
-    "typescript/require-await": {
       "count": 6
     }
   },
@@ -5183,12 +4927,6 @@
     "effect/use-temp-file-scoped": {
       "count": 1
     },
-    "typescript/no-unsafe-return": {
-      "count": 4
-    },
-    "typescript/require-await": {
-      "count": 3
-    },
     "typescript/strict-boolean-expressions": {
       "count": 1
     }
@@ -5196,14 +4934,11 @@
   "tests/gate-test-context.ts": {
     "effect/avoid-native-object-helpers": {
       "count": 4
-    },
-    "typescript/require-await": {
-      "count": 1
     }
   },
   "tests/gates.test.ts": {
     "effect/avoid-any": {
-      "count": 17
+      "count": 16
     },
     "effect/avoid-direct-json": {
       "count": 4
@@ -5218,7 +4953,7 @@
       "count": 3
     },
     "effect/casting-awareness": {
-      "count": 2
+      "count": 1
     },
     "effect/imperative-loops": {
       "count": 2
@@ -5233,7 +4968,7 @@
       "count": 1
     },
     "typescript/consistent-type-assertions": {
-      "count": 19
+      "count": 17
     },
     "typescript/no-explicit-any": {
       "count": 16
@@ -5242,7 +4977,7 @@
       "count": 3
     },
     "typescript/no-unsafe-type-assertion": {
-      "count": 18
+      "count": 17
     }
   },
   "tests/kubernetes-argo-service.test.ts": {
@@ -5301,12 +5036,6 @@
   "tests/model-resolver.test.ts": {
     "effect/avoid-native-object-helpers": {
       "count": 3
-    },
-    "effect/avoid-process-env": {
-      "count": 4
-    },
-    "effect/prefer-option-over-null": {
-      "count": 1
     }
   },
   "tests/moka-doctor-readiness.test.ts": {
@@ -5335,9 +5064,6 @@
       "count": 1
     },
     "typescript/only-throw-error": {
-      "count": 2
-    },
-    "typescript/require-await": {
       "count": 1
     }
   },
@@ -5356,9 +5082,6 @@
     },
     "effect/prefer-namespace-imports": {
       "count": 1
-    },
-    "typescript/require-await": {
-      "count": 3
     }
   },
   "tests/moka-resume-schedule.test.ts": {
@@ -5440,9 +5163,6 @@
     },
     "typescript/no-unsafe-assignment": {
       "count": 6
-    },
-    "typescript/require-await": {
-      "count": 4
     }
   },
   "tests/moka-run-db-url-required.test.ts": {
@@ -5460,9 +5180,6 @@
     },
     "effect/use-temp-file-scoped": {
       "count": 1
-    },
-    "typescript/require-await": {
-      "count": 2
     }
   },
   "tests/moka-run-remote-compat.test.ts": {
@@ -5491,9 +5208,6 @@
       "count": 2
     },
     "typescript/no-unsafe-type-assertion": {
-      "count": 1
-    },
-    "typescript/require-await": {
       "count": 1
     }
   },
@@ -5527,9 +5241,6 @@
     },
     "typescript/no-unsafe-assignment": {
       "count": 1
-    },
-    "typescript/require-await": {
-      "count": 9
     }
   },
   "tests/next-node-submit-result-pg.test.ts": {
@@ -5763,17 +5474,8 @@
     "effect/avoid-direct-json": {
       "count": 1
     },
-    "effect/avoid-native-object-helpers": {
-      "count": 1
-    },
-    "effect/avoid-process-env": {
-      "count": 8
-    },
     "effect/avoid-sync-fs": {
       "count": 21
-    },
-    "effect/imperative-loops": {
-      "count": 2
     },
     "effect/use-filesystem-service": {
       "count": 1
@@ -5792,9 +5494,6 @@
     }
   },
   "tests/pipeline-runtime.test.ts": {
-    "effect/avoid-any": {
-      "count": 1
-    },
     "effect/avoid-direct-json": {
       "count": 22
     },
@@ -5814,7 +5513,7 @@
       "count": 3
     },
     "effect/casting-awareness": {
-      "count": 5
+      "count": 3
     },
     "effect/imperative-loops": {
       "count": 2
@@ -5841,25 +5540,19 @@
       "count": 1
     },
     "typescript/consistent-type-assertions": {
-      "count": 6
+      "count": 3
     },
     "typescript/no-unsafe-argument": {
       "count": 1
     },
     "typescript/no-unsafe-assignment": {
-      "count": 10
+      "count": 9
     },
     "typescript/no-unsafe-member-access": {
-      "count": 4
+      "count": 2
     },
     "typescript/no-unsafe-return": {
-      "count": 2
-    },
-    "typescript/no-unsafe-type-assertion": {
-      "count": 2
-    },
-    "typescript/require-await": {
-      "count": 5
+      "count": 1
     }
   },
   "tests/pipeline-workspace-ignore.test.ts": {
@@ -5931,9 +5624,6 @@
     }
   },
   "tests/run-control-commands.test.ts": {
-    "effect/avoid-direct-json": {
-      "count": 4
-    },
     "effect/avoid-native-object-helpers": {
       "count": 4
     },
@@ -5946,12 +5636,6 @@
     "effect/avoid-try-catch": {
       "count": 1
     },
-    "effect/avoid-untagged-errors": {
-      "count": 1
-    },
-    "effect/casting-awareness": {
-      "count": 3
-    },
     "effect/imperative-loops": {
       "count": 4
     },
@@ -5963,15 +5647,6 @@
     },
     "effect/use-temp-file-scoped": {
       "count": 1
-    },
-    "typescript/consistent-type-assertions": {
-      "count": 3
-    },
-    "typescript/no-unsafe-assignment": {
-      "count": 1
-    },
-    "typescript/no-unsafe-type-assertion": {
-      "count": 2
     }
   },
   "tests/run-control-contracts.test.ts": {
@@ -6036,13 +5711,7 @@
     }
   },
   "tests/run-control-runtime-reporter.test.ts": {
-    "effect/avoid-any": {
-      "count": 1
-    },
     "effect/avoid-sync-fs": {
-      "count": 4
-    },
-    "effect/casting-awareness": {
       "count": 4
     },
     "effect/imperative-loops": {
@@ -6059,12 +5728,6 @@
     },
     "effect/use-temp-file-scoped": {
       "count": 1
-    },
-    "typescript/consistent-type-assertions": {
-      "count": 5
-    },
-    "typescript/no-unsafe-type-assertion": {
-      "count": 4
     }
   },
   "tests/run-control-store-contract.test.ts": {
@@ -6225,13 +5888,7 @@
     "effect/avoid-sync-fs": {
       "count": 3
     },
-    "effect/effect-run-in-body": {
-      "count": 6
-    },
     "effect/imperative-loops": {
-      "count": 1
-    },
-    "effect/no-barrel-imports": {
       "count": 1
     },
     "effect/use-clock-service": {
@@ -6369,9 +6026,6 @@
     },
     "typescript/no-base-to-string": {
       "count": 1
-    },
-    "typescript/require-await": {
-      "count": 1
     }
   },
   "tests/runner-command-persistence.test.ts": {
@@ -6472,13 +6126,7 @@
       "count": 1
     },
     "effect/imperative-loops": {
-      "count": 4
-    },
-    "effect/no-length-comparison": {
-      "count": 1
-    },
-    "effect/prefer-arr-match": {
-      "count": 1
+      "count": 3
     },
     "effect/prefer-effect-is": {
       "count": 3
@@ -6619,14 +6267,8 @@
     }
   },
   "tests/runner.test.ts": {
-    "effect/avoid-any": {
-      "count": 1
-    },
     "effect/avoid-direct-json": {
       "count": 2
-    },
-    "effect/avoid-node-imports": {
-      "count": 1
     },
     "effect/avoid-process-env": {
       "count": 9
@@ -6637,16 +6279,7 @@
     "effect/avoid-try-catch": {
       "count": 1
     },
-    "effect/casting-awareness": {
-      "count": 2
-    },
     "effect/prefer-namespace-imports": {
-      "count": 2
-    },
-    "typescript/consistent-type-assertions": {
-      "count": 3
-    },
-    "typescript/no-unsafe-type-assertion": {
       "count": 2
     }
   },
@@ -6843,15 +6476,12 @@
       "count": 3
     },
     "effect/effect-run-in-body": {
-      "count": 4
+      "count": 1
     },
     "effect/no-barrel-imports": {
       "count": 1
     },
     "effect/prefer-namespace-imports": {
-      "count": 1
-    },
-    "typescript/require-await": {
       "count": 1
     }
   },
@@ -6952,9 +6582,6 @@
     },
     "typescript/no-base-to-string": {
       "count": 3
-    },
-    "typescript/require-await": {
-      "count": 2
     }
   },
   "tests/ticket-complete-command.test.ts": {
@@ -7037,25 +6664,16 @@
     "effect/avoid-direct-json": {
       "count": 2
     },
-    "effect/avoid-process-env": {
-      "count": 20
-    },
     "effect/avoid-sync-fs": {
       "count": 16
     },
     "effect/casting-awareness": {
       "count": 1
     },
-    "effect/no-barrel-imports": {
-      "count": 1
-    },
     "effect/no-length-comparison": {
       "count": 1
     },
     "effect/prefer-arr-match": {
-      "count": 1
-    },
-    "effect/prefer-namespace-imports": {
       "count": 1
     },
     "effect/use-command-executor-service": {

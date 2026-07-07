@@ -2,8 +2,14 @@ import { Effect, Layer } from "effect";
 
 import type { PlannedWorkflowNode } from "../../planning/compile";
 import type { NodeAttemptResult, RuntimeContext } from "../contracts";
-import { CommandExecutor, CommandExecutorLive } from "../services/command-executor-service";
-import { OpenPullRequestGitService, OpenPullRequestGitServiceLive } from "../services/open-pull-request-git-service";
+import {
+  CommandExecutor,
+  CommandExecutorLive,
+} from "../services/command-executor-service";
+import {
+  OpenPullRequestGitService,
+  OpenPullRequestGitServiceLive,
+} from "../services/open-pull-request-git-service";
 import type { OpenPullRequestGitClient } from "../services/open-pull-request-git-service";
 
 const INVALID_REF_CHAR_RE = /[^a-zA-Z0-9/_.-]/gu;
@@ -22,21 +28,36 @@ interface OpenPrContext {
 
 type PullRequestDeliveryAction = "opened" | "updated";
 
-const stripOriginPrefix = (ref: string): string => (ref.startsWith("origin/") ? ref.slice("origin/".length) : ref);
+const stripOriginPrefix = (ref: string): string =>
+  ref.startsWith("origin/") ? ref.slice("origin/".length) : ref;
 
 const fallbackBranch = (context: RuntimeContext): string =>
-  context.runId !== undefined && context.runId.length > 0 ? `moka/run/${context.runId}` : "main";
+  context.runId !== undefined && context.runId.length > 0
+    ? `moka/run/${context.runId}`
+    : "main";
 
-const resolveCurrentBranch = (git: OpenPullRequestGitClient, context: RuntimeContext): Effect.Effect<string> =>
+const resolveCurrentBranch = (
+  git: OpenPullRequestGitClient,
+  context: RuntimeContext
+): Effect.Effect<string> =>
   git.raw(["rev-parse", "--abbrev-ref", "HEAD"]).pipe(
     Effect.map((ref) => ref.trim()),
-    Effect.catch(() => Effect.succeed(fallbackBranch(context))),
+    Effect.match({
+      onFailure: () => fallbackBranch(context),
+      onSuccess: (ref) => ref,
+    })
   );
 
-const resolveDefaultBranch = (git: OpenPullRequestGitClient, context: RuntimeContext): Effect.Effect<string, unknown> =>
+const resolveDefaultBranch = (
+  git: OpenPullRequestGitClient,
+  context: RuntimeContext
+): Effect.Effect<string, unknown> =>
   git.raw(["symbolic-ref", "--short", "refs/remotes/origin/HEAD"]).pipe(
     Effect.map((ref) => stripOriginPrefix(ref.trim())),
-    Effect.catch(() => resolveCurrentBranch(git, context)),
+    Effect.matchEffect({
+      onFailure: () => resolveCurrentBranch(git, context),
+      onSuccess: (ref) => Effect.succeed(ref),
+    })
   );
 
 const resolveHeadBranch = (runId?: string): string => {
@@ -46,11 +67,13 @@ const resolveHeadBranch = (runId?: string): string => {
 
 const resolveOpenPrContext = (
   git: OpenPullRequestGitClient,
-  context: RuntimeContext,
+  context: RuntimeContext
 ): Effect.Effect<OpenPrContext, unknown> =>
   Effect.gen(function* effectBody() {
     const baseBranch = yield* resolveDefaultBranch(git, context);
-    const headBranch = context.config.delivery?.pull_request?.head_branch ?? resolveHeadBranch(context.runId);
+    const headBranch =
+      context.config.delivery?.pull_request?.head_branch ??
+      resolveHeadBranch(context.runId);
     return {
       baseBranch,
       committer: context.config.runner_command.git.committer,
@@ -62,37 +85,47 @@ const resolveOpenPrContext = (
     };
   });
 
-const checkoutOrCreateHeadBranch = (git: OpenPullRequestGitClient, headBranch: string): Effect.Effect<void, unknown> =>
+const checkoutOrCreateHeadBranch = (
+  git: OpenPullRequestGitClient,
+  headBranch: string
+): Effect.Effect<void, unknown> =>
   git.raw(["checkout", "-B", headBranch]).pipe(Effect.asVoid);
 
 const configureCommitter = (
   git: OpenPullRequestGitClient,
-  committer: OpenPrContext["committer"],
+  committer: OpenPrContext["committer"]
 ): Effect.Effect<void, unknown> =>
   git.raw(["config", "--local", "user.name", committer.name]).pipe(
-    Effect.flatMap(() => git.raw(["config", "--local", "user.email", committer.email])),
-    Effect.asVoid,
+    Effect.flatMap(() =>
+      git.raw(["config", "--local", "user.email", committer.email])
+    ),
+    Effect.asVoid
   );
 
 const commitIfDirty = (
   git: OpenPullRequestGitClient,
   status: string,
-  prCtx: OpenPrContext,
+  prCtx: OpenPrContext
 ): Effect.Effect<void, unknown> => {
   if (status.length === 0) {
     return Effect.void;
   }
   return configureCommitter(git, prCtx.committer).pipe(
     Effect.flatMap(() => git.raw(["add", "-A"])),
-    Effect.flatMap(() => git.raw(["commit", "-m", `open-pull-request: ${prCtx.runId}`])),
-    Effect.asVoid,
+    Effect.flatMap(() =>
+      git.raw(["commit", "-m", `open-pull-request: ${prCtx.runId}`])
+    ),
+    Effect.asVoid
   );
 };
 
-const stageAndCommitChanges = (git: OpenPullRequestGitClient, prCtx: OpenPrContext): Effect.Effect<void, unknown> =>
+const stageAndCommitChanges = (
+  git: OpenPullRequestGitClient,
+  prCtx: OpenPrContext
+): Effect.Effect<void, unknown> =>
   git.raw(["status", "--porcelain"]).pipe(
     Effect.flatMap((status) => commitIfDirty(git, status.trim(), prCtx)),
-    Effect.asVoid,
+    Effect.asVoid
   );
 
 // `checkout -B <headBranch>` resets the branch to the current workspace HEAD,
@@ -102,17 +135,33 @@ const stageAndCommitChanges = (git: OpenPullRequestGitClient, prCtx: OpenPrConte
 // before submitting a remediation run). A pre-checkout `git fetch` would be
 // discarded by `checkout -B` and cannot make the fetched ref the base, so it is
 // intentionally absent — basing is owned by the workspace, not this builtin.
-const prepareHeadBranch = (git: OpenPullRequestGitClient, prCtx: OpenPrContext): Effect.Effect<void, unknown> =>
+const prepareHeadBranch = (
+  git: OpenPullRequestGitClient,
+  prCtx: OpenPrContext
+): Effect.Effect<void, unknown> =>
   checkoutOrCreateHeadBranch(git, prCtx.headBranch).pipe(
     Effect.flatMap(() => stageAndCommitChanges(git, prCtx)),
-    Effect.asVoid,
+    Effect.asVoid
   );
 
-const pushHeadBranch = (git: OpenPullRequestGitClient, headBranch: string): Effect.Effect<void, unknown> =>
-  git.raw(["push", "--force-with-lease", "origin", `HEAD:refs/heads/${headBranch}`]).pipe(Effect.asVoid);
+const pushHeadBranch = (
+  git: OpenPullRequestGitClient,
+  headBranch: string
+): Effect.Effect<void, unknown> =>
+  git
+    .raw([
+      "push",
+      "--force-with-lease",
+      "origin",
+      `HEAD:refs/heads/${headBranch}`,
+    ])
+    .pipe(Effect.asVoid);
 
 interface CommandExecutorService {
-  execute: (cmd: string[], ctx: RuntimeContext) => Effect.Effect<NodeAttemptResult, unknown>;
+  execute: (
+    cmd: string[],
+    ctx: RuntimeContext
+  ) => Effect.Effect<NodeAttemptResult, unknown>;
 }
 
 const extractPrTitle = (task: string): string => {
@@ -154,7 +203,8 @@ const buildGhPrViewArgs = (headBranch: string): string[] => [
   ".url",
 ];
 
-const isPrAlreadyExistsError = (output: string): boolean => PR_ALREADY_EXISTS_RE.test(output);
+const isPrAlreadyExistsError = (output: string): boolean =>
+  PR_ALREADY_EXISTS_RE.test(output);
 
 const extractPrUrl = (output: string): string => {
   const line = output
@@ -168,7 +218,7 @@ const openPrSuccess = (
   context: RuntimeContext,
   url: string,
   action: PullRequestDeliveryAction,
-  extraEvidence: string[] = [],
+  extraEvidence: string[] = []
 ): NodeAttemptResult => {
   context.reporter?.({
     deliveryPullRequest: { action, url },
@@ -187,27 +237,34 @@ const openPrFailure = (reason: string): NodeAttemptResult => ({
   output: JSON.stringify({ error: reason }),
 });
 
-const errorMessage = (error: unknown): string => (error instanceof Error ? error.message : String(error));
+const errorMessage = (error: unknown): string =>
+  error instanceof Error ? error.message : String(error);
 
 const runGhPrCreate = (
   executor: CommandExecutorService,
   prCtx: OpenPrContext,
   title: string,
-  context: RuntimeContext,
+  context: RuntimeContext
 ): Effect.Effect<NodeAttemptResult> =>
-  executor
-    .execute(buildGhPrCreateArgs(prCtx, title), context)
-    .pipe(Effect.catch((error) => Effect.succeed(openPrFailure(errorMessage(error)))));
+  executor.execute(buildGhPrCreateArgs(prCtx, title), context).pipe(
+    Effect.match({
+      onFailure: (error) => openPrFailure(errorMessage(error)),
+      onSuccess: (result) => result,
+    })
+  );
 
 const runGhPrEdit = (
   executor: CommandExecutorService,
   headBranch: string,
   label: string,
-  context: RuntimeContext,
+  context: RuntimeContext
 ): Effect.Effect<NodeAttemptResult> =>
-  executor
-    .execute(buildGhPrEditArgs(headBranch, label), context)
-    .pipe(Effect.catch((error) => Effect.succeed(openPrFailure(errorMessage(error)))));
+  executor.execute(buildGhPrEditArgs(headBranch, label), context).pipe(
+    Effect.match({
+      onFailure: (error) => openPrFailure(errorMessage(error)),
+      onSuccess: (result) => result,
+    })
+  );
 
 // The label is enrichment, not the deliverable -- the PR opening is. gh pr
 // create validates --label up front and refuses to create anything at all
@@ -218,7 +275,7 @@ const labelCreatedPr = (
   executor: CommandExecutorService,
   prCtx: OpenPrContext,
   createResult: NodeAttemptResult,
-  context: RuntimeContext,
+  context: RuntimeContext
 ): Effect.Effect<NodeAttemptResult> => {
   const url = extractPrUrl(createResult.output);
   return runGhPrEdit(executor, prCtx.headBranch, prCtx.label, context).pipe(
@@ -227,24 +284,27 @@ const labelCreatedPr = (
         ? openPrSuccess(context, url, "opened")
         : openPrSuccess(context, url, "opened", [
             `open-pull-request: label '${prCtx.label}' not applied — ${editResult.output || `gh pr edit exited ${editResult.exitCode}`}`,
-          ]),
-    ),
+          ])
+    )
   );
 };
 
 const runGhPrView = (
   executor: CommandExecutorService,
   headBranch: string,
-  context: RuntimeContext,
+  context: RuntimeContext
 ): Effect.Effect<NodeAttemptResult> =>
-  executor
-    .execute(buildGhPrViewArgs(headBranch), context)
-    .pipe(Effect.catch((error) => Effect.succeed(openPrFailure(errorMessage(error)))));
+  executor.execute(buildGhPrViewArgs(headBranch), context).pipe(
+    Effect.match({
+      onFailure: (error) => openPrFailure(errorMessage(error)),
+      onSuccess: (result) => result,
+    })
+  );
 
 const handleExistingPr = (
   headBranch: string,
   label: string,
-  context: RuntimeContext,
+  context: RuntimeContext
 ): Effect.Effect<NodeAttemptResult, never, CommandExecutor> =>
   Effect.gen(function* effectBody() {
     const executor = yield* CommandExecutor;
@@ -253,14 +313,18 @@ const handleExistingPr = (
       const viewResult = yield* runGhPrView(executor, headBranch, context);
       return viewResult.exitCode === 0
         ? openPrSuccess(context, extractPrUrl(viewResult.output), "updated")
-        : openPrFailure(viewResult.output || `gh pr view exited ${viewResult.exitCode}`);
+        : openPrFailure(
+            viewResult.output || `gh pr view exited ${viewResult.exitCode}`
+          );
     }
-    return openPrFailure(editResult.output || `gh pr edit exited ${editResult.exitCode}`);
+    return openPrFailure(
+      editResult.output || `gh pr edit exited ${editResult.exitCode}`
+    );
   });
 
 const submitPullRequest = (
   prCtx: OpenPrContext,
-  context: RuntimeContext,
+  context: RuntimeContext
 ): Effect.Effect<NodeAttemptResult, never, CommandExecutor> => {
   if (prCtx.mode === "update-existing-pr") {
     return handleExistingPr(prCtx.headBranch, prCtx.label, context);
@@ -282,14 +346,16 @@ const submitPullRequest = (
 const executeOpenPr = (
   git: OpenPullRequestGitClient,
   prCtx: OpenPrContext,
-  context: RuntimeContext,
+  context: RuntimeContext
 ): Effect.Effect<NodeAttemptResult, never, CommandExecutor> =>
   Effect.gen(function* effectBody() {
     const prepareResult = yield* Effect.result(prepareHeadBranch(git, prCtx));
     if (prepareResult._tag === "Failure") {
       return openPrFailure(errorMessage(prepareResult.failure));
     }
-    const pushResult = yield* Effect.result(pushHeadBranch(git, prCtx.headBranch));
+    const pushResult = yield* Effect.result(
+      pushHeadBranch(git, prCtx.headBranch)
+    );
     if (pushResult._tag === "Failure") {
       return openPrFailure(errorMessage(pushResult.failure));
     }
@@ -297,8 +363,12 @@ const executeOpenPr = (
   });
 
 export const openPullRequestProgram = (
-  context: RuntimeContext,
-): Effect.Effect<NodeAttemptResult, never, OpenPullRequestGitService | CommandExecutor> =>
+  context: RuntimeContext
+): Effect.Effect<
+  NodeAttemptResult,
+  never,
+  OpenPullRequestGitService | CommandExecutor
+> =>
   Effect.gen(function* effectBody() {
     const gitService = yield* OpenPullRequestGitService;
     const git = yield* gitService.create(context.worktreePath);
@@ -311,8 +381,13 @@ export const openPullRequestProgram = (
 
 export const executeOpenPullRequestBuiltin = async (
   context: RuntimeContext,
-  _node?: PlannedWorkflowNode,
+  _node?: PlannedWorkflowNode
 ): Promise<NodeAttemptResult> => {
-  const merged = Layer.merge(OpenPullRequestGitServiceLive, CommandExecutorLive);
-  return await Effect.runPromise(Effect.provide(openPullRequestProgram(context), merged));
+  const merged = Layer.merge(
+    OpenPullRequestGitServiceLive,
+    CommandExecutorLive
+  );
+  return await Effect.runPromise(
+    Effect.provide(openPullRequestProgram(context), merged)
+  );
 };

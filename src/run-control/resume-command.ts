@@ -6,7 +6,11 @@ import { loadMokaDbUrl, loadMokaGlobalConfig } from "../moka-global-config";
 import { submitMoka } from "../moka-submit";
 import type { MokaSubmitOutput } from "../moka-submit";
 import { resumeRunByOrigin } from "../pipeline-runtime";
-import type { ResubmitRemoteRunInput, ResumeRunOptions, ResumeRunResult } from "../pipeline-runtime";
+import type {
+  ResubmitRemoteRunInput,
+  ResumeRunOptions,
+  ResumeRunResult,
+} from "../pipeline-runtime";
 import { workspaceRoot } from "./command-context";
 
 interface ResumeFlags {
@@ -26,9 +30,13 @@ interface ResumeFlags {
  * (progress preserved). The full DAG re-submits; the in-pod skip-already-passed
  * check drains only the remaining nodes.
  */
-const defaultResubmitRemoteRun = async (input: ResubmitRemoteRunInput): Promise<MokaSubmitOutput> => {
+const defaultResubmitRemoteRun = async (
+  input: ResubmitRemoteRunInput
+): Promise<MokaSubmitOutput> => {
   const worktreePath = input.worktreePath ?? process.cwd();
-  const config = input.config ?? loadPipelineConfig(worktreePath, { allowMissingLintFileReferences: true });
+  const config =
+    input.config ??
+    loadPipelineConfig(worktreePath, { allowMissingLintFileReferences: true });
   const submitInput = buildMokaSubmitInputFromCli({
     config,
     cwd: worktreePath,
@@ -37,7 +45,9 @@ const defaultResubmitRemoteRun = async (input: ResubmitRemoteRunInput): Promise<
     input: [input.task],
   });
   if (submitInput.type !== "graph") {
-    throw new Error(`Cannot re-submit remote run '${input.runId}': expected a graph submission.`);
+    throw new Error(
+      `Cannot re-submit remote run '${input.runId}': expected a graph submission.`
+    );
   }
   return await submitMoka(
     {
@@ -45,11 +55,15 @@ const defaultResubmitRemoteRun = async (input: ResubmitRemoteRunInput): Promise<
       schedulePath: undefined,
       scheduleYaml: input.scheduleYaml,
     },
-    { generateRunId: () => input.runId },
+    { generateRunId: () => input.runId }
   );
 };
 
-const resumeRunOptions = (runId: string, task: string, flags: ResumeFlags): ResumeRunOptions => ({
+const resumeRunOptions = (
+  runId: string,
+  task: string,
+  flags: ResumeFlags
+): ResumeRunOptions => ({
   dbUrl: loadMokaDbUrl(),
   entrypoint: flags.entrypoint,
   runId,
@@ -69,18 +83,28 @@ const reportResumeResult = (runId: string, result: ResumeRunResult): void => {
   recordResumeResult(runId, result.result.outcome);
 };
 
-const errorMessage = (error: unknown): string => (error instanceof Error ? error.message : String(error));
+const errorMessage = (error: unknown): string =>
+  error instanceof Error ? error.message : String(error);
 
 const recordResumeFailure = (runId: string, error: unknown): void => {
-  process.stderr.write(`Failed to resume run ${runId}: ${errorMessage(error)}\n`);
+  process.stderr.write(
+    `Failed to resume run ${runId}: ${errorMessage(error)}\n`
+  );
   process.exitCode = 1;
 };
 
-const resumeRunFromCli = async (runId: string, task: string, flags: ResumeFlags): Promise<void> => {
+const resumeRunFromCli = async (
+  runId: string,
+  task: string,
+  flags: ResumeFlags
+): Promise<void> => {
   try {
-    const result = await resumeRunByOrigin(resumeRunOptions(runId, task, flags), {
-      resubmit: defaultResubmitRemoteRun,
-    });
+    const result = await resumeRunByOrigin(
+      resumeRunOptions(runId, task, flags),
+      {
+        resubmit: defaultResubmitRemoteRun,
+      }
+    );
     reportResumeResult(runId, result);
   } catch (error) {
     recordResumeFailure(runId, error);
@@ -90,12 +114,16 @@ const resumeRunFromCli = async (runId: string, task: string, flags: ResumeFlags)
 export const registerResumeSubcommand = (program: Command): void => {
   program
     .command("resume")
-    .description("Rehydrate a persisted run from the durable store and continue it")
+    .description(
+      "Rehydrate a persisted run from the durable store and continue it"
+    )
     .argument("<run-id>", "the persisted run id to resume")
     .argument("<description...>", "task description for the remaining nodes")
     .option("--entrypoint <entrypoint>", "entrypoint alias from package config")
     .option("--workflow <workflow>", "workflow id from package config")
-    .action(async (runId: string, descriptionParts: string[], flags: ResumeFlags) => {
-      await resumeRunFromCli(runId, descriptionParts.join(" "), flags);
-    });
+    .action(
+      async (runId: string, descriptionParts: string[], flags: ResumeFlags) => {
+        await resumeRunFromCli(runId, descriptionParts.join(" "), flags);
+      }
+    );
 };

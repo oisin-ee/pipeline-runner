@@ -41,7 +41,7 @@ const baseState = () =>
 
 const applyEvents = (
   events: PipelineRuntimeEvent[],
-  taskContext?: Parameters<typeof createGoalState>[0]["taskContext"],
+  taskContext?: Parameters<typeof createGoalState>[0]["taskContext"]
 ) =>
   reconstructGoalStateFromEvents(
     {
@@ -50,7 +50,7 @@ const applyEvents = (
       ...(taskContext ? { taskContext } : {}),
       workflowId: "root",
     },
-    events,
+    events
   );
 
 describe("pipeline goal state", () => {
@@ -288,7 +288,7 @@ describe("pipeline goal state", () => {
         gateId: "acceptance-coverage",
         kind: "acceptance",
         reason: "acceptance coverage failed",
-      }),
+      })
     );
   });
 
@@ -310,7 +310,9 @@ describe("pipeline goal state", () => {
           format: "json_schema",
           nodeId: "acceptance",
           output: {
-            acceptance: [{ evidence: ["accepted"], id: "AC1", verdict: "PASS" }],
+            acceptance: [
+              { evidence: ["accepted"], id: "AC1", verdict: "PASS" },
+            ],
             evidence: ["acceptance passed"],
             verdict: "PASS",
           },
@@ -338,7 +340,7 @@ describe("pipeline goal state", () => {
       ],
       {
         acceptanceCriteria: [{ id: "AC1", text: "It works" }],
-      },
+      }
     );
 
     expect(goalStateCompletionEvidence(withEvidence)).toMatchObject({
@@ -361,9 +363,16 @@ describe("pipeline goal state", () => {
     });
     expect(cancelled.terminalOutcome).toBe("CANCELLED");
 
-    const withFiles = recordGoalStateChangedFiles(baseState(), "green", ["src/a.ts", "src/a.ts", "tests/a.test.ts"]);
+    const withFiles = recordGoalStateChangedFiles(baseState(), "green", [
+      "src/a.ts",
+      "src/a.ts",
+      "tests/a.test.ts",
+    ]);
     expect(withFiles.changedFiles).toEqual(["src/a.ts", "tests/a.test.ts"]);
-    expect(withFiles.nodes.green.changedFiles).toEqual(["src/a.ts", "tests/a.test.ts"]);
+    expect(withFiles.nodes.green.changedFiles).toEqual([
+      "src/a.ts",
+      "tests/a.test.ts",
+    ]);
 
     const continued = recordGoalStateContinuationAttempt(withFiles, {
       promptPath: ".pipeline/runs/run-1/continue-1.md",
@@ -392,9 +401,17 @@ describe("pipeline goal state", () => {
       "src/a.ts",
       "src/b.ts",
     ]);
-    const updated = recordGoalStateChangedFiles(state, "green", ["tests/a.test.ts", "src/a.ts"]);
+    const updated = recordGoalStateChangedFiles(state, "green", [
+      "tests/a.test.ts",
+      "src/a.ts",
+    ]);
 
-    expect(updated.changedFiles).toEqual(["src/a.ts", "src/b.ts", "tests/a.test.ts", "tests/schema.test.ts"]);
+    expect(updated.changedFiles).toEqual([
+      "src/a.ts",
+      "src/b.ts",
+      "tests/a.test.ts",
+      "tests/schema.test.ts",
+    ]);
     expect(updated.nodes.green.changedFiles).toEqual([
       "src/a.ts",
       "src/b.ts",
@@ -432,7 +449,7 @@ describe("pipeline goal state", () => {
           type: "node.finish",
         },
         { outcome: "PASS", type: "workflow.finish", workflowId: "root" },
-      ],
+      ]
     );
 
     saveGoalState(reconstructed, dir);
@@ -443,7 +460,9 @@ describe("pipeline goal state", () => {
   });
 
   it("rejects corrupt state", () => {
-    expect(() => parseGoalState({ task: { original: "missing workflow" }, version: 1 })).toThrow();
+    expect(() =>
+      parseGoalState({ task: { original: "missing workflow" }, version: 1 })
+    ).toThrow();
 
     const dir = mkdtempSync(join(tmpdir(), "pipeline-goal-state-bad-"));
     tempDirs.push(dir);

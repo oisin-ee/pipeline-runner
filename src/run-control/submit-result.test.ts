@@ -24,7 +24,10 @@ const nodeMetadata: ReadonlyMap<string, NodeEnvelopeMetadata> = new Map([
       prompt: "Plan the work",
     },
   ],
-  ["implement", { criteria: [{ id: "ac2", text: "impl is done" }], prompt: "Implement" }],
+  [
+    "implement",
+    { criteria: [{ id: "ac2", text: "impl is done" }], prompt: "Implement" },
+  ],
 ]);
 
 const passedResult = (nodeId: string): RuntimeNodeResult => ({
@@ -77,7 +80,9 @@ describe("recordSubmitResult — AC1: next-node → submit-result → next-node 
       runId: RUN_ID,
       store,
     });
-    expect(envelope?.upstreamOutputs).toEqual([{ nodeId: "plan", output: "output of plan" }]);
+    expect(envelope?.upstreamOutputs).toEqual([
+      { nodeId: "plan", output: "output of plan" },
+    ]);
   });
 
   it("no ready nodes once all nodes submitted as passed — run complete", () => {
@@ -96,7 +101,9 @@ describe("recordSubmitResult — AC1: next-node → submit-result → next-node 
       store,
     });
 
-    expect(buildNextNodeEnvelope({ nodeMetadata, nodes, runId: RUN_ID, store })).toBeUndefined();
+    expect(
+      buildNextNodeEnvelope({ nodeMetadata, nodes, runId: RUN_ID, store })
+    ).toBeUndefined();
   });
 
   it("a failed plan node is settled — implement is not emitted (blocked by failed dep)", () => {
@@ -110,7 +117,9 @@ describe("recordSubmitResult — AC1: next-node → submit-result → next-node 
     });
 
     // plan is settled (failed), implement is blocked; no ready nodes
-    expect(buildNextNodeEnvelope({ nodeMetadata, nodes, runId: RUN_ID, store })).toBeUndefined();
+    expect(
+      buildNextNodeEnvelope({ nodeMetadata, nodes, runId: RUN_ID, store })
+    ).toBeUndefined();
   });
 });
 

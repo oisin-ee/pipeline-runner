@@ -1,32 +1,55 @@
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 
-import { ConfigIoService, parseConfigYamlAs, runConfigIoSync } from "../runtime/services/config-io-service";
-import { mutableArray, nonEmptyMutableArray, requiredString, urlString, struct } from "../schema-boundary";
+import {
+  ConfigIoService,
+  parseConfigYamlAs,
+  runConfigIoSync,
+} from "../runtime/services/config-io-service";
+import {
+  mutableArray,
+  nonEmptyMutableArray,
+  requiredString,
+  urlString,
+  struct,
+} from "../schema-boundary";
 
 export const PIPELINE_CONFIG_PATH = ".pipeline/pipeline.yaml";
 export const RUNNERS_CONFIG_PATH = ".pipeline/runners.yaml";
 export const PROFILES_CONFIG_PATH = ".pipeline/profiles.yaml";
-export const OPENCODE_ECOSYSTEM_MANIFEST_PATH = "defaults/opencode-ecosystem.yaml";
+export const OPENCODE_ECOSYSTEM_MANIFEST_PATH =
+  "defaults/opencode-ecosystem.yaml";
 
-const DEFAULT_PACKAGE_DEFAULTS_ROOT = new URL("../../defaults/", import.meta.url);
+const DEFAULT_PACKAGE_DEFAULTS_ROOT = new URL(
+  "../../defaults/",
+  import.meta.url
+);
 
-const loadDefaultYamlEffect = Effect.fn("loadDefaultYaml")(function* (filename: string) {
-  const configIo = yield* ConfigIoService;
-  return yield* configIo.readText(new URL(filename, DEFAULT_PACKAGE_DEFAULTS_ROOT));
-});
+const loadDefaultYamlEffect = Effect.fn("loadDefaultYaml")(
+  function* loadDefaultYamlEffect(filename: string) {
+    const configIo = yield* ConfigIoService;
+    return yield* configIo.readText(
+      new URL(filename, DEFAULT_PACKAGE_DEFAULTS_ROOT)
+    );
+  }
+);
 
-const loadDefaultYaml = (filename: string): string => {
-  return runConfigIoSync(loadDefaultYamlEffect(filename));
-};
+const loadDefaultYaml = (filename: string): string =>
+  runConfigIoSync(loadDefaultYamlEffect(filename));
 
-export const PACKAGE_DEFAULT_RUNNERS_YAML: string = loadDefaultYaml("runners.yaml");
+export const PACKAGE_DEFAULT_RUNNERS_YAML: string =
+  loadDefaultYaml("runners.yaml");
 
-export const PACKAGE_DEFAULT_PROFILES_YAML: string = loadDefaultYaml("profiles.yaml");
+export const PACKAGE_DEFAULT_PROFILES_YAML: string =
+  loadDefaultYaml("profiles.yaml");
 
-export const PACKAGE_DEFAULT_PIPELINE_YAML: string = loadDefaultYaml("pipeline.yaml");
+export const PACKAGE_DEFAULT_PIPELINE_YAML: string =
+  loadDefaultYaml("pipeline.yaml");
 
-const DEFAULT_OPENCODE_ECOSYSTEM_MANIFEST_URL = new URL(`../../${OPENCODE_ECOSYSTEM_MANIFEST_PATH}`, import.meta.url);
+const DEFAULT_OPENCODE_ECOSYSTEM_MANIFEST_URL = new URL(
+  `../../${OPENCODE_ECOSYSTEM_MANIFEST_PATH}`,
+  import.meta.url
+);
 
 const ecosystemStringArraySchema = mutableArray(requiredString);
 
@@ -61,7 +84,7 @@ const ecosystemCodeSchema = struct({
         kind: Schema.Literal("npm"),
         package: requiredString,
       }),
-    ]),
+    ])
   ),
   role: requiredString,
   source: urlString,
@@ -113,23 +136,37 @@ const openCodeEcosystemManifestSchema = struct({
   version: Schema.Literal(1),
 });
 
-export type OpenCodeEcosystemManifest = typeof openCodeEcosystemManifestSchema.Type;
+export type OpenCodeEcosystemManifest =
+  typeof openCodeEcosystemManifestSchema.Type;
 
 export const parseOpenCodeEcosystemManifest = (
   source: string,
-  sourcePath = OPENCODE_ECOSYSTEM_MANIFEST_PATH,
+  sourcePath = OPENCODE_ECOSYSTEM_MANIFEST_PATH
 ): OpenCodeEcosystemManifest => {
-  const program = parseConfigYamlAs(source, sourcePath, openCodeEcosystemManifestSchema);
+  const program = parseConfigYamlAs(
+    source,
+    sourcePath,
+    openCodeEcosystemManifestSchema
+  );
   return runConfigIoSync(program);
 };
 
-const loadDefaultOpenCodeEcosystemManifestEffect = Effect.fn("loadDefaultOpenCodeEcosystemManifest")(function* () {
+const loadDefaultOpenCodeEcosystemManifestEffect = Effect.fn(
+  "loadDefaultOpenCodeEcosystemManifest"
+)(function* loadDefaultOpenCodeEcosystemManifestEffect() {
   const configIo = yield* ConfigIoService;
-  const source = yield* configIo.readText(DEFAULT_OPENCODE_ECOSYSTEM_MANIFEST_URL);
-  return yield* parseConfigYamlAs(source, OPENCODE_ECOSYSTEM_MANIFEST_PATH, openCodeEcosystemManifestSchema);
+  const source = yield* configIo.readText(
+    DEFAULT_OPENCODE_ECOSYSTEM_MANIFEST_URL
+  );
+  return yield* parseConfigYamlAs(
+    source,
+    OPENCODE_ECOSYSTEM_MANIFEST_PATH,
+    openCodeEcosystemManifestSchema
+  );
 });
 
 const loadDefaultOpenCodeEcosystemManifest = (): OpenCodeEcosystemManifest =>
   runConfigIoSync(loadDefaultOpenCodeEcosystemManifestEffect());
 
-export const DEFAULT_OPENCODE_ECOSYSTEM_MANIFEST = loadDefaultOpenCodeEcosystemManifest();
+export const DEFAULT_OPENCODE_ECOSYSTEM_MANIFEST =
+  loadDefaultOpenCodeEcosystemManifest();

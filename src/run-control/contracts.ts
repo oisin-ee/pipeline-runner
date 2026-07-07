@@ -76,8 +76,8 @@ const eventTimestamp = Schema.String.check(
       identifier: "RunControlEventTimestamp",
       jsonSchema: { format: "date-time" },
       title: "Run-control event timestamp",
-    },
-  ),
+    }
+  )
 );
 const positiveMillisecondsSchema = positiveInteger;
 
@@ -117,7 +117,10 @@ export const mokaRunHeartbeatEventSchema = struct({
   type: Schema.Literal("run.heartbeat"),
 });
 
-export const mokaRunEvent = Schema.Union([mokaRunStatusEventSchema, mokaNodeStatusEventSchema]);
+export const mokaRunEvent = Schema.Union([
+  mokaRunStatusEventSchema,
+  mokaNodeStatusEventSchema,
+]);
 export type mokaRunEvent = typeof mokaRunEvent.Type;
 
 export const mokaRunControlEvent = Schema.Union([
@@ -149,25 +152,32 @@ export type RunEffort = typeof runEffortSchema.Type;
 export type RunMode = typeof runModeSchema.Type;
 export type MokaRunStatus = typeof mokaRunStatusSchema.Type;
 export type MokaNodeStatus = typeof mokaNodeStatusSchema.Type;
-export type RunControlStaleDetection = typeof runControlStaleDetectionSchema.Type;
+export type RunControlStaleDetection =
+  typeof runControlStaleDetectionSchema.Type;
 export type MokaRunController = typeof mokaRunControllerSchema.Type;
 export type MokaRunEvent = typeof mokaRunEvent.Type;
 export type MokaRunHeartbeatEvent = typeof mokaRunHeartbeatEventSchema.Type;
 export type MokaRunControlEvent = typeof mokaRunControlEvent.Type;
 export type MokaRunManifest = typeof mokaRunManifestSchema.Type;
 
-export const parseRunTarget = (input: unknown): RunTarget => parseStrictWithSchema(runTargetSchema, input);
+export const parseRunTarget = (input: unknown): RunTarget =>
+  parseStrictWithSchema(runTargetSchema, input);
 
-export const parseRunEffort = (input: unknown): RunEffort => parseStrictWithSchema(runEffortSchema, input);
+export const parseRunEffort = (input: unknown): RunEffort =>
+  parseStrictWithSchema(runEffortSchema, input);
 
-export const parseRunMode = (input: unknown): RunMode => parseStrictWithSchema(runModeSchema, input);
+export const parseRunMode = (input: unknown): RunMode =>
+  parseStrictWithSchema(runModeSchema, input);
 
-export const parseMokaRunStatus = (input: unknown): MokaRunStatus => parseStrictWithSchema(mokaRunStatusSchema, input);
+export const parseMokaRunStatus = (input: unknown): MokaRunStatus =>
+  parseStrictWithSchema(mokaRunStatusSchema, input);
 
 export const parseMokaNodeStatus = (input: unknown): MokaNodeStatus =>
   parseStrictWithSchema(mokaNodeStatusSchema, input);
 
-export const parseRunControlStaleDetection = (input: unknown): RunControlStaleDetection =>
+export const parseRunControlStaleDetection = (
+  input: unknown
+): RunControlStaleDetection =>
   parseStrictWithSchema(runControlStaleDetectionSchema, input);
 
 export const parseMokaRunController = (input: unknown): MokaRunController =>
@@ -179,20 +189,26 @@ export const parseMokaRunEvent = (input: unknown): MokaRunControlEvent =>
 export const parseMokaRunManifest = (input: unknown): MokaRunManifest =>
   parseStrictWithSchema(mokaRunManifestSchema, input);
 
-export const safeParseRunTarget = (input: unknown) => parseResultWithSchema(runTargetSchema, input);
+export const safeParseRunTarget = (input: unknown) =>
+  parseResultWithSchema(runTargetSchema, input);
 
-export const safeParseRunEffort = (input: unknown) => parseResultWithSchema(runEffortSchema, input);
+export const safeParseRunEffort = (input: unknown) =>
+  parseResultWithSchema(runEffortSchema, input);
 
-export const safeParseRunMode = (input: unknown) => parseResultWithSchema(runModeSchema, input);
+export const safeParseRunMode = (input: unknown) =>
+  parseResultWithSchema(runModeSchema, input);
 
-export const safeParseMokaRunStatus = (input: unknown) => parseResultWithSchema(mokaRunStatusSchema, input);
+export const safeParseMokaRunStatus = (input: unknown) =>
+  parseResultWithSchema(mokaRunStatusSchema, input);
 
-export const safeParseMokaNodeStatus = (input: unknown) => parseResultWithSchema(mokaNodeStatusSchema, input);
+export const safeParseMokaNodeStatus = (input: unknown) =>
+  parseResultWithSchema(mokaNodeStatusSchema, input);
 
 export const safeParseRunControlStaleDetection = (input: unknown) =>
   parseResultWithSchema(runControlStaleDetectionSchema, input);
 
-export const safeParseMokaRunController = (input: unknown) => parseResultWithSchema(mokaRunControllerSchema, input);
+export const safeParseMokaRunController = (input: unknown) =>
+  parseResultWithSchema(mokaRunControllerSchema, input);
 
 export const safeParseMokaRunEvent = (input: unknown) =>
   parseResultWithSchema(mokaRunControlEvent, input, {

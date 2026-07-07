@@ -1,10 +1,20 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { formatCodexAuthSyncResult, syncLocalCodexAuth } from "../src/credentials/local-codex-auth-sync";
+import {
+  formatCodexAuthSyncResult,
+  syncLocalCodexAuth,
+} from "../src/credentials/local-codex-auth-sync";
 
 const BROKER_REQUIRED_RE = /BROKER_API_KEY is required/u;
 
@@ -45,7 +55,11 @@ describe("syncLocalCodexAuth", () => {
     mkdirSync(join(repo, ".opencode"), { recursive: true });
     writeFileSync(
       join(repo, ".opencode/opencode.json"),
-      JSON.stringify({ model: "openai/gpt-5.5-medium", plugin: ["local-plugin"] }, null, 2),
+      JSON.stringify(
+        { model: "openai/gpt-5.5-medium", plugin: ["local-plugin"] },
+        null,
+        2
+      )
     );
 
     const result = syncLocalCodexAuth({
@@ -53,10 +67,16 @@ describe("syncLocalCodexAuth", () => {
       root: dir,
     });
 
-    expect(result.items.map((item) => item.path)).toEqual([join(repo, ".opencode/opencode.json")]);
+    expect(result.items.map((item) => item.path)).toEqual([
+      join(repo, ".opencode/opencode.json"),
+    ]);
 
-    const projectConfig = JSON.parse(readFileSync(join(repo, ".opencode/opencode.json"), "utf-8"));
-    expect(projectConfig.provider.openai.options.baseURL).toBe("https://broker.test/v1");
+    const projectConfig = JSON.parse(
+      readFileSync(join(repo, ".opencode/opencode.json"), "utf-8")
+    );
+    expect(projectConfig.provider.openai.options.baseURL).toBe(
+      "https://broker.test/v1"
+    );
     expect(projectConfig.plugin).toEqual(["local-plugin"]);
     expect(JSON.stringify(projectConfig)).not.toContain("oc-codex-multi-auth");
   });
@@ -69,8 +89,12 @@ describe("syncLocalCodexAuth", () => {
       root: dir,
     });
 
-    const projectConfig = JSON.parse(readFileSync(join(repo, ".opencode/opencode.json"), "utf-8"));
-    expect(projectConfig.provider.openai.options.baseURL).toBe("https://broker.test/v1");
+    const projectConfig = JSON.parse(
+      readFileSync(join(repo, ".opencode/opencode.json"), "utf-8")
+    );
+    expect(projectConfig.provider.openai.options.baseURL).toBe(
+      "https://broker.test/v1"
+    );
     expect(JSON.stringify(projectConfig)).not.toContain("oc-codex-multi-auth");
   });
 

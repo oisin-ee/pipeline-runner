@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { Effect, Option } from "effect";
+import { Effect, Option, Result } from "effect";
 
 import type { PipelineConfig } from "../config";
 import { McpGatewayService } from "../runtime/services/mcp-gateway-service";
@@ -24,6 +24,21 @@ export interface GatewayDoctorResult {
   passed: boolean;
 }
 
+const errorDetail = (error: unknown, fallback: string): string => {
+  const detail = error instanceof Error ? error.message : String(error);
+  return detail === "" ? fallback : detail;
+};
+
+const failedGatewayCheck = (
+  name: string,
+  error: unknown,
+  fallback: string
+): GatewayDoctorCheck => ({
+  detail: errorDetail(error, fallback),
+  name,
+  passed: false,
+});
+
 const checkGatewayUrl = (gateway: McpGatewayConfig): GatewayDoctorCheck => {
   try {
     const url = gatewayUrl(gateway);
@@ -38,7 +53,8 @@ const checkGatewayUrl = (gateway: McpGatewayConfig): GatewayDoctorCheck => {
 };
 
 const checkGatewayToken = (gateway: McpGatewayConfig): GatewayDoctorCheck =>
-  process.env[gateway.authorization_env] !== undefined && process.env[gateway.authorization_env] !== ""
+  process.env[gateway.authorization_env] !== undefined &&
+  process.env[gateway.authorization_env] !== ""
     ? {
         detail: gateway.authorization_env,
         name: "gateway-authorization",
@@ -50,20 +66,17 @@ const checkGatewayToken = (gateway: McpGatewayConfig): GatewayDoctorCheck =>
         passed: false,
       };
 
-const checkThv = (cwd: string): Effect.Effect<GatewayDoctorCheck, never, McpGatewayService> =>
+const checkThv = (
+  cwd: string
+): Effect.Effect<GatewayDoctorCheck, never, McpGatewayService> =>
   Effect.gen(function* effectBody() {
     const service = yield* McpGatewayService;
-    yield* service.runToolHiveVersion(cwd);
+    const result = yield* Effect.result(service.runToolHiveVersion(cwd));
+    if (Result.isFailure(result)) {
+      return failedGatewayCheck("toolhive", result.failure, "not available");
+    }
     return { detail: "available", name: "toolhive", passed: true };
-  }).pipe(
-    Effect.catch((error) =>
-      Effect.succeed({
-        detail: error.message || "not available",
-        name: "toolhive",
-        passed: false,
-      }),
-    ),
-  );
+  });
 
 const gatewayHealthUrls = (url: string): string[] => {
   const urls: string[] = [];
@@ -80,7 +93,9 @@ const gatewayHealthUrls = (url: string): string[] => {
   return urls;
 };
 
-const checkGatewayHealth = (gateway: McpGatewayConfig): Effect.Effect<GatewayDoctorCheck, never, McpGatewayService> => {
+const checkGatewayHealth = (
+  gateway: McpGatewayConfig
+): Effect.Effect<GatewayDoctorCheck, never, McpGatewayService> => {
   let url: string;
   try {
     url = gatewayUrl(gateway);
@@ -93,10 +108,20 @@ const checkGatewayHealth = (gateway: McpGatewayConfig): Effect.Effect<GatewayDoc
   }
   return Effect.gen(function* effectBody() {
     const service = yield* McpGatewayService;
-    const response = yield* service.firstHealthyGatewayResponse(
-      gatewayHealthUrls(url),
-      process.env[gateway.authorization_env],
+    const responseResult = yield* Effect.result(
+      service.firstHealthyGatewayResponse(
+        gatewayHealthUrls(url),
+        process.env[gateway.authorization_env]
+      )
     );
+    if (Result.isFailure(responseResult)) {
+      return failedGatewayCheck(
+        "gateway-health",
+        responseResult.failure,
+        "gateway endpoint did not report healthy"
+      );
+    }
+    const response = responseResult.success;
     const passed = Option.isSome(response);
     return {
       detail: Option.isSome(response)
@@ -105,15 +130,7 @@ const checkGatewayHealth = (gateway: McpGatewayConfig): Effect.Effect<GatewayDoc
       name: "gateway-health",
       passed,
     };
-  }).pipe(
-    Effect.catch((error) =>
-      Effect.succeed({
-        detail: error instanceof Error ? error.message : String(error),
-        name: "gateway-health",
-        passed: false,
-      }),
-    ),
-  );
+  });
 };
 
 const requiredGatewayToolPrefixes = (gateway: McpGatewayConfig): string[] =>
@@ -121,22 +138,30 @@ const requiredGatewayToolPrefixes = (gateway: McpGatewayConfig): string[] =>
     ...new Set(
       Object.values(gateway.backends)
         .filter((backend) => backend.required)
-        .flatMap((backend) => backend.tool_prefixes),
+        .flatMap((backend) => backend.tool_prefixes)
     ),
   ].toSorted();
 
 const callGatewayRpc = (
   gateway: McpGatewayConfig,
   url: string,
-  body: Record<string, unknown>,
-): Effect.Effect<{ result?: { tools?: unknown } }, PipelineMcpGatewayError, McpGatewayService> =>
+  body: Record<string, unknown>
+): Effect.Effect<
+  { result?: { tools?: unknown } },
+  PipelineMcpGatewayError,
+  McpGatewayService
+> =>
   Effect.gen(function* effectBody() {
     const service = yield* McpGatewayService;
-    return yield* service.callGatewayRpc(url, body, process.env[gateway.authorization_env]);
+    return yield* service.callGatewayRpc(
+      url,
+      body,
+      process.env[gateway.authorization_env]
+    );
   });
 
 const listGatewayTools = (
-  gateway: McpGatewayConfig,
+  gateway: McpGatewayConfig
 ): Effect.Effect<string[], PipelineMcpGatewayError, McpGatewayService> => {
   const url = gatewayUrl(gateway);
   return Effect.gen(function* effectBody() {
@@ -158,16 +183,23 @@ const listGatewayTools = (
     });
     const tools = listed.result?.tools;
     if (!Array.isArray(tools)) {
-      return yield* Effect.fail(new PipelineMcpGatewayError("Malformed tools/list response."));
+      return yield* Effect.fail(
+        new PipelineMcpGatewayError("Malformed tools/list response.")
+      );
     }
     return tools.flatMap((tool) =>
-      typeof tool === "object" && tool !== null && "name" in tool && typeof tool.name === "string" ? [tool.name] : [],
+      typeof tool === "object" &&
+      tool !== null &&
+      "name" in tool &&
+      typeof tool.name === "string"
+        ? [tool.name]
+        : []
     );
   });
 };
 
 const checkGatewayRequiredTools = (
-  gateway: McpGatewayConfig,
+  gateway: McpGatewayConfig
 ): Effect.Effect<GatewayDoctorCheck, never, McpGatewayService> => {
   const requiredPrefixes = requiredGatewayToolPrefixes(gateway);
   if (requiredPrefixes.length === 0) {
@@ -178,9 +210,18 @@ const checkGatewayRequiredTools = (
     });
   }
   return Effect.gen(function* effectBody() {
-    const tools = yield* listGatewayTools(gateway);
+    const toolsResult = yield* Effect.result(listGatewayTools(gateway));
+    if (Result.isFailure(toolsResult)) {
+      return failedGatewayCheck(
+        "gateway-required-tools",
+        toolsResult.failure,
+        "gateway required tools unavailable"
+      );
+    }
+    const tools = toolsResult.success;
     const missing = requiredPrefixes.filter(
-      (prefix) => !tools.some((tool) => tool === prefix || tool.startsWith(`${prefix}_`)),
+      (prefix) =>
+        !tools.some((tool) => tool === prefix || tool.startsWith(`${prefix}_`))
     );
     return missing.length === 0
       ? {
@@ -193,25 +234,24 @@ const checkGatewayRequiredTools = (
           name: "gateway-required-tools",
           passed: false,
         };
-  }).pipe(
-    Effect.catch((error) =>
-      Effect.succeed({
-        detail: error instanceof Error ? error.message : String(error),
-        name: "gateway-required-tools",
-        passed: false,
-      }),
-    ),
-  );
+  });
 };
 
-const legacyFileHit = (cwd: string, path: string): string | void => (existsSync(join(cwd, path)) ? path : undefined);
+const legacyFileHit = (cwd: string, path: string): Option.Option<string> =>
+  existsSync(join(cwd, path)) ? Option.some(path) : Option.none();
 
-const legacyContentHit = (cwd: string, path: string, pattern: RegExp): string | void => {
+const legacyContentHit = (
+  cwd: string,
+  path: string,
+  pattern: RegExp
+): Option.Option<string> => {
   const fullPath = join(cwd, path);
   if (!existsSync(fullPath)) {
-    return;
+    return Option.none();
   }
-  return pattern.test(readFileSync(fullPath, "utf-8")) ? path : undefined;
+  return pattern.test(readFileSync(fullPath, "utf-8"))
+    ? Option.some(path)
+    : Option.none();
 };
 
 const checkLegacyDirectMcp = (cwd: string): GatewayDoctorCheck => {
@@ -219,7 +259,9 @@ const checkLegacyDirectMcp = (cwd: string): GatewayDoctorCheck => {
     legacyFileHit(cwd, ".mcp.json"),
     legacyContentHit(cwd, ".opencode/opencode.json", LEGACY_OPENCODE_MCP_RE),
     legacyContentHit(cwd, ".pipeline/profiles.yaml", LEGACY_PIPELINE_MCP_RE),
-  ].filter((hit): hit is string => hit !== undefined && hit !== "");
+  ].flatMap((hit) =>
+    Option.isSome(hit) && hit.value !== "" ? [hit.value] : []
+  );
   return hits.length === 0
     ? { detail: "none found", name: "legacy-direct-mcp", passed: true }
     : {
@@ -229,7 +271,10 @@ const checkLegacyDirectMcp = (cwd: string): GatewayDoctorCheck => {
       };
 };
 
-export const runGatewayDoctor = async (config: PipelineConfig, cwd: string): Promise<GatewayDoctorResult> =>
+export const runGatewayDoctor = async (
+  config: PipelineConfig,
+  cwd: string
+): Promise<GatewayDoctorResult> =>
   await runMcpGatewayEffect(
     Effect.gen(function* effectBody() {
       const gateway = configuredGateway(config);
@@ -250,5 +295,5 @@ export const runGatewayDoctor = async (config: PipelineConfig, cwd: string): Pro
         checks,
         passed: checks.every((check) => check.passed),
       };
-    }),
+    })
   );

@@ -7,11 +7,16 @@ import {
 } from "./gateway-config";
 import type { McpGatewayConfig } from "./gateway-config";
 
-const gatewayOpenCodeHeaders = (gateway: McpGatewayConfig): Record<string, string> => ({
+const gatewayOpenCodeHeaders = (
+  gateway: McpGatewayConfig
+): Record<string, string> => ({
   Authorization: gatewayAuthorizationHeader(gateway),
 });
 
-export const renderOpenCodeGatewayConfig = (config: PipelineConfig, env: NodeJS.ProcessEnv = process.env): string => {
+export const renderOpenCodeGatewayConfig = (
+  config: PipelineConfig,
+  env: NodeJS.ProcessEnv = process.env
+): string => {
   const gateway = configuredGateway(config);
   return `${JSON.stringify(
     {
@@ -27,17 +32,19 @@ export const renderOpenCodeGatewayConfig = (config: PipelineConfig, env: NodeJS.
       },
     },
     null,
-    2,
+    2
   )}\n`;
 };
 
-const gatewayClaudeHeaders = (gateway: McpGatewayConfig): Record<string, string> => ({
+const gatewayClaudeHeaders = (
+  gateway: McpGatewayConfig
+): Record<string, string> => ({
   Authorization: `\${${gateway.authorization_env}}`,
 });
 
 export const renderClaudeGatewayMcpServers = (
   config: PipelineConfig,
-  env: NodeJS.ProcessEnv = process.env,
+  env: NodeJS.ProcessEnv = process.env
 ): Record<string, unknown> => {
   const gateway = configuredGateway(config);
   return {
@@ -49,18 +56,24 @@ export const renderClaudeGatewayMcpServers = (
   };
 };
 
-export const renderClaudeGatewayUserConfig = (config: PipelineConfig, env: NodeJS.ProcessEnv = process.env): string =>
+export const renderClaudeGatewayUserConfig = (
+  config: PipelineConfig,
+  env: NodeJS.ProcessEnv = process.env
+): string =>
   `${JSON.stringify(
     {
       mcpServers: renderClaudeGatewayMcpServers(config, env),
     },
     null,
-    2,
+    2
   )}\n`;
 
 const tomlString = (value: string): string => JSON.stringify(value);
 
-export const renderCodexGatewayConfig = (config: PipelineConfig, env: NodeJS.ProcessEnv = process.env): string => {
+export const renderCodexGatewayConfig = (
+  config: PipelineConfig,
+  env: NodeJS.ProcessEnv = process.env
+): string => {
   const gateway = configuredGateway(config);
   return [
     `[mcp_servers.${PIPELINE_GATEWAY_SERVER_ID}]`,

@@ -1,5 +1,6 @@
 import { createOpencodeClient } from "@opencode-ai/sdk/v2";
 import type { Event, Provider } from "@opencode-ai/sdk/v2";
+import * as Arr from "effect/Array";
 import { String, TaggedErrorClass } from "effect/Schema";
 import { describe, expect, it } from "vitest";
 
@@ -8,7 +9,10 @@ import type { PipelineConfig } from "../config";
 import type { RunnerLaunchPlan } from "../runner";
 import { NodeStateStore } from "./node-state-store";
 import { leaseOpencodeRuntime } from "./opencode-runtime";
-import type { OpencodeServerClient, OpencodeServerHandle } from "./opencode-server";
+import type {
+  OpencodeServerClient,
+  OpencodeServerHandle,
+} from "./opencode-server";
 
 /*
  * Regression guard for the eager-startup bug: leaseOpencodeRuntime must NOT
@@ -17,36 +21,52 @@ import type { OpencodeServerClient, OpencodeServerHandle } from "./opencode-serv
  * binary) must never spawn it. See the PIPE-73 release regression.
  */
 
-class MissingOpencodeStubError extends TaggedErrorClass<MissingOpencodeStubError>()("MissingOpencodeStubError", {
-  message: String,
-}) {
+class MissingOpencodeStubError extends TaggedErrorClass<MissingOpencodeStubError>()(
+  "MissingOpencodeStubError",
+  {
+    message: String,
+  }
+) {
   constructor(message: string) {
     super({ message });
   }
 }
 
-const CONFIG: PipelineConfig = loadPipelineConfig("/repo", { allowMissingLintFileReferences: true });
+const CONFIG: PipelineConfig = loadPipelineConfig("/repo", {
+  allowMissingLintFileReferences: true,
+});
 
-const emptyStream = async function* emptyStream(): AsyncIterableIterator<Event> {
-  yield* [];
-};
+const emptyStream =
+  async function* emptyStream(): AsyncIterableIterator<Event> {
+    await Promise.resolve();
+    yield* Arr.empty<Event>();
+  };
 
 const opencodeResponse = (body: unknown): Response => Response.json(body);
 
-const fakeConfigSurface = (providers: Provider[] = []): OpencodeServerClient["config"] =>
+const fakeConfigSurface = (
+  providers: Provider[] = []
+): OpencodeServerClient["config"] =>
   createOpencodeClient({
     baseUrl: "http://127.0.0.1:0",
-    fetch: async () => await Promise.resolve(opencodeResponse({ default: {}, providers })),
+    fetch: async () =>
+      await Promise.resolve(opencodeResponse({ default: {}, providers })),
   }).config;
 
-const failingConfigSurface = (message: string): OpencodeServerClient["config"] =>
+const failingConfigSurface = (
+  message: string
+): OpencodeServerClient["config"] =>
   createOpencodeClient({
     baseUrl: "http://127.0.0.1:0",
-    fetch: async () => await Promise.reject(new MissingOpencodeStubError(message)),
+    fetch: async () =>
+      await Promise.reject(new MissingOpencodeStubError(message)),
     throwOnError: true,
   }).config;
 
-const fakeModel = (providerID: string, id: string): Provider["models"][string] => ({
+const fakeModel = (
+  providerID: string,
+  id: string
+): Provider["models"][string] => ({
   api: {
     id: "test",
     npm: "@test/provider",
@@ -109,12 +129,20 @@ const failingOpencodeClient: OpencodeServerClient = {
     subscribe: async () => await Promise.resolve({ stream: emptyStream() }),
   },
   session: {
-    create: async () => await Promise.reject(new MissingOpencodeStubError("missing session.create stub")),
-    prompt: async () => await Promise.reject(new MissingOpencodeStubError("missing session.prompt stub")),
+    create: async () =>
+      await Promise.reject(
+        new MissingOpencodeStubError("missing session.create stub")
+      ),
+    prompt: async () =>
+      await Promise.reject(
+        new MissingOpencodeStubError("missing session.prompt stub")
+      ),
   },
 };
 
-const fakeHandle = (client: OpencodeServerClient = failingOpencodeClient): OpencodeServerHandle => {
+const fakeHandle = (
+  client: OpencodeServerClient = failingOpencodeClient
+): OpencodeServerHandle => {
   let closed = false;
   return {
     client,
@@ -135,18 +163,26 @@ const textPart = (sessionId: string, text: string) => ({
   type: "text",
 });
 
-const fakeOpencodeClient = (sessionId = "ses_runtime"): OpencodeServerClient => ({
+const fakeOpencodeClient = (
+  sessionId = "ses_runtime"
+): OpencodeServerClient => ({
   config: failingOpencodeClient.config,
   event: {
     subscribe: async () => await Promise.resolve({ stream: emptyStream() }),
   },
   session: {
-    create: async () => await Promise.resolve({ data: { id: sessionId }, error: undefined }),
+    create: async () =>
+      await Promise.resolve({ data: { id: sessionId }, error: undefined }),
     prompt: async () =>
       await Promise.resolve({
         data: {
           info: {},
-          parts: [textPart(sessionId, "done; ignore cli-looking session ses_from_text")],
+          parts: [
+            textPart(
+              sessionId,
+              "done; ignore cli-looking session ses_from_text"
+            ),
+          ],
         },
         error: undefined,
       }),
@@ -226,7 +262,8 @@ describe("leaseOpencodeRuntime lazy server startup", () => {
         observedSessions.push({ nodeId, sessionId });
         nodeStateStore.recordSessionId(nodeId, sessionId);
       },
-      openServer: async () => await Promise.resolve(fakeHandle(fakeOpencodeClient())),
+      openServer: async () =>
+        await Promise.resolve(fakeHandle(fakeOpencodeClient())),
       worktreePath: "/repo",
     } satisfies Parameters<typeof leaseOpencodeRuntime>[0] & {
       onSession: (nodeId: string, sessionId: string) => void;
@@ -241,9 +278,13 @@ describe("leaseOpencodeRuntime lazy server startup", () => {
     } finally {
       await lease.release();
     }
-    expect(observedSessions).toEqual([{ nodeId: "node-a", sessionId: "ses_runtime" }]);
+    expect(observedSessions).toEqual([
+      { nodeId: "node-a", sessionId: "ses_runtime" },
+    ]);
     const nodeState = nodeStateStore.getNodeState("node-a");
-    expect("value" in nodeState ? nodeState.value.sessionId : undefined).toBe("ses_runtime");
+    expect("value" in nodeState ? nodeState.value.sessionId : undefined).toBe(
+      "ses_runtime"
+    );
   });
 
   it("resolves available models from the server's authenticated providers", async () => {
@@ -267,7 +308,9 @@ describe("leaseOpencodeRuntime lazy server startup", () => {
     });
 
     const models = await lease.availableModels();
-    expect("value" in models ? globalThis.Array.from(models.value) : []).toEqual([
+    expect(
+      "value" in models ? globalThis.Array.from(models.value) : []
+    ).toEqual([
       "openai/gpt-5.5-high",
       "openai/gpt-5.5-low",
       "opencode-go/qwen3.7-max",

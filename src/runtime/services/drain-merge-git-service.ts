@@ -1,5 +1,5 @@
 import { Context, Effect, Layer } from "effect";
-import simpleGit from "simple-git";
+import { simpleGit } from "simple-git";
 
 export interface DrainMergeGitClient {
   readonly raw: (args: string[]) => Effect.Effect<string, unknown>;

@@ -1,7 +1,11 @@
 import { Option } from "effect";
 
 import type { PlannedWorkflowNode } from "../planning/compile";
-import type { ChangedFilesSnapshot, NodeExecutionState, RuntimeStructuredOutput } from "./contracts";
+import type {
+  ChangedFilesSnapshot,
+  NodeExecutionState,
+  RuntimeStructuredOutput,
+} from "./contracts";
 import type { NodeHandoff } from "./handoff";
 
 interface NodeStateStoreInput {
@@ -32,9 +36,11 @@ export class NodeStateStore {
   // fallow-ignore-next-line complexity
   constructor(input: NodeStateStoreInput = {}) {
     this.handoffByNode = input.handoffByNode ?? new Map<string, NodeHandoff>();
-    this.inheritedOutputNodeIds = input.inheritedOutputNodeIds ?? new Set<string>();
+    this.inheritedOutputNodeIds =
+      input.inheritedOutputNodeIds ?? new Set<string>();
     this.lastOutputByNode = input.lastOutputByNode ?? new Map<string, string>();
-    this.nodeSnapshots = input.nodeSnapshots ?? new Map<string, ChangedFilesSnapshot>();
+    this.nodeSnapshots =
+      input.nodeSnapshots ?? new Map<string, ChangedFilesSnapshot>();
     this.nodeStates = input.nodeStates ?? new Map<string, NodeExecutionState>();
     this.structuredOutputs = input.structuredOutputs ?? [];
   }
@@ -44,7 +50,9 @@ export class NodeStateStore {
       inheritedOutputNodeIds: new Set(this.lastOutputByNode.keys()),
       lastOutputByNode: new Map(this.lastOutputByNode),
       nodeSnapshots: new Map(),
-      nodeStates: new Map(children.map((child) => [child.id, pendingNodeState(child.id)])),
+      nodeStates: new Map(
+        children.map((child) => [child.id, pendingNodeState(child.id)])
+      ),
       structuredOutputs: this.structuredOutputs,
     });
   }
@@ -67,7 +75,11 @@ export class NodeStateStore {
   }
 }
 
-export const initialNodeStateStore = (plan: { topologicalOrder: Pick<PlannedWorkflowNode, "id">[] }): NodeStateStore =>
+export const initialNodeStateStore = (plan: {
+  topologicalOrder: Pick<PlannedWorkflowNode, "id">[];
+}): NodeStateStore =>
   new NodeStateStore({
-    nodeStates: new Map(plan.topologicalOrder.map((node) => [node.id, pendingNodeState(node.id)])),
+    nodeStates: new Map(
+      plan.topologicalOrder.map((node) => [node.id, pendingNodeState(node.id)])
+    ),
   });

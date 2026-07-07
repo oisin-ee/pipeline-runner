@@ -2,8 +2,15 @@ import { join } from "node:path";
 
 import { Option } from "effect";
 
-import type { JsonSchemaGateSpec, NodeAttemptResult, RuntimeGateResult } from "../../../contracts";
-import { readOptionalFile, validateJsonSchemaSource } from "../../../json-validation";
+import type {
+  JsonSchemaGateSpec,
+  NodeAttemptResult,
+  RuntimeGateResult,
+} from "../../../contracts";
+import {
+  readOptionalFile,
+  validateJsonSchemaSource,
+} from "../../../json-validation";
 
 /** Minimal context shape needed by JSON-schema evaluation. */
 export interface JsonSchemaContext {
@@ -20,11 +27,13 @@ export const evaluateJsonSchemaGate = (
   gateId: string,
   nodeId: string,
   context: JsonSchemaContext,
-  attempt: NodeAttemptResult,
+  attempt: NodeAttemptResult
 ): RuntimeGateResult => {
   const schemaPath = gate.schema_path;
   const source =
-    gate.target === "artifact" && gate.path !== undefined && gate.path.length > 0
+    gate.target === "artifact" &&
+    gate.path !== undefined &&
+    gate.path.length > 0
       ? readOptionalFile(join(context.worktreePath, gate.path))
       : Option.some(attempt.output);
   if (Option.isNone(source)) {
@@ -37,7 +46,11 @@ export const evaluateJsonSchemaGate = (
       reason: `missing JSON artifact '${gate.path ?? ""}'`,
     };
   }
-  const result = validateJsonSchemaSource(source.value, schemaPath, context.worktreePath);
+  const result = validateJsonSchemaSource(
+    source.value,
+    schemaPath,
+    context.worktreePath
+  );
   return {
     evidence: result.evidence,
     gateId,

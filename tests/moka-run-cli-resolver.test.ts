@@ -1,4 +1,10 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
@@ -6,6 +12,29 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { CliProgramOptions } from "../src/cli/program";
 import type { RunCommandCall } from "../src/cli/run-command";
+import type { runMokaSubmitFromCli } from "../src/cli/submit-options";
+import type {
+  generateScheduleArtifact,
+  generateScheduleArtifactInMemory,
+} from "../src/planning/generate";
+import type {
+  fileRunControlStore,
+  withRunControlStoreScoped,
+} from "../src/run-control/run-control-store";
+
+interface PlanningGenerateModule {
+  generateScheduleArtifact: typeof generateScheduleArtifact;
+  generateScheduleArtifactInMemory: typeof generateScheduleArtifactInMemory;
+}
+
+interface RunControlStoreModule {
+  fileRunControlStore: typeof fileRunControlStore;
+  withRunControlStoreScoped: typeof withRunControlStoreScoped;
+}
+
+interface SubmitOptionsModule {
+  runMokaSubmitFromCli: typeof runMokaSubmitFromCli;
+}
 
 interface RuntimeCall {
   entrypoint?: string;
@@ -32,7 +61,7 @@ const mockState = vi.hoisted(() => ({
 }));
 
 vi.mock("../src/pipeline-runtime", () => ({
-  runPipelineFromConfig: vi.fn(async (input: RuntimeCall) => {
+  runPipelineFromConfig: vi.fn((input: RuntimeCall) => {
     mockState.runtimeCalls.push(input);
     return {
       agentInvocations: [],
@@ -51,85 +80,93 @@ vi.mock("../src/pipeline-runtime", () => ({
 }));
 
 vi.mock("../src/planning/generate", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../src/planning/generate")>();
+  const actual = await importOriginal<PlanningGenerateModule>();
   const fs = await import("node:fs");
   const path = await import("node:path");
 
   return {
     ...actual,
-    generateScheduleArtifact: vi.fn(async (input: ScheduleCall & { runId: string }) => {
-      mockState.scheduleCalls.push(input);
-      const schedulePath = `.pipeline/runs/${input.runId}/schedule.yaml`;
-      const fullPath = path.join(input.worktreePath, schedulePath);
-      fs.mkdirSync(path.dirname(fullPath), { recursive: true });
-      fs.writeFileSync(
-        fullPath,
-        [
-          "version: 1",
-          "kind: pipeline-schedule",
-          `schedule_id: ${input.runId}`,
-          `source_entrypoint: ${input.entrypointId}`,
-          `task: ${input.task}`,
-          "generated_at: 2026-06-17T00:00:00.000Z",
-          "root_workflow: root",
-          "workflows:",
-          "  root:",
-          "    nodes:",
-          "      - id: scheduled",
-          "        kind: command",
-          "        command: [node, -e, \"console.log('scheduled')\"]",
-          "",
-        ].join("\n"),
-      );
-      return { path: schedulePath };
-    }),
-    generateScheduleArtifactInMemory: vi.fn(async (input: ScheduleCall & { runId: string }) => {
-      mockState.scheduleCalls.push(input);
-      return {
-        yaml: [
-          "version: 1",
-          "kind: pipeline-schedule",
-          `schedule_id: ${input.runId}`,
-          `source_entrypoint: ${input.entrypointId}`,
-          `task: ${input.task}`,
-          "generated_at: 2026-06-17T00:00:00.000Z",
-          "root_workflow: root",
-          "workflows:",
-          "  root:",
-          "    nodes:",
-          "      - id: scheduled",
-          "        kind: command",
-          "        command: [node, -e, \"console.log('scheduled')\"]",
-          "",
-        ].join("\n"),
-      };
-    }),
+    generateScheduleArtifact: vi.fn(
+      (input: ScheduleCall & { runId: string }) => {
+        mockState.scheduleCalls.push(input);
+        const schedulePath = `.pipeline/runs/${input.runId}/schedule.yaml`;
+        const fullPath = path.join(input.worktreePath, schedulePath);
+        fs.mkdirSync(path.dirname(fullPath), { recursive: true });
+        fs.writeFileSync(
+          fullPath,
+          [
+            "version: 1",
+            "kind: pipeline-schedule",
+            `schedule_id: ${input.runId}`,
+            `source_entrypoint: ${input.entrypointId}`,
+            `task: ${input.task}`,
+            "generated_at: 2026-06-17T00:00:00.000Z",
+            "root_workflow: root",
+            "workflows:",
+            "  root:",
+            "    nodes:",
+            "      - id: scheduled",
+            "        kind: command",
+            "        command: [node, -e, \"console.log('scheduled')\"]",
+            "",
+          ].join("\n")
+        );
+        return { path: schedulePath };
+      }
+    ),
+    generateScheduleArtifactInMemory: vi.fn(
+      (input: ScheduleCall & { runId: string }) => {
+        mockState.scheduleCalls.push(input);
+        return {
+          yaml: [
+            "version: 1",
+            "kind: pipeline-schedule",
+            `schedule_id: ${input.runId}`,
+            `source_entrypoint: ${input.entrypointId}`,
+            `task: ${input.task}`,
+            "generated_at: 2026-06-17T00:00:00.000Z",
+            "root_workflow: root",
+            "workflows:",
+            "  root:",
+            "    nodes:",
+            "      - id: scheduled",
+            "        kind: command",
+            "        command: [node, -e, \"console.log('scheduled')\"]",
+            "",
+          ].join("\n"),
+        };
+      }
+    ),
   };
 });
 
 vi.mock("../src/run-control/run-control-store", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../src/run-control/run-control-store")>();
+  const actual = await importOriginal<RunControlStoreModule>();
 
   return {
     ...actual,
     withRunControlStoreScoped: vi.fn(
-      (workspaceRoot: string, use: Parameters<typeof actual.withRunControlStoreScoped>[1]) =>
-        use(actual.fileRunControlStore(workspaceRoot)),
+      (
+        workspaceRoot: string,
+        use: Parameters<typeof actual.withRunControlStoreScoped>[1]
+      ) => use(actual.fileRunControlStore(workspaceRoot))
     ),
   };
 });
 
 vi.mock("../src/cli/submit-options", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../src/cli/submit-options")>();
+  const actual = await importOriginal<SubmitOptionsModule>();
   return {
     ...actual,
-    runMokaSubmitFromCli: vi.fn(async (input: string[], flags: Record<string, unknown>) => {
-      mockState.submitCalls.push({ flags, input });
-      return {
-        namespace: "test-runners",
-        workflowName: "submitted-run",
-      };
-    }),
+    runMokaSubmitFromCli: vi.fn(
+      (input: string[], flags: Record<string, unknown>) => {
+        mockState.submitCalls.push({ flags, input });
+        return {
+          namespace: "test-runners",
+          workflowName: "submitted-run",
+        };
+      }
+    ),
   };
 });
 
@@ -153,20 +190,35 @@ afterEach(() => {
 const withCliTarget = async (
   run: (input: {
     dir: string;
-    parseMoka: (args: string[], programOptions?: CliProgramOptions) => Promise<void>;
-    parseRun: (args: string[], programOptions?: CliProgramOptions) => Promise<void>;
-  }) => Promise<void>,
+    parseMoka: (
+      args: string[],
+      programOptions?: CliProgramOptions
+    ) => Promise<void>;
+    parseRun: (
+      args: string[],
+      programOptions?: CliProgramOptions
+    ) => Promise<void>;
+  }) => Promise<void>
 ): Promise<void> => {
   const dir = mkdtempSync(join(tmpdir(), "moka-run-resolver-cli-"));
   process.env.PIPELINE_TARGET_PATH = dir;
   try {
     const { createCliProgram } = await import("../src/cli/program");
-    const parseMoka = async (args: string[], programOptions?: CliProgramOptions) => {
-      await createCliProgram(programOptions).parseAsync(["node", "/repo/node_modules/.bin/moka", ...args], {
-        from: "node",
-      });
+    const parseMoka = async (
+      args: string[],
+      programOptions?: CliProgramOptions
+    ) => {
+      await createCliProgram(programOptions).parseAsync(
+        ["node", "/repo/node_modules/.bin/moka", ...args],
+        {
+          from: "node",
+        }
+      );
     };
-    const parseRun = async (args: string[], programOptions?: CliProgramOptions) => {
+    const parseRun = async (
+      args: string[],
+      programOptions?: CliProgramOptions
+    ) => {
       await parseMoka(["run", ...args], programOptions);
     };
     await run({ dir, parseMoka, parseRun });
@@ -195,7 +247,7 @@ const writeSchedule = (root: string, relativePath: string): string => {
       "        kind: command",
       "        command: [node, -e, \"console.log('approved')\"]",
       "",
-    ].join("\n"),
+    ].join("\n")
   );
   return fullPath;
 };
@@ -228,7 +280,7 @@ describe("moka run CLI flag resolver wiring", () => {
             target: "local",
           }),
           task: "Inspect the repo",
-        }),
+        })
       );
       expect(mockState.runtimeCalls).toEqual([]);
       expect(mockState.scheduleCalls).toEqual([]);
@@ -240,7 +292,10 @@ describe("moka run CLI flag resolver wiring", () => {
     await withCliTarget(async ({ parseRun }) => {
       const runCommand = vi.fn(async (_: RunCommandCall) => {});
 
-      await parseRun(["--target", "remote", "--effort", "quick", "Ship", "remote"], { runCommand });
+      await parseRun(
+        ["--target", "remote", "--effort", "quick", "Ship", "remote"],
+        { runCommand }
+      );
 
       expect(runCommand).toHaveBeenCalledTimes(1);
       expect(runCommand).toHaveBeenCalledWith(
@@ -260,7 +315,7 @@ describe("moka run CLI flag resolver wiring", () => {
             target: "remote",
           }),
           task: "Ship remote",
-        }),
+        })
       );
       expect(mockState.runtimeCalls).toEqual([]);
       expect(mockState.scheduleCalls).toEqual([]);
@@ -285,23 +340,33 @@ describe("moka run CLI flag resolver wiring", () => {
   it.each([
     ["quick", "quick"],
     ["thorough", "execute"],
-  ] as const)("routes --effort %s to the %s scheduled entrypoint locally", async (effort, entrypointId) => {
-    await withCliTarget(async ({ parseRun }) => {
-      await parseRun(["--effort", effort, "Ship", "it"]);
+  ] as const)(
+    "routes --effort %s to the %s scheduled entrypoint locally",
+    async (effort, entrypointId) => {
+      await withCliTarget(async ({ parseRun }) => {
+        await parseRun(["--effort", effort, "Ship", "it"]);
 
-      expect(mockState.submitCalls).toEqual([]);
-      expect(mockState.scheduleCalls).toHaveLength(1);
-      expect(mockState.scheduleCalls[0]).toMatchObject({
-        entrypointId,
-        task: "Ship it",
+        expect(mockState.submitCalls).toEqual([]);
+        expect(mockState.scheduleCalls).toHaveLength(1);
+        expect(mockState.scheduleCalls[0]).toMatchObject({
+          entrypointId,
+          task: "Ship it",
+        });
+        expect(mockState.runtimeCalls).toHaveLength(1);
       });
-      expect(mockState.runtimeCalls).toHaveLength(1);
-    });
-  });
+    }
+  );
 
   it("lets --workflow override effort routing for advanced local runs", async () => {
     await withCliTarget(async ({ parseRun }) => {
-      await parseRun(["--effort", "quick", "--workflow", "inspect", "Inspect", "only"]);
+      await parseRun([
+        "--effort",
+        "quick",
+        "--workflow",
+        "inspect",
+        "Inspect",
+        "only",
+      ]);
 
       expect(mockState.submitCalls).toEqual([]);
       expect(mockState.scheduleCalls).toEqual([]);
@@ -319,7 +384,9 @@ describe("moka run CLI flag resolver wiring", () => {
 
       await parseRun(["--schedule", schedulePath, "Use", "approved"]);
 
-      expect(readFileSync(schedulePath, "utf-8")).toContain("schedule_id: approved-run");
+      expect(readFileSync(schedulePath, "utf-8")).toContain(
+        "schedule_id: approved-run"
+      );
       expect(mockState.submitCalls).toEqual([]);
       expect(mockState.scheduleCalls).toEqual([]);
       expect(mockState.runtimeCalls).toHaveLength(1);
@@ -358,7 +425,10 @@ describe("moka run CLI flag resolver wiring", () => {
       expect(mockState.runtimeCalls[2]).toMatchObject({
         task: "Map repo",
       });
-      expect([mockState.runtimeCalls[2].entrypoint, mockState.runtimeCalls[2].workflowId]).toContain("inspect");
+      expect([
+        mockState.runtimeCalls[2].entrypoint,
+        mockState.runtimeCalls[2].workflowId,
+      ]).toContain("inspect");
     });
   });
 
@@ -378,7 +448,14 @@ describe("moka run CLI flag resolver wiring", () => {
 
   it("routes --target remote through the existing submit path instead of local runtime", async () => {
     await withCliTarget(async ({ parseRun }) => {
-      await parseRun(["--target", "remote", "--effort", "quick", "Ship", "remote"]);
+      await parseRun([
+        "--target",
+        "remote",
+        "--effort",
+        "quick",
+        "Ship",
+        "remote",
+      ]);
 
       expect(mockState.runtimeCalls).toEqual([]);
       expect(mockState.scheduleCalls).toEqual([]);

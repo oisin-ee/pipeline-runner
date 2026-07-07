@@ -1,27 +1,56 @@
-import { EventEmitter } from "node:events";
-
 import type { Option } from "effect/Option";
 import { fromUndefinedOr, match } from "effect/Option";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("execa", () => ({
-  execa: vi.fn(),
-}));
-
-import { execa } from "execa";
-
 import type { PipelineConfig } from "../src/config.ts";
 import { parsePipelineConfigParts } from "../src/config.ts";
-import { createOrchestratorLaunchPlan, createRunnerLaunchPlan } from "../src/runner";
+import {
+  createOrchestratorLaunchPlan,
+  createRunnerLaunchPlan,
+} from "../src/runner";
 import { normalizeRunnerOutput } from "../src/runner-output.ts";
 import { runLaunchPlan } from "../src/runner/subprocess";
 import { opencodeSdkRuntimeAdapter } from "../src/runtime/opencode-adapter.ts";
 
-const mockExeca = execa as unknown as ReturnType<typeof vi.fn>;
+const mockExeca = vi.hoisted(() => vi.fn());
+
+vi.mock("execa", () => ({
+  execa: mockExeca,
+}));
+
 const originalPipelineAgentTimeoutMs = process.env.PIPELINE_AGENT_TIMEOUT_MS;
 const originalPipelineMcpGatewayUrl = process.env.PIPELINE_MCP_GATEWAY_URL;
-const originalPipelineMcpGatewayAuthorization = process.env.PIPELINE_MCP_GATEWAY_AUTHORIZATION;
-const makeSimpleResult = async (stdout = "output", exitCode = 0) => await Promise.resolve({ exitCode, stdout });
+const originalPipelineMcpGatewayAuthorization =
+  process.env.PIPELINE_MCP_GATEWAY_AUTHORIZATION;
+const makeSimpleResult = async (stdout = "output", exitCode = 0) =>
+  await Promise.resolve({ exitCode, stdout });
+
+interface TestSubprocessStream {
+  on: (event: "data", listener: (chunk: unknown) => void) => void;
+}
+
+const ignoreSubprocessStreamChunk = (_chunk: unknown): void => {};
+
+const createTestSubprocessStream = (): {
+  emitData: (chunk: unknown) => void;
+  stream: TestSubprocessStream;
+} => {
+  let emit: (chunk: unknown) => void = ignoreSubprocessStreamChunk;
+  return {
+    emitData: (chunk) => {
+      emit(chunk);
+    },
+    stream: {
+      on: (_event, listener) => {
+        const previous = emit;
+        emit = (chunk) => {
+          previous(chunk);
+          listener(chunk);
+        };
+      },
+    },
+  };
+};
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -33,7 +62,7 @@ beforeEach(() => {
 const restoreEnv = (key: string, value: Option<string>): void => {
   match(value, {
     onNone: () => {
-      delete process.env[key];
+      void Reflect.deleteProperty(process.env, key);
     },
     onSome: (envValue) => {
       process.env[key] = envValue;
@@ -42,18 +71,30 @@ const restoreEnv = (key: string, value: Option<string>): void => {
 };
 
 afterEach(() => {
-  restoreEnv("PIPELINE_AGENT_TIMEOUT_MS", fromUndefinedOr(originalPipelineAgentTimeoutMs));
-  restoreEnv("PIPELINE_MCP_GATEWAY_URL", fromUndefinedOr(originalPipelineMcpGatewayUrl));
-  restoreEnv("PIPELINE_MCP_GATEWAY_AUTHORIZATION", fromUndefinedOr(originalPipelineMcpGatewayAuthorization));
+  restoreEnv(
+    "PIPELINE_AGENT_TIMEOUT_MS",
+    fromUndefinedOr(originalPipelineAgentTimeoutMs)
+  );
+  restoreEnv(
+    "PIPELINE_MCP_GATEWAY_URL",
+    fromUndefinedOr(originalPipelineMcpGatewayUrl)
+  );
+  restoreEnv(
+    "PIPELINE_MCP_GATEWAY_AUTHORIZATION",
+    fromUndefinedOr(originalPipelineMcpGatewayAuthorization)
+  );
 });
 
-const parseTestConfig = (parts: { pipeline: string; profiles: string; runners: string }) =>
-  parsePipelineConfigParts(parts);
+const parseTestConfig = (parts: {
+  pipeline: string;
+  profiles: string;
+  runners: string;
+}) => parsePipelineConfigParts(parts);
 
 const withProfilePatch = (
   config: PipelineConfig,
   profileId: string,
-  patch: Partial<PipelineConfig["profiles"][string]>,
+  patch: Partial<PipelineConfig["profiles"][string]>
 ): PipelineConfig => ({
   ...config,
   profiles: {
@@ -68,7 +109,7 @@ const withProfilePatch = (
 const withRunnerPatch = (
   config: PipelineConfig,
   runnerId: string,
-  patch: Partial<PipelineConfig["runners"][string]>,
+  patch: Partial<PipelineConfig["runners"][string]>
 ): PipelineConfig => ({
   ...config,
   runners: {
@@ -126,32 +167,40 @@ runners:
   it.each([
     ["opencode-agent", "opencode", "opencode"],
     ["command-agent", "shell", "node"],
-  ])("creates a deterministic launch plan for %s", (profileId, runnerId, command) => {
-    const plan = createRunnerLaunchPlan(CONFIG, {
-      nodeId: "node",
-      profileId,
-      prompt: "do work",
-      worktreePath: "/tmp/wt",
-    });
-
-    expect(plan).toEqual(
-      expect.objectContaining({
-        command,
-        cwd: "/tmp/wt",
+  ])(
+    "creates a deterministic launch plan for %s",
+    (profileId, runnerId, command) => {
+      const plan = createRunnerLaunchPlan(CONFIG, {
         nodeId: "node",
         profileId,
-        runnerId,
-      }),
-    );
-    expect(plan.args.join(" ")).toContain(profileId === "command-agent" ? "/tmp/wt" : "do work");
-  });
+        prompt: "do work",
+        worktreePath: "/tmp/wt",
+      });
+
+      expect(plan).toEqual(
+        expect.objectContaining({
+          command,
+          cwd: "/tmp/wt",
+          nodeId: "node",
+          profileId,
+          runnerId,
+        })
+      );
+      expect(plan.args.join(" ")).toContain(
+        profileId === "command-agent" ? "/tmp/wt" : "do work"
+      );
+    }
+  );
 
   it("adds git info excludes before opencode launch plans run", async () => {
     mockExeca.mockReturnValue(makeSimpleResult("opencode output", 0));
-    const { mkdirSync, readFileSync, rmSync, writeFileSync } = await import("node:fs");
+    const { mkdirSync, readFileSync, rmSync, writeFileSync } =
+      await import("node:fs");
     const { tmpdir } = await import("node:os");
     const { join } = await import("node:path");
-    const dir = await import("node:fs").then(({ mkdtempSync }) => mkdtempSync(join(tmpdir(), "runner-opencode-")));
+    const dir = await import("node:fs").then(({ mkdtempSync }) =>
+      mkdtempSync(join(tmpdir(), "runner-opencode-"))
+    );
 
     try {
       mkdirSync(join(dir, ".git", "info"), { recursive: true });
@@ -163,7 +212,7 @@ runners:
           profileId: "opencode-agent",
           prompt: "verify things",
           worktreePath: dir,
-        }),
+        })
       );
 
       const exclude = readFileSync(join(dir, ".git", "info", "exclude"), {
@@ -303,7 +352,7 @@ runners:
         },
       }),
       "opencode-agent",
-      { output: { format: "json_schema" } },
+      { output: { format: "json_schema" } }
     );
 
     expect(() =>
@@ -312,7 +361,7 @@ runners:
         profileId: "opencode-agent",
         prompt: "do work",
         worktreePath: "/tmp/wt",
-      }),
+      })
     ).toThrow("does not support output format");
   });
 
@@ -432,7 +481,7 @@ runners:
       output_formats: [text]
 `,
       },
-      project,
+      project
     );
 
     const agent = createRunnerLaunchPlan(config, {
@@ -443,13 +492,19 @@ runners:
     });
     expect(agent.args.join("\n")).not.toContain("mcp_servers.pipeline-gateway");
     expect(agent.args.join("\n")).not.toContain("mcp_servers.serena");
-    expect(agent.args.join("\n")).not.toContain("git+https://github.com/oraios/serena");
+    expect(agent.args.join("\n")).not.toContain(
+      "git+https://github.com/oraios/serena"
+    );
   });
 
   it("falls back from actor model to runner model for launch plans", () => {
-    const config = withProfilePatch(withProfilePatch(CONFIG, "opencode-agent", { model: undefined }), "orchestrator", {
-      model: undefined,
-    });
+    const config = withProfilePatch(
+      withProfilePatch(CONFIG, "opencode-agent", { model: undefined }),
+      "orchestrator",
+      {
+        model: undefined,
+      }
+    );
 
     const agent = createRunnerLaunchPlan(config, {
       nodeId: "agent",
@@ -502,12 +557,11 @@ runners:
   });
 
   it("streams subprocess stdout chunks before returning the final buffered result", async () => {
-    const stdout = new EventEmitter();
-    let resolveSubprocess: (result: unknown) => void = () => {};
-    const subprocess = new Promise((resolve) => {
-      resolveSubprocess = resolve;
-    }) as Promise<unknown> & { stdout: EventEmitter };
-    subprocess.stdout = stdout;
+    const stdout = createTestSubprocessStream();
+    const subprocessState = Promise.withResolvers<unknown>();
+    const subprocess = Object.assign(subprocessState.promise, {
+      stdout: stdout.stream,
+    });
     mockExeca.mockReturnValue(subprocess);
 
     const plan = createRunnerLaunchPlan(CONFIG, {
@@ -526,13 +580,13 @@ runners:
       return result;
     });
 
-    stdout.emit("data", Buffer.from("first live line\n"));
+    stdout.emitData(Buffer.from("first live line\n"));
     await Promise.resolve();
 
     expect(observed).toEqual(["agent:stdout:first live line\n"]);
 
-    stdout.emit("data", "second live line\n");
-    resolveSubprocess({
+    stdout.emitData("second live line\n");
+    subprocessState.resolve({
       exitCode: 0,
       stderr: "",
       stdout: "first live line\nsecond live line\n",

@@ -1,11 +1,17 @@
 import * as Arr from "effect/Array";
+import { pipe } from "effect/Function";
 import * as Match from "effect/Match";
 import * as Option from "effect/Option";
 import * as R from "effect/Record";
 import * as Schema from "effect/Schema";
 import * as Str from "effect/String";
 
-import { parseResultWithSchema, parseStrictWithSchema, requiredString, struct } from "../schema-boundary";
+import {
+  parseResultWithSchema,
+  parseStrictWithSchema,
+  requiredString,
+  struct,
+} from "../schema-boundary";
 import {
   DEFAULT_RUN_CONTROL_STALE_DETECTION,
   mokaNodeStatusSchema,
@@ -16,9 +22,18 @@ import {
   parseRunMode,
   parseRunTarget,
 } from "./contracts";
-import type { MokaNodeStatus, MokaRunControlEvent, MokaRunEvent, MokaRunManifest } from "./contracts";
+import type {
+  MokaNodeStatus,
+  MokaRunControlEvent,
+  MokaRunEvent,
+  MokaRunManifest,
+} from "./contracts";
 import { parseLogicalSegment } from "./logical-segment";
-import type { CreateRunInput, RunStatusFile, RunStatusNode } from "./store-types";
+import type {
+  CreateRunInput,
+  RunStatusFile,
+  RunStatusNode,
+} from "./store-types";
 
 const runStatusNode = Schema.Union([
   mokaNodeStatusSchema,
@@ -36,52 +51,47 @@ const runStatusSessionSchema = struct({
   sessionId: requiredString,
 });
 
-const schedulePatch = (schedule: Option.Option<string>): Partial<Pick<MokaRunManifest, "schedule">> =>
+const schedulePatch = (
+  schedule: Option.Option<string>
+): Partial<Pick<MokaRunManifest, "schedule">> =>
   Option.match(schedule, {
     onNone: () => ({}),
     onSome: (value) => (Str.isNonEmpty(value) ? { schedule: value } : {}),
   });
 
-class EmptyPublishedScheduleError extends Schema.TaggedErrorClass<EmptyPublishedScheduleError>()(
-  "EmptyPublishedScheduleError",
+class PublishedScheduleManifestError extends Schema.TaggedErrorClass<PublishedScheduleManifestError>()(
+  "PublishedScheduleManifestError",
   {
+    kind: Schema.Union([
+      Schema.Literal("empty-schedule"),
+      Schema.Literal("schedule-conflict"),
+    ]),
     message: Schema.String,
-  },
-) {
-  constructor() {
-    super({ message: "schedule must be a non-empty string." });
+    runId: Schema.optional(requiredString),
   }
-}
+) {}
 
-class PublishedScheduleConflictError extends Schema.TaggedErrorClass<PublishedScheduleConflictError>()(
-  "PublishedScheduleConflictError",
-  {
-    message: Schema.String,
-    runId: requiredString,
-  },
-) {
-  constructor(runId: string) {
-    super({
-      message: `Run ${runId} already has a different published schedule.`,
-      runId,
-    });
-  }
-}
+const queuedNodeEntry = (nodeId: string): readonly [string, MokaNodeStatus] => [
+  nodeId,
+  "queued",
+];
 
-const queuedNodeEntry = (nodeId: string): readonly [string, MokaNodeStatus] => [nodeId, "queued"];
-
-const queuedNodeRecord = (nodeIds: readonly string[]): MokaRunManifest["nodes"] =>
-  R.fromEntries(Arr.map(nodeIds, queuedNodeEntry));
+const queuedNodeRecord = (
+  nodeIds: readonly string[]
+): MokaRunManifest["nodes"] =>
+  R.fromEntries(pipe(nodeIds, Arr.map(queuedNodeEntry)));
 
 export const createRunManifest = (
-  input: CreateRunInput,
+  input: CreateRunInput
 ): {
   manifest: MokaRunManifest;
   nodeIds: string[];
   runId: string;
 } => {
   const runId = parseLogicalSegment("runId", input.runId);
-  const nodeIds = input.nodeIds.map((nodeId) => parseLogicalSegment("nodeId", nodeId));
+  const nodeIds = input.nodeIds.map((nodeId) =>
+    parseLogicalSegment("nodeId", nodeId)
+  );
   const nodes = queuedNodeRecord(nodeIds);
   const manifest = parseMokaRunManifest({
     effort: parseRunEffort(input.effort),
@@ -90,7 +100,9 @@ export const createRunManifest = (
     nodes,
     runId,
     ...schedulePatch(Option.fromUndefinedOr(input.schedule)),
-    staleDetection: parseRunControlStaleDetection(input.staleDetection ?? DEFAULT_RUN_CONTROL_STALE_DETECTION),
+    staleDetection: parseRunControlStaleDetection(
+      input.staleDetection ?? DEFAULT_RUN_CONTROL_STALE_DETECTION
+    ),
     status: "queued",
     target: parseRunTarget(input.target),
   });
@@ -104,13 +116,28 @@ export const publishScheduleManifest = (input: {
   schedule: string;
 }): MokaRunManifest => {
   if (Str.isEmpty(input.schedule)) {
-    throw new EmptyPublishedScheduleError();
+    throw new PublishedScheduleManifestError({
+      kind: "empty-schedule",
+      message: "schedule must be a non-empty string.",
+    });
   }
-  if (input.manifest.schedule !== undefined && input.manifest.schedule !== input.schedule) {
-    throw new PublishedScheduleConflictError(input.manifest.runId);
+  if (
+    input.manifest.schedule !== undefined &&
+    input.manifest.schedule !== input.schedule
+  ) {
+    throw new PublishedScheduleManifestError({
+      kind: "schedule-conflict",
+      message: `Run ${input.manifest.runId} already has a different published schedule.`,
+      runId: input.manifest.runId,
+    });
   }
-  const nodeIds = input.nodeIds.map((nodeId) => parseLogicalSegment("nodeId", nodeId));
-  const missingNodes = Arr.filter(nodeIds, (nodeId) => !R.has(input.manifest.nodes, nodeId));
+  const nodeIds = input.nodeIds.map((nodeId) =>
+    parseLogicalSegment("nodeId", nodeId)
+  );
+  const missingNodes = pipe(
+    nodeIds,
+    Arr.filter((nodeId) => !R.has(input.manifest.nodes, nodeId))
+  );
   return parseMokaRunManifest({
     ...input.manifest,
     nodes: {
@@ -121,17 +148,23 @@ export const publishScheduleManifest = (input: {
   });
 };
 
-export const parseRunStatusFile = (input: unknown): RunStatusFile => parseStrictWithSchema(runStatusFileSchema, input);
+export const parseRunStatusFile = (input: unknown): RunStatusFile =>
+  parseStrictWithSchema(runStatusFileSchema, input);
 
-const existingSessionId = (node: Option.Option<RunStatusNode>): Option.Option<string> =>
-  Option.flatMap(node, (value) => {
+const existingSessionId = (
+  node: Option.Option<RunStatusNode>
+): Option.Option<string> =>
+  Option.flatMap((value: RunStatusNode) => {
     const result = parseResultWithSchema(runStatusSessionSchema, value, {
       onExcessProperty: "preserve",
     });
     return result.ok ? Option.some(result.value.sessionId) : Option.none();
-  });
+  })(node);
 
-const statusNodeWithMetadata = (status: MokaNodeStatus, existing: Option.Option<RunStatusNode>): RunStatusNode => {
+const statusNodeWithMetadata = (
+  status: MokaNodeStatus,
+  existing: Option.Option<RunStatusNode>
+): RunStatusNode => {
   const sessionId = existingSessionId(existing);
 
   return Option.match(sessionId, {
@@ -140,25 +173,44 @@ const statusNodeWithMetadata = (status: MokaNodeStatus, existing: Option.Option<
   });
 };
 
-const existingStatusNode = (existing: Option.Option<RunStatusFile>, nodeId: string): Option.Option<RunStatusNode> =>
-  Option.flatMap(existing, (file) => Option.fromNullishOr(file.nodes[nodeId]));
+const existingStatusNode = (
+  existing: Option.Option<RunStatusFile>,
+  nodeId: string
+): Option.Option<RunStatusNode> =>
+  Option.flatMap((file: RunStatusFile) =>
+    Option.fromNullishOr(file.nodes[nodeId])
+  )(existing);
 
 const statusNodeEntry = (
   existing: Option.Option<RunStatusFile>,
-  [nodeId, status]: readonly [string, MokaNodeStatus],
-): readonly [string, RunStatusNode] => [nodeId, statusNodeWithMetadata(status, existingStatusNode(existing, nodeId))];
+  [nodeId, status]: readonly [string, MokaNodeStatus]
+): readonly [string, RunStatusNode] => [
+  nodeId,
+  statusNodeWithMetadata(status, existingStatusNode(existing, nodeId)),
+];
 
-export const statusFromManifest = (manifest: MokaRunManifest, existing?: RunStatusFile): RunStatusFile => {
+export const statusFromManifest = (
+  manifest: MokaRunManifest,
+  existing?: RunStatusFile
+): RunStatusFile => {
   const existingFile = Option.fromUndefinedOr(existing);
   return {
-    nodes: R.fromEntries(Arr.map(R.toEntries(manifest.nodes), (entry) => statusNodeEntry(existingFile, entry))),
+    nodes: pipe(
+      R.toEntries(manifest.nodes),
+      Arr.map((entry) => statusNodeEntry(existingFile, entry)),
+      R.fromEntries
+    ),
     status: manifest.status,
   };
 };
 
-const isStatusEvent = (event: MokaRunControlEvent): event is MokaRunEvent => event.type !== "run.heartbeat";
+const isStatusEvent = (event: MokaRunControlEvent): event is MokaRunEvent =>
+  event.type !== "run.heartbeat";
 
-const applyRunControlEvent = (manifest: MokaRunManifest, event: MokaRunControlEvent): MokaRunManifest =>
+const applyRunControlEvent = (
+  manifest: MokaRunManifest,
+  event: MokaRunControlEvent
+): MokaRunManifest =>
   Match.value(event).pipe(
     Match.when({ type: "run.heartbeat" }, () => manifest),
     Match.when({ type: "run.status" }, ({ status }) => ({
@@ -169,15 +221,20 @@ const applyRunControlEvent = (manifest: MokaRunManifest, event: MokaRunControlEv
       ...manifest,
       nodes: { ...manifest.nodes, [nodeId]: status },
     })),
-    Match.exhaustive,
+    Match.exhaustive
   );
 
-export const replayEvents = (manifest: MokaRunManifest, events: MokaRunControlEvent[]): MokaRunManifest => {
+export const replayEvents = (
+  manifest: MokaRunManifest,
+  events: MokaRunControlEvent[]
+): MokaRunManifest => {
   const replayStart: MokaRunManifest = {
     ...manifest,
-    events: Arr.filter(events, isStatusEvent),
+    events: pipe(events, Arr.filter(isStatusEvent)),
     nodes: { ...manifest.nodes },
   };
 
-  return parseMokaRunManifest(Arr.reduce(events, replayStart, applyRunControlEvent));
+  return parseMokaRunManifest(
+    Arr.reduce(events, replayStart, applyRunControlEvent)
+  );
 };

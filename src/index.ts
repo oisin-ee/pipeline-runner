@@ -14,9 +14,12 @@ export { execute, quick } from "./cli/run-service";
 
 const PATH_SEPARATOR_RE = /[\\/]/u;
 
-const scriptName = (argv: string[]): string => argv[1]?.split(PATH_SEPARATOR_RE).pop() ?? "";
+const scriptName = (argv: string[]): string =>
+  argv[1]?.split(PATH_SEPARATOR_RE).pop() ?? "";
 
-const normalizeEntrypointPath = (path: Option.Option<string>): Option.Option<string> => {
+const normalizeEntrypointPath = (
+  path: Option.Option<string>
+): Option.Option<string> => {
   if (Option.isNone(path) || path.value.length === 0) {
     return Option.none();
   }
@@ -29,7 +32,10 @@ export const isCliEntrypoint = (argv: string[]): boolean => {
   const entrypoint = normalizeEntrypointPath(Option.fromUndefinedOr(argv[1]));
   const modulePath = normalizeEntrypointPath(Option.some(import.meta.filename));
   return (
-    (Option.isSome(entrypoint) && Option.isSome(modulePath) && entrypoint.value === modulePath.value) || name === "moka"
+    (Option.isSome(entrypoint) &&
+      Option.isSome(modulePath) &&
+      entrypoint.value === modulePath.value) ||
+    name === "moka"
   );
 };
 
@@ -50,9 +56,8 @@ const handleCliFailure = (err: unknown): never => {
 // Single Effect runMain boundary: the whole CLI runs as one Effect and its Exit
 // is matched here — the only place the process maps a failure to an exit code.
 if (isCliEntrypoint(process.argv)) {
-  void Effect.runPromiseExit(runCliEffect(process.argv)).then((exit) => {
-    if (Exit.isFailure(exit)) {
-      handleCliFailure(Cause.squash(exit.cause));
-    }
-  });
+  const exit = await Effect.runPromiseExit(runCliEffect(process.argv));
+  if (Exit.isFailure(exit)) {
+    handleCliFailure(Cause.squash(exit.cause));
+  }
 }

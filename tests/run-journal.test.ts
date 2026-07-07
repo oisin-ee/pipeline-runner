@@ -7,7 +7,10 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { RuntimeNodeResult } from "../src/runtime/contracts";
 import { fileRunJournal } from "../src/runtime/run-journal";
 
-const nodeResult = (nodeId: string, status: RuntimeNodeResult["status"]): RuntimeNodeResult => ({
+const nodeResult = (
+  nodeId: string,
+  status: RuntimeNodeResult["status"]
+): RuntimeNodeResult => ({
   attempts: 1,
   evidence: [],
   exitCode: status === "passed" ? 0 : 1,
@@ -28,7 +31,9 @@ describe("fileRunJournal", () => {
   });
 
   it("returns nothing for a run that has not been journaled", () => {
-    expect(fileRunJournal(join(dir, "missing.jsonl")).resumeCompleted()).toEqual([]);
+    expect(
+      fileRunJournal(join(dir, "missing.jsonl")).resumeCompleted()
+    ).toEqual([]);
   });
 
   it("resumes only passed results, in record order", () => {

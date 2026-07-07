@@ -13,7 +13,10 @@ import {
   urlString,
   struct,
 } from "./schema-boundary";
-import { loopStateSchema, ticketGraphDtoSchema } from "./tickets/ticket-graph-dto";
+import {
+  loopStateSchema,
+  ticketGraphDtoSchema,
+} from "./tickets/ticket-graph-dto";
 
 /*
  * Effect Schema definitions for runner event records — the items that the runner
@@ -70,7 +73,13 @@ const runnerNodeDetails = struct({
   nodeId: requiredString,
   profile: Schema.optional(Schema.String),
   runnerId: Schema.optional(Schema.String),
-  status: Schema.Literals(["agent-finished", "agent-running", "failed", "passed", "running"]),
+  status: Schema.Literals([
+    "agent-finished",
+    "agent-running",
+    "failed",
+    "passed",
+    "running",
+  ]),
 });
 
 const runnerGateDetails = struct({
@@ -152,13 +161,23 @@ const workflowEdgeEvent = struct({
 const nodeEvent = struct({
   ...runnerEventEnvelopeFields,
   node: runnerNodeDetails,
-  type: Schema.Literals(["agent.finish", "agent.start", "node.finish", "node.start"]),
+  type: Schema.Literals([
+    "agent.finish",
+    "agent.start",
+    "node.finish",
+    "node.start",
+  ]),
 });
 
 const gateEvent = struct({
   ...runnerEventEnvelopeFields,
   gate: runnerGateDetails,
-  type: Schema.Literals(["gate.finish", "gate.start", "hook.finish", "hook.start"]),
+  type: Schema.Literals([
+    "gate.finish",
+    "gate.start",
+    "hook.finish",
+    "hook.start",
+  ]),
 });
 
 const hookResultEvent = struct({
@@ -273,7 +292,10 @@ const runnerEventBatch = struct({
   events: mutableArray(runnerEventRecord).check(Schema.isNonEmpty()),
 });
 
-export { runnerEventBatch as runnerEventBatchSchema, runnerEventRecord as runnerEventRecordSchema };
+export {
+  runnerEventBatch as runnerEventBatchSchema,
+  runnerEventRecord as runnerEventRecordSchema,
+};
 
 export type RunnerEventRecordSchema = typeof runnerEventRecord;
 export type RunnerEventBatchSchema = typeof runnerEventBatch;
@@ -284,4 +306,5 @@ export type { RunnerEventRecord } from "./runner-command-contract";
 
 // Compile-time guard: the schema must be assignable to RunnerEventRecord.
 // If the schema drifts from the TypeScript type a type error appears here.
-export const _runnerEventRecordTypeCheck: { readonly Type: RunnerEventRecord } = runnerEventRecord;
+export const _runnerEventRecordTypeCheck: { readonly Type: RunnerEventRecord } =
+  runnerEventRecord;

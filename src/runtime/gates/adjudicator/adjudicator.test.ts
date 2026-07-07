@@ -1,10 +1,18 @@
 import { Effect } from "effect";
 import { describe, expect, it, vi } from "vitest";
 
-import { baseGateRuntimeFields, gateNodeStateStore } from "../../../../tests/gate-test-context";
+import {
+  baseGateRuntimeFields,
+  gateNodeStateStore,
+} from "../../../../tests/gate-test-context";
 import { parsePipelineConfigParts } from "../../../config/load";
 import { compileWorkflowPlan } from "../../../planning/compile";
-import type { AcceptanceCriterion, ChangedFilesGateSpec, CompletionClaim, RuntimeContext } from "../../contracts";
+import type {
+  AcceptanceCriterion,
+  ChangedFilesGateSpec,
+  CompletionClaim,
+  RuntimeContext,
+} from "../../contracts";
 import type { LlmJudge, LlmJudgeVerdict } from "../adjudication/llm-judge";
 import type { GateEvaluationInput } from "../contract";
 import type { DeterministicGate } from "./index";
@@ -19,7 +27,7 @@ const runtimeContext = (): RuntimeContext => {
       runners:
         "version: 1\nrunners:\n  local:\n    type: command\n    command: node\n    capabilities: { native_subagents: false }\n",
     },
-    "/tmp/adjudicator-test",
+    "/tmp/adjudicator-test"
   );
   return {
     ...baseGateRuntimeFields(),
@@ -38,7 +46,11 @@ const noopExecutor = {
 };
 
 /** A deterministic acceptance gate evaluated over `criteria` with `report` as stdout. */
-const acceptanceGate = (criteria: AcceptanceCriterion[], report: unknown, covers: string[]): DeterministicGate => {
+const acceptanceGate = (
+  criteria: AcceptanceCriterion[],
+  report: unknown,
+  covers: string[]
+): DeterministicGate => {
   const input: GateEvaluationInput = {
     attempt: { evidence: [], exitCode: 0, output: JSON.stringify(report) },
     context: {
@@ -72,10 +84,14 @@ const denyMarkdownGate = (covers: string[]): DeterministicGate => {
 };
 
 /** A deterministic acceptance gate whose single criterion reports a FAIL verdict. */
-const failingAcceptanceGate = (criterion: AcceptanceCriterion): DeterministicGate =>
-  acceptanceGate([criterion], { acceptance: [{ evidence: ["nope"], id: criterion.id, verdict: "FAIL" }] }, [
-    criterion.id,
-  ]);
+const failingAcceptanceGate = (
+  criterion: AcceptanceCriterion
+): DeterministicGate =>
+  acceptanceGate(
+    [criterion],
+    { acceptance: [{ evidence: ["nope"], id: criterion.id, verdict: "FAIL" }] },
+    [criterion.id]
+  );
 
 const passReport = (...ids: string[]): unknown => ({
   acceptance: ids.map((id) => ({ evidence: ["ok"], id, verdict: "PASS" })),
@@ -102,12 +118,14 @@ describe("adjudicate — ordered layers", () => {
       verdict({
         citedEvidence: ["acceptance coverage passed"],
         satisfied: true,
-      }),
+      })
     );
     const verdictResult = await adjudicate({
       claim: completeClaim("A", "B", "C"),
       criteria: [A, B, C],
-      deterministicGates: [acceptanceGate([A, B], passReport("A", "B"), ["A", "B"])],
+      deterministicGates: [
+        acceptanceGate([A, B], passReport("A", "B"), ["A", "B"]),
+      ],
       judge,
     });
     expect(verdictResult).toEqual({ passed: true, unmet: [] });
@@ -175,11 +193,14 @@ describe("adjudicate — ordered layers", () => {
   });
 
   it("judge-residue: an un-encodable criterion is settled only by the injected judge", async () => {
-    const judge = vi.fn<LlmJudge>(() => verdict({ citedEvidence: ["det: build green"], satisfied: false }));
+    const judge = vi.fn<LlmJudge>(() =>
+      verdict({ citedEvidence: ["det: build green"], satisfied: false })
+    );
     const result = await adjudicate({
       claim: completeClaim("A"),
       criteria: [A],
-      deterministicGates: [denyMarkdownGate([])], // contributes evidence-less failure, covers nothing
+      // contributes evidence-less failure, covers nothing
+      deterministicGates: [denyMarkdownGate([])],
       judge,
     });
     // denyMarkdownGate covers nothing -> A is residue; judge refuses it.
@@ -188,7 +209,9 @@ describe("adjudicate — ordered layers", () => {
   });
 
   it("judge is never standalone-authoritative: an unanchored pass stays unmet (empty evidence pool)", async () => {
-    const judge = vi.fn<LlmJudge>(() => verdict({ citedEvidence: ["invented"], satisfied: true }));
+    const judge = vi.fn<LlmJudge>(() =>
+      verdict({ citedEvidence: ["invented"], satisfied: true })
+    );
     const result = await adjudicate({
       claim: completeClaim("A"),
       criteria: [A],
@@ -196,7 +219,9 @@ describe("adjudicate — ordered layers", () => {
     });
     expect(result.passed).toBe(false);
     expect(result.unmet.map((u) => u.criterion)).toEqual(["A"]);
-    expect(result.unmet[0]?.reason).toContain("not present in the deterministic");
+    expect(result.unmet[0]?.reason).toContain(
+      "not present in the deterministic"
+    );
   });
 });
 
@@ -220,11 +245,20 @@ describe("adjudicate — aggregation across layers (AC#2)", () => {
       judge,
     });
     expect(result.passed).toBe(false);
-    expect(result.unmet.map((u) => u.criterion).toSorted()).toEqual(["A", "B", "C"]);
+    expect(result.unmet.map((u) => u.criterion).toSorted()).toEqual([
+      "A",
+      "B",
+      "C",
+    ]);
     const byId = new Map(result.unmet.map((u) => [u.criterion, u.reason]));
-    expect(byId.get("A")).toContain("verdict 'FAIL'"); // deterministic layer
-    expect(byId.get("B")).toContain("no claim entry"); // structured-claim layer
-    expect(byId.get("C")).toContain("marked the residual criterion unsatisfied"); // judge layer
+    // deterministic layer
+    expect(byId.get("A")).toContain("verdict 'FAIL'");
+    // structured-claim layer
+    expect(byId.get("B")).toContain("no claim entry");
+    // judge layer
+    expect(byId.get("C")).toContain(
+      "marked the residual criterion unsatisfied"
+    );
   });
 
   it("dedupes a criterion failing multiple layers, keeping the earliest (deterministic) reason", async () => {
@@ -239,6 +273,7 @@ describe("adjudicate — aggregation across layers (AC#2)", () => {
     });
     expect(result.unmet).toHaveLength(1);
     expect(result.unmet[0]?.criterion).toBe("A");
-    expect(result.unmet[0]?.reason).toContain("verdict 'FAIL'"); // deterministic wins
+    // deterministic wins
+    expect(result.unmet[0]?.reason).toContain("verdict 'FAIL'");
   });
 });

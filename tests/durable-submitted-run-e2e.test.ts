@@ -24,10 +24,18 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import {
+  afterAll,
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+} from "@effect/vitest";
 import { Effect } from "effect";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
-import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { vi } from "vitest";
 
 import { loadPipelineConfig } from "../src/config";
 import { submitMoka } from "../src/moka-submit";
@@ -38,23 +46,57 @@ import { fileRunControlStore } from "../src/run-control/run-control-store";
 import type { RunControlStore } from "../src/run-control/run-control-store";
 import { buildRemoteRunCreateRequest } from "../src/run-control/run-record";
 import { runRunnerCommand } from "../src/runner-command/run";
-import type { PipelineRuntimeEvent, RuntimeNodeResult } from "../src/runtime/contracts";
+import type {
+  PipelineRuntimeEvent,
+  RuntimeNodeResult,
+} from "../src/runtime/contracts";
 import { inMemoryDurableRunStore } from "../src/runtime/durable-store/durable-store";
 import type { DurableRunStore } from "../src/runtime/durable-store/durable-store";
-
-const { resolvedVoid } = vi.hoisted((): { readonly resolvedVoid: void } => ({
-  resolvedVoid: undefined,
-}));
 
 class DurableSubmittedRunTestError extends Schema.TaggedErrorClass<DurableSubmittedRunTestError>()(
   "DurableSubmittedRunTestError",
   {
     message: Schema.String,
-  },
+  }
 ) {}
 
-const durableSubmittedRunTestError = (message: string): DurableSubmittedRunTestError =>
+const durableSubmittedRunTestError = (
+  message: string
+): DurableSubmittedRunTestError =>
   new DurableSubmittedRunTestError({ message });
+
+const testPromise = <A>(
+  evaluate: () => Promise<A>
+): Effect.Effect<A, DurableSubmittedRunTestError> =>
+  Effect.tryPromise({
+    catch: (cause) =>
+      cause instanceof DurableSubmittedRunTestError
+        ? cause
+        : durableSubmittedRunTestError(String(cause)),
+    try: evaluate,
+  });
+
+const RESOLVED_UNDEFINED = undefined;
+
+type AsyncVoidMock = ReturnType<
+  typeof vi.fn<(...args: unknown[]) => Promise<undefined>>
+>;
+type PrepareRunnerGitWorkspaceMock = ReturnType<
+  typeof vi.fn<(...args: unknown[]) => Promise<string>>
+>;
+type RunScheduledWorkflowTaskMock = ReturnType<
+  typeof vi.fn<
+    (options: {
+      nodeId: string;
+      reporter?: (event: PipelineRuntimeEvent) => void;
+    }) => Promise<RuntimeNodeResult>
+  >
+>;
+
+interface PipelineRuntimeModule {
+  readonly resumeRunByOrigin: typeof resumeRunByOrigin;
+  readonly runScheduledWorkflowTask: RunScheduledWorkflowTaskMock;
+}
 
 // ---------------------------------------------------------------------------
 // Module-level config (shared; no project files needed — package defaults).
@@ -72,27 +114,41 @@ afterAll(() => {
 // Runner mocks — same globalThis pattern as runner-command-persistence.test.ts
 // ---------------------------------------------------------------------------
 interface RunnerMocks {
-  commitAndPushNodeRef: ReturnType<typeof vi.fn>;
-  mergeDependencyRefs: ReturnType<typeof vi.fn>;
-  prepareRunnerGitWorkspace: ReturnType<typeof vi.fn>;
-  runScheduledWorkflowTask: ReturnType<typeof vi.fn>;
+  commitAndPushNodeRef: AsyncVoidMock;
+  mergeDependencyRefs: AsyncVoidMock;
+  prepareRunnerGitWorkspace: PrepareRunnerGitWorkspaceMock;
+  runScheduledWorkflowTask: RunScheduledWorkflowTaskMock;
 }
 
 const runnerMockState = vi.hoisted((): { current?: RunnerMocks } => ({}));
 
 const mockState = (): RunnerMocks => {
   if (runnerMockState.current === undefined) {
-    throw durableSubmittedRunTestError("durable submitted run mocks were not installed");
+    throw durableSubmittedRunTestError(
+      "durable submitted run mocks were not installed"
+    );
   }
   return runnerMockState.current;
 };
 
 const installMocks = (dir: string): RunnerMocks => {
   const mocks: RunnerMocks = {
-    commitAndPushNodeRef: vi.fn().mockResolvedValue(resolvedVoid),
-    mergeDependencyRefs: vi.fn().mockResolvedValue(resolvedVoid),
-    prepareRunnerGitWorkspace: vi.fn().mockResolvedValue(dir),
-    runScheduledWorkflowTask: vi.fn(),
+    commitAndPushNodeRef: vi
+      .fn<(...args: unknown[]) => Promise<undefined>>()
+      .mockResolvedValue(RESOLVED_UNDEFINED),
+    mergeDependencyRefs: vi
+      .fn<(...args: unknown[]) => Promise<undefined>>()
+      .mockResolvedValue(RESOLVED_UNDEFINED),
+    prepareRunnerGitWorkspace: vi
+      .fn<(...args: unknown[]) => Promise<string>>()
+      .mockResolvedValue(dir),
+    runScheduledWorkflowTask:
+      vi.fn<
+        (options: {
+          nodeId: string;
+          reporter?: (event: PipelineRuntimeEvent) => void;
+        }) => Promise<RuntimeNodeResult>
+      >(),
   };
   runnerMockState.current = mocks;
   return mocks;
@@ -102,20 +158,32 @@ const installMocks = (dir: string): RunnerMocks => {
 // intercept runScheduledWorkflowTask so runner pods are simulated without
 // spawning real processes.
 vi.mock("../src/pipeline-runtime", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../src/pipeline-runtime")>();
+  const actual = await importOriginal<PipelineRuntimeModule>();
   return {
     ...actual,
-    runScheduledWorkflowTask: (...args: unknown[]) => mockState().runScheduledWorkflowTask(...args),
+    runScheduledWorkflowTask: async (options: {
+      nodeId: string;
+      reporter?: (event: PipelineRuntimeEvent) => void;
+    }) => await mockState().runScheduledWorkflowTask(options),
   };
 });
 
 vi.mock("../src/run-state/git-refs", () => ({
-  commitAndPushNodeRef: (...args: unknown[]) => mockState().commitAndPushNodeRef(...args),
-  mergeDependencyRefs: (...args: unknown[]) => mockState().mergeDependencyRefs(...args),
-  prepareRunnerGitWorkspace: (...args: unknown[]) => mockState().prepareRunnerGitWorkspace(...args),
+  commitAndPushNodeRef: async (...args: unknown[]) => {
+    await mockState().commitAndPushNodeRef(...args);
+  },
+  mergeDependencyRefs: async (...args: unknown[]) => {
+    await mockState().mergeDependencyRefs(...args);
+  },
+  prepareRunnerGitWorkspace: async (...args: unknown[]) =>
+    await mockState().prepareRunnerGitWorkspace(...args),
   // promoteFinalRef is imported by RunnerCommandIoServiceLive but not called
   // in the main runner command path — stub so the import resolves.
-  promoteFinalRef: vi.fn().mockResolvedValue(resolvedVoid),
+  promoteFinalRef: vi.fn<(...args: unknown[]) => Promise<undefined>>(
+    async () => {
+      await Promise.resolve(RESOLVED_UNDEFINED);
+    }
+  ),
 }));
 
 vi.mock("execa", () => ({
@@ -172,15 +240,23 @@ const passedResult = (nodeId: string): RuntimeNodeResult => ({
 const requireRun = async (store: RunControlStore, runId: string) => {
   const manifest = await Effect.runPromise(store.readRun({ runId }));
   if (manifest === undefined) {
-    throw durableSubmittedRunTestError(`expected run ${runId} to exist in the run-control store`);
+    throw durableSubmittedRunTestError(
+      `expected run ${runId} to exist in the run-control store`
+    );
   }
   return manifest;
 };
 
-const requireRecord = (store: DurableRunStore, runId: string, nodeId: string) => {
+const requireRecord = (
+  store: DurableRunStore,
+  runId: string,
+  nodeId: string
+) => {
   const record = store.get(runId, nodeId);
   if (Option.isNone(record)) {
-    throw durableSubmittedRunTestError(`expected ${nodeId} to be recorded in the durable store`);
+    throw durableSubmittedRunTestError(
+      `expected ${nodeId} to be recorded in the durable store`
+    );
   }
   return record.value;
 };
@@ -190,7 +266,10 @@ const requireRecord = (store: DurableRunStore, runId: string, nodeId: string) =>
 // nodeId matches the node being executed. This mirrors executeEmittingResult in
 // runner-command-persistence.test.ts.
 const buildExecutorMock =
-  (): ((options: { nodeId: string; reporter?: (event: PipelineRuntimeEvent) => void }) => Promise<RuntimeNodeResult>) =>
+  (): ((options: {
+    nodeId: string;
+    reporter?: (event: PipelineRuntimeEvent) => void;
+  }) => Promise<RuntimeNodeResult>) =>
   async (options) => {
     const result = passedResult(options.nodeId);
     options.reporter?.({
@@ -205,7 +284,7 @@ const buildExecutorMock =
       status: "passed",
       type: "node.finish",
     });
-    return result;
+    return await Promise.resolve(result);
   };
 
 const FAKE_SUBMISSION: MokaSubmitOutput = {
@@ -256,7 +335,7 @@ describe("durable submitted run end-to-end (PIPE-94.9)", () => {
   // Write per-node runner fixtures into `dir`. The schedule file and event
   // token are shared (same content); payload + task descriptor are per-node.
   const writeNodeFixture = (
-    nodeId: string,
+    nodeId: string
   ): {
     descriptorPath: string;
     payloadPath: string;
@@ -289,7 +368,7 @@ describe("durable submitted run end-to-end (PIPE-94.9)", () => {
         submission: { argv: ["node", "-e", "true"], kind: "command" },
         task: { kind: "prompt", prompt: "Run node" },
         workflow: { id: WORKFLOW_ID },
-      }),
+      })
     );
 
     return { descriptorPath, payloadPath, schedulePath };
@@ -297,165 +376,192 @@ describe("durable submitted run end-to-end (PIPE-94.9)", () => {
 
   // Drive runRunnerCommand for a single node with the shared in-memory stores.
   const runNode = async (nodeId: string): Promise<number> => {
-    const { descriptorPath, payloadPath, schedulePath } = writeNodeFixture(nodeId);
+    const { descriptorPath, payloadPath, schedulePath } =
+      writeNodeFixture(nodeId);
     return await runRunnerCommand({
       cwd: dir,
-      fetch: async () => new Response(null, { status: 202 }),
+      fetch: async () =>
+        await Promise.resolve(new Response(null, { status: 202 })),
       payloadFile: payloadPath,
-      resolvePersistence: () => Effect.succeed(Option.some({ durableStore, runControlStore })),
+      resolvePersistence: () =>
+        Effect.succeed(Option.some({ durableStore, runControlStore })),
       scheduleFile: schedulePath,
-      stderr: { write: () => true },
-      stdout: { write: () => true },
+      stderr: { write: () => {} },
+      stdout: { write: () => {} },
       taskDescriptorFile: descriptorPath,
     });
   };
 
-  it("submit → execute-A → inspect DB-backed state → resume drains B (AC1, AC2)", async () => {
-    // -----------------------------------------------------------------------
-    // Phase 1 — SUBMIT
-    // -----------------------------------------------------------------------
-    // submitMoka with an injected upsertRunRecord that writes to the shared
-    // run-control store (same path the live submit service takes via
-    // buildRemoteRunCreateRequest). No k8s or Postgres required.
-    await submitMoka(
-      {
-        config: CONFIG,
-        ...MANAGED_AUTH,
-        eventUrl: "https://example.com/events",
-        mode: "quick",
-        namespace: "test-runners",
-        repository: {
-          baseBranch: "main",
-          sha: "0123456789abcdef0123456789abcdef01234567",
-          url: "https://github.com/oisin-ee/test.git",
-        },
-        run: { id: RUN_ID, project: "test" },
-        scheduleYaml: SCHEDULE_YAML,
-        task: "e2e durability proof",
-        type: "graph",
-      },
-      {
-        submitWorkflow: async () => FAKE_SUBMISSION,
-        upsertRunRecord: async (plan) => {
-          if (!plan.scheduleYaml) {
-            throw durableSubmittedRunTestError("Expected explicit schedule YAML in test plan");
+  it.effect(
+    "submit → execute-A → inspect DB-backed state → resume drains B (AC1, AC2)",
+    () =>
+      testPromise(async () => {
+        // -----------------------------------------------------------------------
+        // Phase 1 — SUBMIT
+        // -----------------------------------------------------------------------
+        // submitMoka with an injected upsertRunRecord that writes to the shared
+        // run-control store (same path the live submit service takes via
+        // buildRemoteRunCreateRequest). No k8s or Postgres required.
+        await submitMoka(
+          {
+            config: CONFIG,
+            ...MANAGED_AUTH,
+            eventUrl: "https://example.com/events",
+            mode: "quick",
+            namespace: "test-runners",
+            repository: {
+              baseBranch: "main",
+              sha: "0123456789abcdef0123456789abcdef01234567",
+              url: "https://github.com/oisin-ee/test.git",
+            },
+            run: { id: RUN_ID, project: "test" },
+            scheduleYaml: SCHEDULE_YAML,
+            task: "e2e durability proof",
+            type: "graph",
+          },
+          {
+            submitWorkflow: async () => await Promise.resolve(FAKE_SUBMISSION),
+            upsertRunRecord: async (plan) => {
+              if (!plan.scheduleYaml) {
+                throw durableSubmittedRunTestError(
+                  "Expected explicit schedule YAML in test plan"
+                );
+              }
+              await Effect.runPromise(
+                runControlStore.createRun(
+                  buildRemoteRunCreateRequest({
+                    config: plan.config,
+                    runId: plan.runId,
+                    scheduleYaml: plan.scheduleYaml,
+                  })
+                )
+              );
+            },
           }
-          await Effect.runPromise(
-            runControlStore.createRun(
-              buildRemoteRunCreateRequest({
-                config: plan.config,
-                runId: plan.runId,
-                scheduleYaml: plan.scheduleYaml,
-              }),
-            ),
+        );
+
+        // Assert: run manifest exists with schedule + real node IDs from the schedule.
+        const afterSubmit = await requireRun(runControlStore, RUN_ID);
+        expect(afterSubmit.schedule).toContain("kind: pipeline-schedule");
+        expect(afterSubmit.schedule).toContain(SCHEDULE_ID);
+        expect(Object.keys(afterSubmit.nodes)).toContain("node-a");
+        expect(Object.keys(afterSubmit.nodes)).toContain("node-b");
+        expect(afterSubmit.target).toBe("remote");
+
+        // -----------------------------------------------------------------------
+        // Phase 2 — EXECUTE node A (simulates the first Argo pod)
+        // -----------------------------------------------------------------------
+        const exitA = await runNode("node-a");
+        expect(exitA).toBe(0);
+        expect(mocks.runScheduledWorkflowTask).toHaveBeenCalledTimes(1);
+
+        // Durable store holds node-a's passed result.
+        expect(
+          requireRecord(durableStore, RUN_ID, "node-a").result.status
+        ).toBe("passed");
+        expect(Option.isNone(durableStore.get(RUN_ID, "node-b"))).toBe(true);
+
+        // -----------------------------------------------------------------------
+        // Phase 3 — KILL / INSPECT  (AC1)
+        // -----------------------------------------------------------------------
+        // "Kill" the run after node-a. buildNextNodeEnvelopeFromRunStore must
+        // reconstruct state entirely from the durable store (no in-process cache).
+        const envelope = await Effect.runPromise(
+          buildNextNodeEnvelopeFromRunStore({
+            config: CONFIG,
+            durableStore,
+            runControlStore,
+            runId: RUN_ID,
+            worktreePath: dir,
+          })
+        );
+
+        // AC1a: next-node returns node-b (A settled → B ready).
+        if (envelope === undefined) {
+          throw durableSubmittedRunTestError(
+            "expected next-node to return node-b after node-a passed"
           );
-        },
-      },
-    );
+        }
+        expect(envelope.nodeId).toBe("node-b");
+        expect(envelope.runId).toBe(RUN_ID);
+        expect(envelope.upstreamOutputs).toEqual([
+          { nodeId: "node-a", output: "output of node-a" },
+        ]);
 
-    // Assert: run manifest exists with schedule + real node IDs from the schedule.
-    const afterSubmit = await requireRun(runControlStore, RUN_ID);
-    expect(afterSubmit.schedule).toContain("kind: pipeline-schedule");
-    expect(afterSubmit.schedule).toContain(SCHEDULE_ID);
-    expect(Object.keys(afterSubmit.nodes)).toContain("node-a");
-    expect(Object.keys(afterSubmit.nodes)).toContain("node-b");
-    expect(afterSubmit.target).toBe("remote");
+        // AC1b: run-control manifest shows node-a passed, node-b still queued.
+        const afterKill = await requireRun(runControlStore, RUN_ID);
+        expect(afterKill.nodes["node-a"]).toBe("passed");
+        expect(afterKill.nodes["node-b"]).toBe("queued");
 
-    // -----------------------------------------------------------------------
-    // Phase 2 — EXECUTE node A (simulates the first Argo pod)
-    // -----------------------------------------------------------------------
-    const exitA = await runNode("node-a");
-    expect(exitA).toBe(0);
-    expect(mocks.runScheduledWorkflowTask).toHaveBeenCalledTimes(1);
+        // Reset call counters before the resume phase so assertions are precise.
+        mocks.runScheduledWorkflowTask.mockClear();
 
-    // Durable store holds node-a's passed result.
-    expect(requireRecord(durableStore, RUN_ID, "node-a").result.status).toBe("passed");
-    expect(Option.isNone(durableStore.get(RUN_ID, "node-b"))).toBe(true);
+        // -----------------------------------------------------------------------
+        // Phase 4 — RESUME (remote origin)  (AC2)
+        // -----------------------------------------------------------------------
+        // resumeRunByOrigin reads target=remote from the persisted manifest and
+        // calls the injected resubmit. The resubmit simulates Argo re-running ALL
+        // nodes under the same runId: node-a is skipped (already passed in the
+        // durable store), node-b executes and is recorded.
+        const resubmitCalls: string[] = [];
 
-    // -----------------------------------------------------------------------
-    // Phase 3 — KILL / INSPECT  (AC1)
-    // -----------------------------------------------------------------------
-    // "Kill" the run after node-a. buildNextNodeEnvelopeFromRunStore must
-    // reconstruct state entirely from the durable store (no in-process cache).
-    const envelope = await Effect.runPromise(
-      buildNextNodeEnvelopeFromRunStore({
-        config: CONFIG,
-        durableStore,
-        runControlStore,
-        runId: RUN_ID,
-        worktreePath: dir,
-      }),
-    );
+        const result = await resumeRunByOrigin(
+          {
+            dbUrl: "postgres://stub",
+            runId: RUN_ID,
+            task: "drain the remaining nodes",
+            worktreePath: dir,
+          },
+          {
+            // Inject readManifest so no live Postgres is needed.
+            readManifest: async (opts) =>
+              Option.fromUndefinedOr(
+                await Effect.runPromise(
+                  runControlStore.readRun({ runId: opts.runId })
+                )
+              ),
+            // Inject resubmit: simulates Argo re-running all pods (same schedule,
+            // same runId). Passed nodes are skipped in-pod from the durable store.
+            resubmit: async (input) => {
+              resubmitCalls.push(input.runId);
+              // already passed → skipped by store check
+              await runNode("node-a");
+              // not yet passed → executes
+              await runNode("node-b");
+              return FAKE_SUBMISSION;
+            },
+          }
+        );
 
-    // AC1a: next-node returns node-b (A settled → B ready).
-    if (envelope === undefined) {
-      throw durableSubmittedRunTestError("expected next-node to return node-b after node-a passed");
-    }
-    expect(envelope.nodeId).toBe("node-b");
-    expect(envelope.runId).toBe(RUN_ID);
-    expect(envelope.upstreamOutputs).toEqual([{ nodeId: "node-a", output: "output of node-a" }]);
+        // AC2a: resumed as remote (resubmit was called with the correct runId).
+        expect(result.kind).toBe("remote");
+        expect(resubmitCalls).toEqual([RUN_ID]);
 
-    // AC1b: run-control manifest shows node-a passed, node-b still queued.
-    const afterKill = await requireRun(runControlStore, RUN_ID);
-    expect(afterKill.nodes["node-a"]).toBe("passed");
-    expect(afterKill.nodes["node-b"]).toBe("queued");
+        // AC2b: node-a was skipped — runScheduledWorkflowTask called only once
+        //       (for node-b), not twice.
+        expect(mocks.runScheduledWorkflowTask).toHaveBeenCalledTimes(1);
+        expect(mocks.runScheduledWorkflowTask.mock.calls[0]?.[0]).toMatchObject(
+          {
+            nodeId: "node-b",
+          }
+        );
 
-    // Reset call counters before the resume phase so assertions are precise.
-    mocks.runScheduledWorkflowTask.mockClear();
+        // AC2c: node-b is now recorded as passed in the durable store.
+        expect(
+          requireRecord(durableStore, RUN_ID, "node-b").result.status
+        ).toBe("passed");
 
-    // -----------------------------------------------------------------------
-    // Phase 4 — RESUME (remote origin)  (AC2)
-    // -----------------------------------------------------------------------
-    // resumeRunByOrigin reads target=remote from the persisted manifest and
-    // calls the injected resubmit. The resubmit simulates Argo re-running ALL
-    // nodes under the same runId: node-a is skipped (already passed in the
-    // durable store), node-b executes and is recorded.
-    const resubmitCalls: string[] = [];
-
-    const result = await resumeRunByOrigin(
-      {
-        dbUrl: "postgres://stub",
-        runId: RUN_ID,
-        task: "drain the remaining nodes",
-        worktreePath: dir,
-      },
-      {
-        // Inject readManifest so no live Postgres is needed.
-        readManifest: async (opts) =>
-          Option.fromUndefinedOr(await Effect.runPromise(runControlStore.readRun({ runId: opts.runId }))),
-        // Inject resubmit: simulates Argo re-running all pods (same schedule,
-        // same runId). Passed nodes are skipped in-pod from the durable store.
-        resubmit: async (input) => {
-          resubmitCalls.push(input.runId);
-          await runNode("node-a"); // already passed → skipped by store check
-          await runNode("node-b"); // not yet passed → executes
-          return FAKE_SUBMISSION;
-        },
-      },
-    );
-
-    // AC2a: resumed as remote (resubmit was called with the correct runId).
-    expect(result.kind).toBe("remote");
-    expect(resubmitCalls).toEqual([RUN_ID]);
-
-    // AC2b: node-a was skipped — runScheduledWorkflowTask called only once
-    //       (for node-b), not twice.
-    expect(mocks.runScheduledWorkflowTask).toHaveBeenCalledTimes(1);
-    expect(mocks.runScheduledWorkflowTask.mock.calls[0]?.[0]).toMatchObject({ nodeId: "node-b" });
-
-    // AC2c: node-b is now recorded as passed in the durable store.
-    expect(requireRecord(durableStore, RUN_ID, "node-b").result.status).toBe("passed");
-
-    // AC2d: next-node returns undefined — both nodes settled, run fully drained.
-    const afterDrain = await Effect.runPromise(
-      buildNextNodeEnvelopeFromRunStore({
-        config: CONFIG,
-        durableStore,
-        runControlStore,
-        runId: RUN_ID,
-        worktreePath: dir,
-      }),
-    );
-    expect(afterDrain).toBeUndefined();
-  });
+        // AC2d: next-node returns undefined — both nodes settled, run fully drained.
+        const afterDrain = await Effect.runPromise(
+          buildNextNodeEnvelopeFromRunStore({
+            config: CONFIG,
+            durableStore,
+            runControlStore,
+            runId: RUN_ID,
+            worktreePath: dir,
+          })
+        );
+        expect(afterDrain).toBeUndefined();
+      })
+  );
 });

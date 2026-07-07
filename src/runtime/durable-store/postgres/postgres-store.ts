@@ -44,13 +44,15 @@ const openClient = (dbUrl: string): postgres.Sql =>
  * {@link migratePostgresSubstrate} (shared with the run-control store, lock-
  * guarded for concurrent callers).
  */
-export const migratePostgresDurableStore = async (dbUrl: string): Promise<void> => {
+export const migratePostgresDurableStore = async (
+  dbUrl: string
+): Promise<void> => {
   await migratePostgresSubstrate(dbUrl);
 };
 
 const makeBucket = (
   mirror: Map<string, Map<string, DurableNodeRecord>>,
-  runId: string,
+  runId: string
 ): Map<string, DurableNodeRecord> => {
   let bucket = mirror.get(runId);
   if (!bucket) {
@@ -60,14 +62,20 @@ const makeBucket = (
   return bucket;
 };
 
-const hydrate = async (db: DurableDb, runId?: string): Promise<Map<string, Map<string, DurableNodeRecord>>> => {
+const hydrate = async (
+  db: DurableDb,
+  runId?: string
+): Promise<Map<string, Map<string, DurableNodeRecord>>> => {
   const mirror = new Map<string, Map<string, DurableNodeRecord>>();
   const query = db.select().from(durableNodeRecord);
   // PIPE-91.5: scope hydration to a single run when the cutover resolves one
   // run via toRunJournal(runId). On the shared cluster Postgres this loads only
   // that run's records instead of the whole table. Omitting runId (the 91.6/91.7
   // step CLIs) keeps the full-table hydrate for cross-run reads.
-  const rows = runId === undefined ? await query : await query.where(eq(durableNodeRecord.runId, runId));
+  const rows =
+    runId === undefined
+      ? await query
+      : await query.where(eq(durableNodeRecord.runId, runId));
   for (const row of rows) {
     makeBucket(mirror, row.runId).set(row.nodeId, {
       criteria: row.criteria,
@@ -79,7 +87,12 @@ const hydrate = async (db: DurableDb, runId?: string): Promise<Map<string, Map<s
   return mirror;
 };
 
-const persist = async (db: DurableDb, runId: string, nodeId: string, record: DurableNodeRecord): Promise<void> => {
+const persist = async (
+  db: DurableDb,
+  runId: string,
+  nodeId: string,
+  record: DurableNodeRecord
+): Promise<void> => {
   const recordedAt = new Date(record.recordedAt);
   const values = {
     criteria: record.criteria,
@@ -111,10 +124,13 @@ const persist = async (db: DurableDb, runId: string, nodeId: string, record: Dur
  * records (the PIPE-91.5 cutover, which resolves a single run); omit it for the
  * full-table hydrate the cross-run step CLIs need.
  */
-export const postgresDurableRunStore = async (dbUrl: string, runId?: string): Promise<PostgresDurableRunStore> => {
+export const postgresDurableRunStore = async (
+  dbUrl: string,
+  hydrateRunId?: string
+): Promise<PostgresDurableRunStore> => {
   const client = openClient(dbUrl);
   const db = drizzle(client);
-  const mirror = await hydrate(db, runId);
+  const mirror = await hydrate(db, hydrateRunId);
 
   // Serialized write-through: ordering is preserved (last write wins, mirroring
   // the in-memory overwrite), every write is attempted, and failures are logged
@@ -122,12 +138,19 @@ export const postgresDurableRunStore = async (dbUrl: string, runId?: string): Pr
   const writes = createSerializedWriteQueue();
   const writeErrors: unknown[] = [];
 
-  const enqueueWrite = (runId: string, nodeId: string, record: DurableNodeRecord): void => {
+  const enqueueWrite = (
+    runId: string,
+    nodeId: string,
+    record: DurableNodeRecord
+  ): void => {
     writes.enqueue(async () => {
       try {
         await persist(db, runId, nodeId, record);
       } catch (error) {
-        logger.error({ err: error, nodeId, runId }, "durable node record write failed");
+        logger.error(
+          { err: error, nodeId, runId },
+          "durable node record write failed"
+        );
         writeErrors.push(error);
       }
     });
@@ -138,12 +161,14 @@ export const postgresDurableRunStore = async (dbUrl: string, runId?: string): Pr
     if (!bucket) {
       return [];
     }
-    return [...bucket.values()].filter((entry) => entry.result.status === "passed").map((entry) => entry.result);
+    return [...bucket.values()]
+      .filter((entry) => entry.result.status === "passed")
+      .map((entry) => entry.result);
   };
 
   const flush = async (): Promise<void> => {
     await writes.flush();
-    const failure = writeErrors[0];
+    const [failure] = writeErrors;
     if (failure !== undefined) {
       throw failure instanceof Error ? failure : new Error(String(failure));
     }

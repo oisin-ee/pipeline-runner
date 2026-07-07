@@ -1,6 +1,7 @@
 import { effect, strict } from "@oisin-ee/oxlint-config";
 import { defineConfig } from "oxlint";
 import type { DummyRuleMap } from "oxlint";
+import core from "ultracite/oxlint/core";
 
 import { toolIgnorePatterns } from "./tool-ignore-patterns.ts";
 
@@ -38,8 +39,8 @@ const effectWithErrors = {
 };
 
 export default defineConfig({
-  extends: [strict],
-  ignorePatterns: [...toolIgnorePatterns],
+  extends: [core, strict],
+  ignorePatterns: [...(core.ignorePatterns ?? []), ...toolIgnorePatterns],
   options: {
     denyWarnings: true,
     typeAware: true,

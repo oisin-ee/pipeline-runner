@@ -40,7 +40,7 @@ const factoryLaneJobOptionsSchema = struct({
     struct({
       limits: Schema.optional(stringRecord),
       requests: Schema.optional(stringRecord),
-    }),
+    })
   ),
   serviceAccountName: Schema.optional(requiredString),
   ttlSecondsAfterFinished: withDefault(positiveInteger, 86_400),
@@ -93,7 +93,8 @@ export const buildFactoryLaneJob = (input: FactoryLaneJobOptionsInput) => {
             {
               args: [...options.argv],
               image: options.image,
-              ...(options.imagePullPolicy !== undefined && options.imagePullPolicy.length > 0
+              ...(options.imagePullPolicy !== undefined &&
+              options.imagePullPolicy.length > 0
                 ? { imagePullPolicy: options.imagePullPolicy }
                 : {}),
               name: "lane",
@@ -113,11 +114,13 @@ export const buildFactoryLaneJob = (input: FactoryLaneJobOptionsInput) => {
               ],
             },
           ],
-          ...(options.imagePullSecretName !== undefined && options.imagePullSecretName.length > 0
+          ...(options.imagePullSecretName !== undefined &&
+          options.imagePullSecretName.length > 0
             ? { imagePullSecrets: [{ name: options.imagePullSecretName }] }
             : {}),
           restartPolicy: "Never",
-          ...(options.serviceAccountName !== undefined && options.serviceAccountName.length > 0
+          ...(options.serviceAccountName !== undefined &&
+          options.serviceAccountName.length > 0
             ? { serviceAccountName: options.serviceAccountName }
             : {}),
           volumes: [

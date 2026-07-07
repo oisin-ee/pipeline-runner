@@ -25,8 +25,10 @@ export const runPaths = (workspaceRoot: string, runId: string) => {
   };
 };
 
-export const normalizeWorkspaceRelative = (workspaceRoot: string, path: string): string =>
-  relative(workspaceRoot, path).split(sep).join("/");
+export const normalizeWorkspaceRelative = (
+  workspaceRoot: string,
+  path: string
+): string => relative(workspaceRoot, path).split(sep).join("/");
 
 const runStatusPaths = (runId: string): RunControlStatusPaths => {
   const runRoot = `${RUNS_DIRECTORY}/${runId}`;
@@ -37,7 +39,9 @@ const runStatusPaths = (runId: string): RunControlStatusPaths => {
   };
 };
 
-export const runControlStatusPaths = (input: ReadRunInput): RunControlStatusPaths =>
+export const runControlStatusPaths = (
+  input: ReadRunInput
+): RunControlStatusPaths =>
   runStatusPaths(parseLogicalSegment("runId", input.runId));
 
 const parseNonEmptyString = (label: string, value: string): string => {
@@ -48,7 +52,10 @@ const parseNonEmptyString = (label: string, value: string): string => {
   return value;
 };
 
-export const nonEmptyStringEffect = (label: string, value: string): Effect.Effect<string, unknown> =>
+export const nonEmptyStringEffect = (
+  label: string,
+  value: string
+): Effect.Effect<string, unknown> =>
   Effect.try({
     catch: (error) => error,
     try: () => parseNonEmptyString(label, value),

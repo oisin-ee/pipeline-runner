@@ -1,19 +1,36 @@
 import { Effect } from "effect";
 import { describe, expect, it, vi } from "vitest";
 
-import { baseGateRuntimeFields, gateNodeStateStore } from "../../../tests/gate-test-context";
+import {
+  baseGateRuntimeFields,
+  gateNodeStateStore,
+} from "../../../tests/gate-test-context";
 import { parsePipelineConfigParts } from "../../config/load";
 import { compileWorkflowPlan } from "../../planning/compile";
-import type { AcceptanceCriterion, CompletionClaim, RuntimeContext } from "../../runtime/contracts";
+import type {
+  AcceptanceCriterion,
+  CompletionClaim,
+  RuntimeContext,
+} from "../../runtime/contracts";
 import type { LlmJudge } from "../../runtime/gates/adjudication/llm-judge";
 import type { DeterministicGate } from "../../runtime/gates/adjudicator";
 import type { GateEvaluationInput } from "../../runtime/gates/contract";
-import { completeTicket, conservativeLayerAJudge, TicketCompletionError } from "./complete-ticket";
-import type { TicketCompletionStore, TicketCompletionTarget } from "./complete-ticket";
+import {
+  completeTicket,
+  conservativeLayerAJudge,
+  TicketCompletionError,
+} from "./complete-ticket";
+import type {
+  TicketCompletionStore,
+  TicketCompletionTarget,
+} from "./complete-ticket";
 
 const A: AcceptanceCriterion = { id: "1", text: "Alpha" };
 
-const recordingStore = (target: TicketCompletionTarget, markDoneCalls: string[]): TicketCompletionStore => ({
+const recordingStore = (
+  target: TicketCompletionTarget,
+  markDoneCalls: string[]
+): TicketCompletionStore => ({
   loadTarget: () => Effect.succeed(target),
   markDone: (ticketId) =>
     Effect.sync(() => {
@@ -34,7 +51,7 @@ const runtimeContext = (): RuntimeContext => {
       runners:
         "version: 1\nrunners:\n  local:\n    type: command\n    command: node\n    capabilities: { native_subagents: false }\n",
     },
-    "/tmp/complete-ticket-test",
+    "/tmp/complete-ticket-test"
   );
   return {
     ...baseGateRuntimeFields(),
@@ -49,7 +66,9 @@ const runtimeContext = (): RuntimeContext => {
 };
 
 /** A passing deterministic acceptance gate that covers `criterion`. */
-const passingAcceptanceGate = (criterion: AcceptanceCriterion): DeterministicGate => {
+const passingAcceptanceGate = (
+  criterion: AcceptanceCriterion
+): DeterministicGate => {
   const input: GateEvaluationInput = {
     attempt: {
       evidence: [],
@@ -75,7 +94,10 @@ const passingAcceptanceGate = (criterion: AcceptanceCriterion): DeterministicGat
 describe("completeTicket", () => {
   it("refuses without marking Done when the conservative judge cannot honor a residue criterion", async () => {
     const markDoneCalls: string[] = [];
-    const store = recordingStore({ criteria: [A], id: "PIPE-1" }, markDoneCalls);
+    const store = recordingStore(
+      { criteria: [A], id: "PIPE-1" },
+      markDoneCalls
+    );
 
     const outcome = await Effect.runPromise(
       completeTicket({
@@ -83,7 +105,7 @@ describe("completeTicket", () => {
         judge: conservativeLayerAJudge,
         store,
         ticketId: "PIPE-1",
-      }),
+      })
     );
 
     expect(outcome.status).toBe("refused");
@@ -108,7 +130,7 @@ describe("completeTicket", () => {
         judge,
         store,
         ticketId: "PIPE-1",
-      }),
+      })
     );
 
     expect(outcome).toEqual({ status: "completed", ticketId: "PIPE-1" });
@@ -118,7 +140,10 @@ describe("completeTicket", () => {
 
   it("marks Done on an adjudicator pass driven by a passing deterministic gate", async () => {
     const markDoneCalls: string[] = [];
-    const store = recordingStore({ criteria: [A], id: "PIPE-1" }, markDoneCalls);
+    const store = recordingStore(
+      { criteria: [A], id: "PIPE-1" },
+      markDoneCalls
+    );
     const judge = vi.fn<LlmJudge>(() => {
       throw new Error("judge must not be consulted for a covered criterion");
     });
@@ -130,7 +155,7 @@ describe("completeTicket", () => {
         judge,
         store,
         ticketId: "PIPE-1",
-      }),
+      })
     );
 
     expect(outcome).toEqual({ status: "completed", ticketId: "PIPE-1" });
@@ -144,7 +169,7 @@ describe("completeTicket", () => {
         Effect.fail(
           new TicketCompletionError({
             message: `Unknown Backlog ticket '${ticketId}'`,
-          }),
+          })
         ),
       markDone: () => Effect.void,
     };
@@ -155,7 +180,7 @@ describe("completeTicket", () => {
         judge: conservativeLayerAJudge,
         store,
         ticketId: "PIPE-404",
-      }),
+      })
     );
 
     expect(exit._tag).toBe("Failure");

@@ -2,6 +2,7 @@ import { existsSync, readFileSync, statSync } from "node:fs";
 import { readdir } from "node:fs/promises";
 import { join, relative } from "node:path";
 
+import * as Arr from "effect/Array";
 import type { Option } from "effect/Option";
 import { isNone, isSome, none, some } from "effect/Option";
 import * as Schema from "effect/Schema";
@@ -10,7 +11,10 @@ import { mergeClaudeUserConfig } from "../claude-user-config";
 import { mergeCodexConfig } from "../codex-config";
 import { loadPipelineConfig } from "../config";
 import type { PipelineConfig } from "../config";
-import { renderClaudeGatewayUserConfig, renderCodexGatewayConfig } from "../mcp/host-renderers";
+import {
+  renderClaudeGatewayUserConfig,
+  renderCodexGatewayConfig,
+} from "../mcp/host-renderers";
 import { parseJson } from "../safe-json";
 import { parseWithSchema, struct } from "../schema-boundary";
 import { claudeCodeAdapter } from "./claude-code";
@@ -74,14 +78,23 @@ const ADAPTERS: Record<ActiveCommandHost, HostAdapter> = {
 // where it would bake one repo's cwd into a machine-wide file and make
 // --check perpetually non-idempotent.
 const GLOBAL_EXCLUDED_PATHS = new Set(["AGENTS.md"]);
-const GENERATED_CONTENT_MARKERS = [GENERATED_MARKER, GENERATED_TS_MARKER, GENERATED_YAML_MARKER] as const;
+const GENERATED_CONTENT_MARKERS = [
+  GENERATED_MARKER,
+  GENERATED_TS_MARKER,
+  GENERATED_YAML_MARKER,
+] as const;
 
-const dedupeDefinitionsByPath = (definitions: CommandDefinition[]): CommandDefinition[] => {
-  const lastIndexes = new Map<string, number>();
-  definitions.forEach((definition, index) => {
-    lastIndexes.set(definition.path, index);
-  });
-  return definitions.filter((definition, index) => lastIndexes.get(definition.path) === index);
+const dedupeDefinitionsByPath = (
+  definitions: CommandDefinition[]
+): CommandDefinition[] => {
+  const lastIndexes = Arr.reduce(
+    definitions,
+    new Map<string, number>(),
+    (indexes, definition, index) => indexes.set(definition.path, index)
+  );
+  return definitions.filter(
+    (definition, index) => lastIndexes.get(definition.path) === index
+  );
 };
 
 const selectedInstallHosts = (host: CommandHostSelection): InstallHost[] =>
@@ -90,10 +103,13 @@ const selectedInstallHosts = (host: CommandHostSelection): InstallHost[] =>
 const isActiveCommandHost = (host: InstallHost): host is ActiveCommandHost =>
   host === "opencode" || host === "claude-code";
 
-const selectedCommandHosts = (host: CommandHostSelection): ActiveCommandHost[] =>
+const selectedCommandHosts = (
+  host: CommandHostSelection
+): ActiveCommandHost[] =>
   selectedInstallHosts(host).filter(isActiveCommandHost);
 
-const resourceRootsFor = (host: ActiveCommandHost): string[] => ADAPTERS[host].resourceRoots;
+const resourceRootsFor = (host: ActiveCommandHost): string[] =>
+  ADAPTERS[host].resourceRoots;
 
 const listFiles = async function listFiles(root: string): Promise<string[]> {
   if (!existsSync(root)) {
@@ -103,24 +119,31 @@ const listFiles = async function listFiles(root: string): Promise<string[]> {
     return await Promise.resolve([root]);
   }
   const entries = await readdir(root, { withFileTypes: true });
-  const directFiles = entries.filter((entry) => !entry.isDirectory()).map((entry) => join(root, entry.name));
+  const directFiles = entries
+    .filter((entry) => !entry.isDirectory())
+    .map((entry) => join(root, entry.name));
   const nestedFiles = await Promise.all(
-    entries.filter((entry) => entry.isDirectory()).map(async (entry) => await listFiles(join(root, entry.name))),
+    entries
+      .filter((entry) => entry.isDirectory())
+      .map(async (entry) => await listFiles(join(root, entry.name)))
   );
   return [...directFiles, ...nestedFiles.flat()];
 };
 
 const generatedHostFor = (content: string): Option<ActiveCommandHost> => {
   const host = COMMAND_HOSTS.find(
-    (host) =>
-      content.includes(`${OWNER_MARKER_PREFIX}host=${host} -->`) ||
-      content.includes(`${OWNER_TS_MARKER_PREFIX}host=${host}`) ||
-      content.includes(`${OWNER_YAML_MARKER_PREFIX}host=${host}`),
+    (candidateHost) =>
+      content.includes(`${OWNER_MARKER_PREFIX}host=${candidateHost} -->`) ||
+      content.includes(`${OWNER_TS_MARKER_PREFIX}host=${candidateHost}`) ||
+      content.includes(`${OWNER_YAML_MARKER_PREFIX}host=${candidateHost}`)
   );
   return host === undefined ? none() : some(host);
 };
 
-const ownedGeneratedHost = (content: Option<string>, hosts: Set<ActiveCommandHost>): Option<ActiveCommandHost> => {
+const ownedGeneratedHost = (
+  content: Option<string>,
+  hosts: Set<ActiveCommandHost>
+): Option<ActiveCommandHost> => {
   if (isNone(content)) {
     return none();
   }
@@ -151,10 +174,16 @@ const obsoleteGeneratedHost = (input: {
   if (input.wantedPaths.has(input.path)) {
     return none();
   }
-  return ownedGeneratedHost(readScannedGeneratedFile(input.absolutePath), input.hosts);
+  return ownedGeneratedHost(
+    readScannedGeneratedFile(input.absolutePath),
+    input.hosts
+  );
 };
 
-const entrypointIdFromGeneratedPath = (host: ActiveCommandHost, path: string): Option<string> => {
+const entrypointIdFromGeneratedPath = (
+  host: ActiveCommandHost,
+  path: string
+): Option<string> => {
   for (const pattern of ENTRYPOINT_PATH_PATTERNS[host]) {
     const match = pattern.exec(path);
     if (match !== null) {
@@ -174,21 +203,29 @@ const obsoleteGeneratedItemForScannedFile = (input: {
   if (isNone(generatedHost)) {
     return none();
   }
-  const entrypointId = entrypointIdFromGeneratedPath(generatedHost.value, input.path);
+  const entrypointId = entrypointIdFromGeneratedPath(
+    generatedHost.value,
+    input.path
+  );
   return some({
     action: "delete",
     host: generatedHost.value,
-    invocation: invocationForHost(generatedHost.value, isSome(entrypointId) ? entrypointId.value : "execute"),
+    invocation: invocationForHost(
+      generatedHost.value,
+      isSome(entrypointId) ? entrypointId.value : "execute"
+    ),
     path: input.path,
   });
 };
 
 const obsoleteGeneratedItems = async (
   host: CommandHostSelection,
-  wantedPaths: Set<string>,
+  wantedPaths: Set<string>
 ): Promise<CommandInstallPlanItem[]> => {
   const hosts = new Set<ActiveCommandHost>(selectedCommandHosts(host));
-  const roots = selectedCommandHosts(host).flatMap((selectedHost) => resourceRootsFor(selectedHost));
+  const roots = selectedCommandHosts(host).flatMap((selectedHost) =>
+    resourceRootsFor(selectedHost)
+  );
   const scanned = await Promise.all(
     roots.map(async (root) => {
       const absRoot = resolveHarnessTarget(root);
@@ -200,7 +237,7 @@ const obsoleteGeneratedItems = async (
         absolutePath,
         path: join(root, relative(absRoot, absolutePath)).replaceAll("\\", "/"),
       }));
-    }),
+    })
   );
   const items = scanned
     .flat()
@@ -210,7 +247,7 @@ const obsoleteGeneratedItems = async (
         hosts,
         path,
         wantedPaths,
-      }),
+      })
     )
     .filter(isSome)
     .map((item) => item.value);
@@ -222,20 +259,28 @@ interface ResolvedCommandDefinitionContent {
   content: string;
 }
 
-type DefinitionMerge = (existingContent: string, projectionContent: string) => ResolvedCommandDefinitionContent;
+type DefinitionMerge = (
+  existingContent: string,
+  projectionContent: string
+) => ResolvedCommandDefinitionContent;
 
 const claudeUserConfigProjectionSchema = struct({
   mcpServers: Schema.optional(Schema.Record(Schema.String, Schema.Unknown)),
 });
 
 const parseClaudeUserConfigProjection = (source: string) =>
-  parseWithSchema(claudeUserConfigProjectionSchema, parseJson(source, "Claude user config projection"));
+  parseWithSchema(
+    claudeUserConfigProjectionSchema,
+    parseJson(source, "Claude user config projection")
+  );
 
 const CONFIG_MERGES: Partial<Record<string, DefinitionMerge>> = {
   [CLAUDE_USER_CONFIG_PATH]: (currentContent, projectionContent) => {
     const projection = parseClaudeUserConfigProjection(projectionContent);
     const merged = mergeClaudeUserConfig(projection, currentContent);
-    return merged.ok ? { conflict: false, content: merged.content } : { conflict: true, content: projectionContent };
+    return merged.ok
+      ? { conflict: false, content: merged.content }
+      : { conflict: true, content: projectionContent };
   },
   [CODEX_CONFIG_PATH]: (currentContent, projectionContent) => ({
     conflict: false,
@@ -244,25 +289,32 @@ const CONFIG_MERGES: Partial<Record<string, DefinitionMerge>> = {
 };
 
 const existingContent = (target: string): ExistingContent =>
-  existsSync(target) ? { content: readFileSync(target, "utf-8"), exists: true } : { exists: false };
+  existsSync(target)
+    ? { content: readFileSync(target, "utf-8"), exists: true }
+    : { exists: false };
 
 const existingContentValue = (target: string): string => {
   const existing = existingContent(target);
   return existing.exists ? existing.content : "";
 };
 
-const isActiveDefinitionHost = (host: CommandDefinition["host"]): host is ActiveCommandHost =>
-  host === "opencode" || host === "claude-code";
+const isActiveDefinitionHost = (
+  host: CommandDefinition["host"]
+): host is ActiveCommandHost => host === "opencode" || host === "claude-code";
 
-const adapterForDefinition = (definition: CommandDefinition): Option<HostAdapter> =>
-  isActiveDefinitionHost(definition.host) ? some(ADAPTERS[definition.host]) : none();
+const adapterForDefinition = (
+  definition: CommandDefinition
+): Option<HostAdapter> =>
+  isActiveDefinitionHost(definition.host)
+    ? some(ADAPTERS[definition.host])
+    : none();
 
 const applyMergeDefinition = (
   merge: NonNullable<HostAdapter["mergeDefinition"]>,
   definition: CommandDefinition,
-  existingContent: string,
+  currentContent: string
 ): ResolvedCommandDefinitionContent => {
-  const merged = merge(definition, existingContent);
+  const merged = merge(definition, currentContent);
   if (isNone(merged)) {
     return { conflict: false, content: definition.content };
   }
@@ -272,7 +324,10 @@ const applyMergeDefinition = (
   return { conflict: false, content: merged.value.content };
 };
 
-const resolveAdapterContent = (definition: CommandDefinition, existing: string): ResolvedCommandDefinitionContent => {
+const resolveAdapterContent = (
+  definition: CommandDefinition,
+  existing: string
+): ResolvedCommandDefinitionContent => {
   const adapter = adapterForDefinition(definition);
   if (isNone(adapter)) {
     return { conflict: false, content: definition.content };
@@ -280,14 +335,18 @@ const resolveAdapterContent = (definition: CommandDefinition, existing: string):
   return adapter.value.mergeDefinition === undefined
     ? { conflict: false, content: definition.content }
     : applyMergeDefinition(
-        (definitionToMerge, existingContent) =>
-          adapter.value.mergeDefinition?.(definitionToMerge, existingContent) ?? none(),
+        (definitionToMerge, currentContent) =>
+          adapter.value.mergeDefinition?.(definitionToMerge, currentContent) ??
+          none(),
         definition,
-        existing,
+        existing
       );
 };
 
-const resolveDefinitionContent = (definition: CommandDefinition, target: string): ResolvedCommandDefinitionContent => {
+const resolveDefinitionContent = (
+  definition: CommandDefinition,
+  target: string
+): ResolvedCommandDefinitionContent => {
   const configMerge = CONFIG_MERGES[definition.path];
   if (configMerge !== undefined) {
     return configMerge(existingContentValue(target), definition.content);
@@ -325,20 +384,37 @@ const gatewayHostConfigDefinition =
     return [];
   };
 
-const gatewayHostConfigDefinitions = (host: CommandHostSelection, config: PipelineConfig): CommandDefinition[] => {
+const gatewayHostConfigDefinitions = (
+  host: CommandHostSelection,
+  config: PipelineConfig
+): CommandDefinition[] => {
   if (config.mcp_gateway === undefined) {
     return [];
   }
-  return selectedInstallHosts(host).flatMap(gatewayHostConfigDefinition(config));
+  return selectedInstallHosts(host).flatMap(
+    gatewayHostConfigDefinition(config)
+  );
 };
 
-const definitionsFor = (host: CommandHostSelection, config: PipelineConfig, cwd: string): CommandDefinition[] => {
+const definitionsFor = (
+  host: CommandHostSelection,
+  config: PipelineConfig,
+  cwd: string
+): CommandDefinition[] => {
   const hosts = selectedCommandHosts(host);
-  const rawDefinitions = hosts.flatMap((name) => ADAPTERS[name].definitions(config, cwd));
-  return dedupeDefinitionsByPath([...rawDefinitions, ...gatewayHostConfigDefinitions(host, config)]);
+  const rawDefinitions = hosts.flatMap((name) =>
+    ADAPTERS[name].definitions(config, cwd)
+  );
+  return dedupeDefinitionsByPath([
+    ...rawDefinitions,
+    ...gatewayHostConfigDefinitions(host, config),
+  ]);
 };
 
-const actionForBlockContent = (current: string, content: string): DefinitionInstallAction =>
+const actionForBlockContent = (
+  current: string,
+  content: string
+): DefinitionInstallAction =>
   current.includes(content.trimEnd()) ? "unchanged" : "update";
 
 const forceOrGenerated = (content: string, force: boolean): boolean =>
@@ -363,7 +439,7 @@ const actionFor = (
   path: string,
   content: string,
   force: boolean,
-  block?: CommandDefinition["block"],
+  block?: CommandDefinition["block"]
 ): DefinitionInstallAction => {
   if (!existsSync(path)) {
     return "create";
@@ -380,24 +456,31 @@ const adapterForcesDefinition = (definition: CommandDefinition): boolean => {
   if (isNone(adapter)) {
     return false;
   }
-  return adapter.value.isAlwaysForced === undefined ? false : adapter.value.isAlwaysForced(definition);
+  return adapter.value.isAlwaysForced === undefined
+    ? false
+    : adapter.value.isAlwaysForced(definition);
 };
 
 const installActionForDefinition = (
   definition: CommandDefinition,
   target: string,
   resolved: ResolvedCommandDefinitionContent,
-  force: boolean,
+  force: boolean
 ): DefinitionInstallAction => {
   if (resolved.conflict) {
     return "conflict";
   }
-  return actionFor(target, resolved.content, force || adapterForcesDefinition(definition), definition.block);
+  return actionFor(
+    target,
+    resolved.content,
+    force || adapterForcesDefinition(definition),
+    definition.block
+  );
 };
 
 const commandInstallPlanItem = (
   definition: CommandDefinition,
-  action: DefinitionInstallAction,
+  action: DefinitionInstallAction
 ): CommandInstallPlanItem => ({
   action,
   host: definition.host,
@@ -405,14 +488,16 @@ const commandInstallPlanItem = (
   path: definition.path,
 });
 
-const installCommandsContext = (options: InstallCommandsOptions): InstallCommandsContext => {
+const installCommandsContext = (
+  options: InstallCommandsOptions
+): InstallCommandsContext => {
   const cwd = options.cwd ?? process.cwd();
   const host = options.host ?? "all";
   const config = loadPipelineConfig(cwd, {
     allowMissingLintFileReferences: true,
   });
   const definitions = definitionsFor(host, config, cwd).filter(
-    (definition) => !GLOBAL_EXCLUDED_PATHS.has(definition.path),
+    (definition) => !GLOBAL_EXCLUDED_PATHS.has(definition.path)
   );
   return {
     cwd,
@@ -422,10 +507,18 @@ const installCommandsContext = (options: InstallCommandsOptions): InstallCommand
   };
 };
 
-const planDefinition = (definition: CommandDefinition, options: InstallCommandsOptions): InstallPlanWrite => {
+const planDefinition = (
+  definition: CommandDefinition,
+  options: InstallCommandsOptions
+): InstallPlanWrite => {
   const target = resolveHarnessTarget(definition.path);
   const resolved = resolveDefinitionContent(definition, target);
-  const action = installActionForDefinition(definition, target, resolved, Boolean(options.force));
+  const action = installActionForDefinition(
+    definition,
+    target,
+    resolved,
+    Boolean(options.force)
+  );
   return {
     action,
     block: definition.block,
@@ -435,10 +528,17 @@ const planDefinition = (definition: CommandDefinition, options: InstallCommandsO
   };
 };
 
-export const planInstallCommands = async (options: InstallCommandsOptions = {}): Promise<InstallCommandsPlan> => {
+export const planInstallCommands = async (
+  options: InstallCommandsOptions = {}
+): Promise<InstallCommandsPlan> => {
   const context = installCommandsContext(options);
-  const writes = context.definitions.map((definition) => planDefinition(definition, options));
-  const obsoleteItems = await obsoleteGeneratedItems(context.host, context.wantedPaths);
+  const writes = context.definitions.map((definition) =>
+    planDefinition(definition, options)
+  );
+  const obsoleteItems = await obsoleteGeneratedItems(
+    context.host,
+    context.wantedPaths
+  );
   return {
     deletes: obsoleteItems.map((item) => ({
       item,
@@ -449,11 +549,16 @@ export const planInstallCommands = async (options: InstallCommandsOptions = {}):
   };
 };
 
-const actionIsConflict = (item: CommandInstallPlanItem): boolean => item.action === "conflict";
+const actionIsConflict = (item: CommandInstallPlanItem): boolean =>
+  item.action === "conflict";
 
-const actionIsChanged = (item: CommandInstallPlanItem): boolean => item.action !== "unchanged";
+const actionIsChanged = (item: CommandInstallPlanItem): boolean =>
+  item.action !== "unchanged";
 
-const assertNoInstallConflicts = (options: InstallCommandsOptions, items: CommandInstallPlanItem[]): void => {
+const assertNoInstallConflicts = (
+  options: InstallCommandsOptions,
+  items: CommandInstallPlanItem[]
+): void => {
   if (options.dryRun === true) {
     return;
   }
@@ -466,11 +571,14 @@ const assertNoInstallConflicts = (options: InstallCommandsOptions, items: Comman
       "Refusing to overwrite manually edited command files.",
       ...conflicts.map((item) => `- ${item.path}`),
       "Re-run with --force to overwrite them.",
-    ].join("\n"),
+    ].join("\n")
   );
 };
 
-const assertInstallCheckCurrent = (options: InstallCommandsOptions, items: CommandInstallPlanItem[]): void => {
+const assertInstallCheckCurrent = (
+  options: InstallCommandsOptions,
+  items: CommandInstallPlanItem[]
+): void => {
   if (options.check !== true) {
     return;
   }
@@ -482,11 +590,14 @@ const assertInstallCheckCurrent = (options: InstallCommandsOptions, items: Comma
     [
       "Installed command files are not up to date.",
       ...changedItems.map((item) => `- ${item.path}: ${item.action}`),
-    ].join("\n"),
+    ].join("\n")
   );
 };
 
-export const assertInstallPlanCurrent = (options: InstallCommandsOptions, plan: InstallCommandsPlan): void => {
+export const assertInstallPlanCurrent = (
+  options: InstallCommandsOptions,
+  plan: InstallCommandsPlan
+): void => {
   assertNoInstallConflicts(options, plan.items);
   assertInstallCheckCurrent(options, plan.items);
 };
