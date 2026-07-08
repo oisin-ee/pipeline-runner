@@ -1,6 +1,7 @@
-import { Option } from "commander";
-import type { Command } from "commander";
+import { Effect, Option } from "effect";
+import { Argument, Command, Flag } from "effect/unstable/cli";
 
+import { decodeLiteralCliArgs, literalArgFlagName } from "./cli-args";
 import { writeTerminalLog } from "./format";
 import { dispatchMokaRunCommand } from "./run-command";
 import type { RunCommand } from "./run-command";
@@ -30,6 +31,98 @@ interface RunControllerFlags {
 export interface RegisterRunCommandsOptions {
   readonly runCommand?: RunCommand;
 }
+
+const runCommandFlags = {
+  command: Flag.boolean("command").pipe(
+    Flag.withDescription(
+      "treat input after -- as explicit argv for remote submission"
+    )
+  ),
+  descriptionParts: Argument.string("description").pipe(
+    Argument.withDescription("task description"),
+    Argument.variadic({ min: 0 })
+  ),
+  detach: Flag.boolean("detach").pipe(
+    Flag.withDescription(
+      "start a supervised controller process in the background"
+    )
+  ),
+  effort: Flag.choice("effort", MOKA_RUN_EFFORTS).pipe(
+    Flag.withDescription("run effort"),
+    Flag.withDefault(MOKA_RUN_EFFORTS[0])
+  ),
+  entrypoint: Flag.string("entrypoint").pipe(
+    Flag.withDescription("entrypoint id from package config"),
+    Flag.optional
+  ),
+  literalArgs: Flag.string(literalArgFlagName).pipe(
+    Flag.withDescription("internal preserved command argv"),
+    Flag.withHidden,
+    Flag.atLeast(0)
+  ),
+  readOnly: Flag.boolean("read-only").pipe(
+    Flag.withDescription("run the read-only inspect workflow")
+  ),
+  schedule: Flag.string("schedule").pipe(
+    Flag.withDescription("approved schedule YAML to execute"),
+    Flag.optional
+  ),
+  target: Flag.choice("target", MOKA_RUN_TARGETS).pipe(
+    Flag.withDescription("execution target"),
+    Flag.withDefault(MOKA_RUN_TARGETS[0])
+  ),
+  workflow: Flag.string("workflow").pipe(
+    Flag.withDescription("workflow id from package config"),
+    Flag.optional
+  ),
+};
+
+const runControllerFlags = {
+  descriptionParts: runCommandFlags.descriptionParts,
+  entrypoint: runCommandFlags.entrypoint,
+  runId: Flag.string("run-id").pipe(
+    Flag.withDescription("existing run id to supervise")
+  ),
+  schedule: runCommandFlags.schedule,
+  workflow: runCommandFlags.workflow,
+};
+
+const normalizeRunFlags = (
+  flags: Command.Command.Config.Infer<typeof runCommandFlags>
+): {
+  readonly descriptionParts: string[];
+  readonly flags: RunFlags;
+} => ({
+  descriptionParts:
+    flags.literalArgs.length > 0
+      ? decodeLiteralCliArgs(flags.literalArgs)
+      : [...flags.descriptionParts],
+  flags: {
+    command: flags.command,
+    detach: flags.detach,
+    effort: flags.effort,
+    entrypoint: Option.getOrUndefined(flags.entrypoint),
+    readOnly: flags.readOnly,
+    schedule: Option.getOrUndefined(flags.schedule),
+    target: flags.target,
+    workflow: Option.getOrUndefined(flags.workflow),
+  },
+});
+
+const normalizeRunControllerFlags = (
+  flags: Command.Command.Config.Infer<typeof runControllerFlags>
+): {
+  readonly descriptionParts: string[];
+  readonly flags: RunControllerFlags;
+} => ({
+  descriptionParts: [...flags.descriptionParts],
+  flags: {
+    entrypoint: Option.getOrUndefined(flags.entrypoint),
+    runId: flags.runId,
+    schedule: Option.getOrUndefined(flags.schedule),
+    workflow: Option.getOrUndefined(flags.workflow),
+  },
+});
 
 const remoteSubmitFlags = (
   execution: RemoteSubmitExecution
@@ -74,69 +167,55 @@ const createResolvedRunCommand =
     });
   };
 
-export const registerRunCommands = (
-  program: Command,
-  options: RegisterRunCommandsOptions = {}
-): RunCommand => {
+export const createRunCommands = (options: RegisterRunCommandsOptions = {}) => {
   const dispatchResolvedRunCommand = createResolvedRunCommand(options);
-  program
-    .command("run")
-    .description(
+  const runCommand = Command.make("run", runCommandFlags, (rawFlags) =>
+    Effect.tryPromise({
+      catch: (error) => error,
+      try: async () => {
+        const { descriptionParts, flags } = normalizeRunFlags(rawFlags);
+        const task = descriptionParts.join(" ");
+        const resolution = resolveMokaRun({ flags, task });
+        await dispatchResolvedRunCommand({
+          descriptionParts,
+          flags,
+          resolution,
+          task,
+        });
+      },
+    })
+  ).pipe(
+    Command.withDescription(
       "Primary command: run a workflow from package-owned @oisincoveney/pipeline config"
     )
-    .argument("<description...>", "task description")
-    .option(
-      "--command",
-      "treat input after -- as explicit argv for remote submission"
-    )
-    .option("--entrypoint <entrypoint>", "entrypoint id from package config")
-    .option(
-      "--detach",
-      "start a supervised controller process in the background"
-    )
-    .addOption(
-      new Option("--effort <effort>", "run effort")
-        .choices([...MOKA_RUN_EFFORTS])
-        .default("normal")
-    )
-    .option("--read-only", "run the read-only inspect workflow")
-    .option("--schedule <schedule>", "approved schedule YAML to execute")
-    .addOption(
-      new Option("--target <target>", "execution target")
-        .choices([...MOKA_RUN_TARGETS])
-        .default("local")
-    )
-    .option("--workflow <workflow>", "workflow id from package config")
-    .action(async (descriptionParts: string[], flags: RunFlags) => {
-      const task = descriptionParts.join(" ");
-      const resolution = resolveMokaRun({ flags, task });
-      await dispatchResolvedRunCommand({
-        descriptionParts,
-        flags,
-        resolution,
-        task,
-      });
-    });
+  );
+  const runControllerCommand = Command.make(
+    "run-controller",
+    runControllerFlags,
+    (rawFlags) =>
+      Effect.tryPromise({
+        catch: (error) => error,
+        try: async () => {
+          const { descriptionParts, flags } =
+            normalizeRunControllerFlags(rawFlags);
+          await execute(descriptionParts.join(" "), {
+            entrypoint: flags.entrypoint,
+            runId: flags.runId,
+            runStoreMode: "reuse",
+            schedule: flags.schedule,
+            supervised: true,
+            supervisor: true,
+            workflow: flags.workflow,
+          });
+        },
+      })
+  ).pipe(
+    Command.withDescription("Internal detached run controller"),
+    Command.withHidden
+  );
 
-  program
-    .command("run-controller", { hidden: true })
-    .description("Internal detached run controller")
-    .argument("<description...>", "task description")
-    .requiredOption("--run-id <run-id>", "existing run id to supervise")
-    .option("--entrypoint <entrypoint>", "entrypoint id from package config")
-    .option("--schedule <schedule>", "approved schedule YAML to execute")
-    .option("--workflow <workflow>", "workflow id from package config")
-    .action(async (descriptionParts: string[], flags: RunControllerFlags) => {
-      await execute(descriptionParts.join(" "), {
-        entrypoint: flags.entrypoint,
-        runId: flags.runId,
-        runStoreMode: "reuse",
-        schedule: flags.schedule,
-        supervised: true,
-        supervisor: true,
-        workflow: flags.workflow,
-      });
-    });
-
-  return dispatchResolvedRunCommand;
+  return {
+    commands: [runCommand, runControllerCommand],
+    runCommand: dispatchResolvedRunCommand,
+  };
 };

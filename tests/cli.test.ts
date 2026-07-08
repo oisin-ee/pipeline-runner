@@ -21,6 +21,7 @@ import * as R from "effect/Record";
 import * as Schema from "effect/Schema";
 import { afterEach, beforeEach, vi } from "vitest";
 
+import { findSubcommand } from "../src/cli/cli-tree";
 import type { runCli } from "../src/index";
 import type {
   PipelineRuntimeOptions,
@@ -804,6 +805,22 @@ const withCliTarget = async (
     error.mockRestore();
     restoreEnv("PIPELINE_TARGET_PATH", originalTargetPath);
   }
+};
+
+const runCliAndReadStdout = async (
+  fixture: CliTargetFixture,
+  args: string[]
+): Promise<string> => {
+  const offset = fixture.log.mock.calls.length;
+  await fixture.runCli([
+    "node",
+    "/repo/node_modules/.bin/oisin-pipeline",
+    ...args,
+  ]);
+  return fixture.log.mock.calls
+    .slice(offset)
+    .map(([message]) => String(message))
+    .join("\n");
 };
 
 const withDirectInitDir = async (
@@ -1692,14 +1709,12 @@ describe("execute", () => {
     const { runCli } = await import("../src/index");
     const log = vi.spyOn(console, "log").mockImplementation(() => {});
     try {
-      await expect(
-        runCli([
-          "node",
-          "/repo/node_modules/.bin/oisin-pipeline",
-          "init",
-          "--help",
-        ])
-      ).rejects.toThrow("outputHelp");
+      await runCli([
+        "node",
+        "/repo/node_modules/.bin/oisin-pipeline",
+        "init",
+        "--help",
+      ]);
       expect(spyOutput(log)).not.toContain("--source");
     } finally {
       log.mockRestore();
@@ -2164,9 +2179,8 @@ workflows:
   });
 
   it("makes moka run primary and lists package entrypoint commands after it", async () => {
-    await withCliTempDir("pipeline-cli-entrypoint-help-", async () => {
-      const { createCliProgram } = await import("../src/index");
-      const help = createCliProgram().helpInformation();
+    await withCliTempDir("pipeline-cli-entrypoint-help-", async (fixture) => {
+      const help = await runCliAndReadStdout(fixture, ["--help"]);
       const commandSummaries = topLevelCommandSummaries(help);
 
       expect(commandSummaryText(commandSummaries, "run")).toMatch(
@@ -2189,36 +2203,15 @@ workflows:
   });
 
   it("prints the package version with --version", async () => {
-    await withCliTempDir("pipeline-cli-version-", async () => {
-      const { createCliProgram } = await import("../src/index");
-      const program = createCliProgram();
-      let stdout = "";
-      program.configureOutput({
-        writeErr: (chunk) => {
-          throw new Error(chunk);
-        },
-        writeOut: (chunk) => {
-          stdout += chunk;
-        },
-      });
-
-      await expect(
-        program.parseAsync(
-          ["node", "/repo/node_modules/.bin/moka", "--version"],
-          {
-            from: "node",
-          }
-        )
-      ).rejects.toMatchObject({ code: "commander.version", exitCode: 0 });
-
+    await withCliTempDir("pipeline-cli-version-", async (fixture) => {
+      const stdout = await runCliAndReadStdout(fixture, ["--version"]);
       expect(stdout.trim()).toBe(readPackageVersion());
     });
   });
 
   it("describes package-owned config as the runtime source in CLI help", async () => {
-    await withCliTempDir("pipeline-cli-package-help-", async () => {
-      const { createCliProgram } = await import("../src/index");
-      const help = createCliProgram().helpInformation();
+    await withCliTempDir("pipeline-cli-package-help-", async (fixture) => {
+      const help = await runCliAndReadStdout(fixture, ["--help"]);
 
       expect(help.replaceAll(/\s+/gu, " ")).toContain(
         "package-owned @oisincoveney/pipeline config"
@@ -2229,65 +2222,54 @@ workflows:
   });
 
   it("registers moka submit as the graph submission command", async () => {
-    await withCliTempDir("pipeline-cli-moka-submit-", async () => {
+    await withCliTempDir("pipeline-cli-moka-submit-", async (fixture) => {
       const { createCliProgram } = await import("../src/index");
       const program = createCliProgram();
-      const k8sRun = program.commands.find(
-        (command) => command.name() === "k8s-run"
-      );
-      const submitCmd = program.commands.find(
-        (command) => command.name() === "submit"
-      );
+      const k8sRun = findSubcommand(program, "k8s-run");
 
       expect(k8sRun).toBeUndefined();
-      expect(
-        program.commands.find((command) => command.name() === "quick")
-      ).toBeDefined();
-      expect(
-        program.commands.find((command) => command.name() === "execute")
-      ).toBeDefined();
-      const help = submitCmd?.helpInformation() ?? "";
+      expect(findSubcommand(program, "quick")).toBeDefined();
+      expect(findSubcommand(program, "execute")).toBeDefined();
+      const help = await runCliAndReadStdout(fixture, ["submit", "--help"]);
       expect(help).not.toContain("--local");
       expect(help).toContain("--quick");
-      expect(help).toContain("--schedule <path>");
+      expect(help).toContain("--schedule");
       expect(help).toContain("--command");
-      expect(help).toContain("--event-url <url>");
+      expect(help).toContain("--event-url");
     });
   });
 
   it("exposes explicit argv submission through moka submit --command", async () => {
-    await withCliTempDir("pipeline-cli-moka-submit-command-", async () => {
-      const { createCliProgram } = await import("../src/index");
-      const program = createCliProgram();
-      const argoCmd = program.commands.find(
-        (command) => command.name() === "argo"
-      );
-      const submitCommand = program.commands.find(
-        (command) => command.name() === "submit"
-      );
+    await withCliTempDir(
+      "pipeline-cli-moka-submit-command-",
+      async (fixture) => {
+        const { createCliProgram } = await import("../src/index");
+        const program = createCliProgram();
+        const argoCmd = findSubcommand(program, "argo");
 
-      expect(
-        argoCmd?.commands.find((command) => command.name() === "submit-command")
-      ).toBeUndefined();
-      expect(submitCommand).toBeDefined();
-      const help = submitCommand?.helpInformation() ?? "";
-      expect(help).toContain("[input...]");
-      expect(help).toContain("--event-url <url>");
-      expect(help).toContain("--task <text>");
-      expect(help).toContain("--command");
-      expect(help).not.toContain("command-file");
-      expect(help).not.toContain("command-json");
-      expect(help).not.toContain("node-id");
-    });
+        expect(
+          argoCmd === undefined
+            ? undefined
+            : findSubcommand(argoCmd, "submit-command")
+        ).toBeUndefined();
+        expect(findSubcommand(program, "submit")).toBeDefined();
+        const help = await runCliAndReadStdout(fixture, ["submit", "--help"]);
+        expect(help).toContain("input...");
+        expect(help).toContain("--event-url");
+        expect(help).toContain("--task");
+        expect(help).toContain("--command");
+        expect(help).not.toContain("command-file");
+        expect(help).not.toContain("command-json");
+        expect(help).not.toContain("node-id");
+      }
+    );
   });
 
   it("does not expose public Argo render commands", async () => {
     await withCliTempDir("pipeline-cli-argo-render-", async () => {
       const { createCliProgram } = await import("../src/index");
       const program = createCliProgram();
-      const argoCmd = program.commands.find(
-        (command) => command.name() === "argo"
-      );
+      const argoCmd = findSubcommand(program, "argo");
 
       expect(argoCmd).toBeUndefined();
     });

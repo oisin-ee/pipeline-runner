@@ -1,5 +1,5 @@
-import type { Command } from "commander";
 import { Effect, Option } from "effect";
+import { Argument, Command, Flag } from "effect/unstable/cli";
 
 import { loadPipelineConfig } from "../../config";
 import type { AgentResult, RunnerLaunchPlan } from "../../runner";
@@ -25,6 +25,37 @@ interface TicketCreateFlags {
   dryRun?: boolean;
   parent?: string;
 }
+
+const ticketCreateFlags = {
+  apply: Flag.boolean("apply").pipe(
+    Flag.withDescription("apply the validated ticket plan through Backlog")
+  ),
+  dryRun: Flag.boolean("dry-run").pipe(
+    Flag.withDescription("render Backlog commands without writing tasks")
+  ),
+  parent: Flag.string("parent").pipe(
+    Flag.withDescription("existing parent task for applied children"),
+    Flag.optional
+  ),
+  requestParts: Argument.string("request").pipe(
+    Argument.withDescription("ticket planning request"),
+    Argument.variadic({ min: 1 })
+  ),
+};
+
+const normalizeTicketCreateFlags = (
+  flags: Command.Command.Config.Infer<typeof ticketCreateFlags>
+): {
+  readonly flags: TicketCreateFlags;
+  readonly request: string;
+} => ({
+  flags: {
+    apply: flags.apply,
+    dryRun: flags.dryRun,
+    parent: Option.getOrUndefined(flags.parent),
+  },
+  request: [...flags.requestParts].join(" "),
+});
 
 interface RunnerFailureResult {
   readonly exitCode: number;
@@ -234,28 +265,16 @@ const printTicketCreateEffect = (
     yield* writeLineEffect(formatAppliedTicketPlan(applied));
   });
 
-export const registerCreateSubcommand = (
-  ticketCommand: Command,
-  options: TicketCommandOptions
-): void => {
-  ticketCommand
-    .command("create")
-    .description("Create a validated Backlog ticket plan")
-    .argument("<request...>", "ticket planning request")
-    .option("--dry-run", "render Backlog commands without writing tasks")
-    .option("--apply", "apply the validated ticket plan through Backlog")
-    .option("--parent <task-id>", "existing parent task for applied children")
-    .action(async (requestParts: string[], flags: TicketCreateFlags) => {
-      await Effect.runPromise(
-        Effect.provide(
-          printTicketCreateEffect(
-            currentWorktreePath(),
-            requestParts.join(" "),
-            flags,
-            options.ticketPlanExecutor ?? runLaunchPlan
-          ),
-          options.backlogLayer ?? BacklogServiceLive
-        )
-      );
-    });
-};
+export const createCreateSubcommand = (options: TicketCommandOptions) =>
+  Command.make("create", ticketCreateFlags, (rawFlags) => {
+    const { flags, request } = normalizeTicketCreateFlags(rawFlags);
+    return Effect.provide(
+      printTicketCreateEffect(
+        currentWorktreePath(),
+        request,
+        flags,
+        options.ticketPlanExecutor ?? runLaunchPlan
+      ),
+      options.backlogLayer ?? BacklogServiceLive
+    );
+  }).pipe(Command.withDescription("Create a validated Backlog ticket plan"));

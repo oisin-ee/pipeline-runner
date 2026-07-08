@@ -1,16 +1,13 @@
-import { Option as CommanderOption } from "commander";
-import type { Command } from "commander";
 import * as Option from "effect/Option";
+import type { Command } from "effect/unstable/cli";
+import { Argument, Flag } from "effect/unstable/cli";
 
 import type { PipelineConfig } from "../config";
 import { loadPipelineConfig } from "../config";
 import { loadMokaGlobalConfig } from "../moka-global-config";
 import type { MokaGlobalConfig } from "../moka-global-config";
 import { submitMoka } from "../moka-submit";
-
-interface ArgoCommandOptionOptions {
-  kubeconfig?: boolean;
-}
+import { decodeLiteralCliArgs, literalArgFlagName } from "./cli-args";
 
 export interface MokaSubmitFlags {
   command?: boolean;
@@ -37,6 +34,168 @@ export interface MokaSubmitFlags {
   skipNpmRegistryAuth?: boolean;
   task?: string;
 }
+
+const imagePullPolicyChoices: readonly ["Always", "IfNotPresent", "Never"] = [
+  "Always",
+  "IfNotPresent",
+  "Never",
+];
+
+export const mokaSubmitCliConfig = {
+  command: Flag.boolean("command").pipe(
+    Flag.withDescription("treat input after -- as explicit argv")
+  ),
+  dbAuthSecretKey: Flag.string("db-auth-secret-key").pipe(
+    Flag.withDescription("override momokaya.submit.dbAuth secret key"),
+    Flag.optional
+  ),
+  dbAuthSecretName: Flag.string("db-auth-secret-name").pipe(
+    Flag.withDescription("override momokaya.submit.dbAuth secret name"),
+    Flag.optional
+  ),
+  eventUrl: Flag.string("event-url").pipe(
+    Flag.withDescription("runner event sink URL"),
+    Flag.optional
+  ),
+  generateName: Flag.string("generate-name").pipe(
+    Flag.withDescription("Workflow metadata.generateName"),
+    Flag.optional
+  ),
+  image: Flag.string("image").pipe(
+    Flag.withDescription("runner image"),
+    Flag.optional
+  ),
+  imagePullPolicy: Flag.choice(
+    "image-pull-policy",
+    imagePullPolicyChoices
+  ).pipe(
+    Flag.withDescription("runner image pull policy"),
+    Flag.withDefault(imagePullPolicyChoices[0])
+  ),
+  imagePullSecret: Flag.string("image-pull-secret").pipe(
+    Flag.withDescription("imagePullSecret name"),
+    Flag.optional
+  ),
+  input: Argument.string("input").pipe(
+    Argument.withDescription(
+      "task description, or command argv with --command"
+    ),
+    Argument.variadic({ min: 0 })
+  ),
+  kubeContext: Flag.string("kube-context").pipe(
+    Flag.withDescription("kubeconfig context to target"),
+    Flag.optional
+  ),
+  kubeconfig: Flag.string("kubeconfig").pipe(
+    Flag.withDescription("kubeconfig path"),
+    Flag.optional
+  ),
+  literalArgs: Flag.string(literalArgFlagName).pipe(
+    Flag.withDescription("internal preserved command argv"),
+    Flag.withHidden,
+    Flag.atLeast(0)
+  ),
+  mcpGatewayAuthSecretKey: Flag.string("mcp-gateway-auth-secret-key").pipe(
+    Flag.withDescription("override momokaya.submit.mcpGatewayAuth secret key"),
+    Flag.optional
+  ),
+  mcpGatewayAuthSecretName: Flag.string("mcp-gateway-auth-secret-name").pipe(
+    Flag.withDescription("override momokaya.submit.mcpGatewayAuth secret name"),
+    Flag.optional
+  ),
+  name: Flag.string("name").pipe(
+    Flag.withDescription("Workflow metadata.name"),
+    Flag.optional
+  ),
+  namespace: Flag.string("namespace").pipe(
+    Flag.withDescription("Workflow namespace"),
+    Flag.optional
+  ),
+  npmRegistryAuthSecretName: Flag.string("npm-registry-auth-secret-name").pipe(
+    Flag.withDescription("override momokaya.submit.npmRegistryAuthSecretName"),
+    Flag.optional
+  ),
+  openPr: Flag.boolean("open-pr").pipe(
+    Flag.withDescription(
+      "append an open-pull-request delivery node (preview-labelled PR)"
+    )
+  ),
+  quick: Flag.boolean("quick").pipe(
+    Flag.withDescription("submit the compact graph")
+  ),
+  schedule: Flag.string("schedule").pipe(
+    Flag.withDescription("approved schedule YAML to submit"),
+    Flag.optional
+  ),
+  serviceAccount: Flag.string("service-account").pipe(
+    Flag.withDescription("Workflow service account"),
+    Flag.optional
+  ),
+  skipDbAuth: Flag.boolean("skip-db-auth").pipe(
+    Flag.withDescription(
+      "omit MOKA_DB_URL injection regardless of global config"
+    )
+  ),
+  skipMcpGatewayAuth: Flag.boolean("skip-mcp-gateway-auth").pipe(
+    Flag.withDescription(
+      "omit PIPELINE_MCP_GATEWAY_AUTHORIZATION injection regardless of global config"
+    )
+  ),
+  skipNpmRegistryAuth: Flag.boolean("skip-npm-registry-auth").pipe(
+    Flag.withDescription(
+      "omit the /root/.npmrc mount regardless of global config"
+    )
+  ),
+  task: Flag.string("task").pipe(
+    Flag.withDescription("task description for command-mode metadata"),
+    Flag.optional
+  ),
+};
+
+export interface ParsedMokaSubmitCliInput {
+  readonly flags: MokaSubmitFlags;
+  readonly input: string[];
+}
+
+export const normalizeMokaSubmitCliInput = (
+  parsed: Command.Command.Config.Infer<typeof mokaSubmitCliConfig>
+): ParsedMokaSubmitCliInput => {
+  const literalArgs = decodeLiteralCliArgs(parsed.literalArgs);
+  return {
+    flags: {
+      command: parsed.command,
+      dbAuthSecretKey: Option.getOrUndefined(parsed.dbAuthSecretKey),
+      dbAuthSecretName: Option.getOrUndefined(parsed.dbAuthSecretName),
+      eventUrl: Option.getOrUndefined(parsed.eventUrl),
+      generateName: Option.getOrUndefined(parsed.generateName),
+      image: Option.getOrUndefined(parsed.image),
+      imagePullPolicy: parsed.imagePullPolicy,
+      imagePullSecret: Option.getOrUndefined(parsed.imagePullSecret),
+      kubeContext: Option.getOrUndefined(parsed.kubeContext),
+      kubeconfig: Option.getOrUndefined(parsed.kubeconfig),
+      mcpGatewayAuthSecretKey: Option.getOrUndefined(
+        parsed.mcpGatewayAuthSecretKey
+      ),
+      mcpGatewayAuthSecretName: Option.getOrUndefined(
+        parsed.mcpGatewayAuthSecretName
+      ),
+      name: Option.getOrUndefined(parsed.name),
+      namespace: Option.getOrUndefined(parsed.namespace),
+      npmRegistryAuthSecretName: Option.getOrUndefined(
+        parsed.npmRegistryAuthSecretName
+      ),
+      openPr: parsed.openPr,
+      quick: parsed.quick,
+      schedule: Option.getOrUndefined(parsed.schedule),
+      serviceAccount: Option.getOrUndefined(parsed.serviceAccount),
+      skipDbAuth: parsed.skipDbAuth,
+      skipMcpGatewayAuth: parsed.skipMcpGatewayAuth,
+      skipNpmRegistryAuth: parsed.skipNpmRegistryAuth,
+      task: Option.getOrUndefined(parsed.task),
+    },
+    input: literalArgs.length > 0 ? literalArgs : [...parsed.input],
+  };
+};
 
 interface SecretRefFlags {
   secretKey?: string;
@@ -153,82 +312,6 @@ const submitMokaGraphInput = (
     type: "graph",
   };
 };
-
-const addRunnerArgoOptions = (
-  command: Command,
-  options: ArgoCommandOptionOptions = {}
-): Command => {
-  command
-    .option("--name <name>", "Workflow metadata.name")
-    .option("--generate-name <prefix>", "Workflow metadata.generateName")
-    .option("--namespace <namespace>", "Workflow namespace");
-  if (options.kubeconfig === true) {
-    command
-      .option("--kubeconfig <path>", "kubeconfig path")
-      .option("--kube-context <name>", "kubeconfig context to target");
-  }
-  return command
-    .option("--service-account <name>", "Workflow service account")
-    .option("--image <image>", "runner image")
-    .addOption(
-      new CommanderOption(
-        "--image-pull-policy <policy>",
-        "runner image pull policy"
-      )
-        .choices(["Always", "IfNotPresent", "Never"])
-        .default("Always")
-    )
-    .option("--image-pull-secret <name>", "imagePullSecret name");
-};
-
-export const addMokaSubmitOptions = (command: Command): Command =>
-  addRunnerArgoOptions(
-    command
-      .option("--quick", "submit the compact graph")
-      .option("--command", "treat input after -- as explicit argv")
-      .option("--schedule <path>", "approved schedule YAML to submit")
-      .option("--event-url <url>", "runner event sink URL")
-      .option(
-        "--open-pr",
-        "append an open-pull-request delivery node (preview-labelled PR)"
-      )
-      .option("--task <text>", "task description for command-mode metadata")
-      .option(
-        "--db-auth-secret-name <name>",
-        "override momokaya.submit.dbAuth secret name"
-      )
-      .option(
-        "--db-auth-secret-key <key>",
-        "override momokaya.submit.dbAuth secret key"
-      )
-      .option(
-        "--skip-db-auth",
-        "omit MOKA_DB_URL injection regardless of global config"
-      )
-      .option(
-        "--mcp-gateway-auth-secret-name <name>",
-        "override momokaya.submit.mcpGatewayAuth secret name"
-      )
-      .option(
-        "--mcp-gateway-auth-secret-key <key>",
-        "override momokaya.submit.mcpGatewayAuth secret key"
-      )
-      .option(
-        "--skip-mcp-gateway-auth",
-        "omit PIPELINE_MCP_GATEWAY_AUTHORIZATION injection regardless of global config"
-      )
-      .option(
-        "--npm-registry-auth-secret-name <name>",
-        "override momokaya.submit.npmRegistryAuthSecretName"
-      )
-      .option(
-        "--skip-npm-registry-auth",
-        "omit the /root/.npmrc mount regardless of global config"
-      ),
-    {
-      kubeconfig: true,
-    }
-  );
 
 export const parseImagePullPolicy = (
   value?: string

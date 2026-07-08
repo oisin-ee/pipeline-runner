@@ -1,7 +1,8 @@
-import type { Command } from "commander";
 import { Effect, Option } from "effect";
+import { Command, Flag } from "effect/unstable/cli";
 
 import { BacklogServiceLive } from "../../runtime/services/backlog-service";
+import { RepoIoServiceLive } from "../../runtime/services/repo-io-service";
 import type { BacklogTaskRecord } from "../../tickets/backlog-task-store";
 import {
   selectNextTicket,
@@ -14,7 +15,6 @@ import {
   formatNextTicket,
   loadTicketSelectionEffect,
   readyTicketEffect,
-  runTicketProgramWithBacklog,
   writeLineEffect,
 } from "./shared";
 
@@ -25,6 +25,36 @@ interface TicketNextFlags {
   root?: string;
   strategy?: string;
 }
+
+const ticketNextFlags = {
+  claim: Flag.boolean("claim").pipe(
+    Flag.withDescription("mark the selected ticket In Progress through Backlog")
+  ),
+  includeParents: Flag.boolean("include-parents").pipe(
+    Flag.withDescription("allow parent tickets in selection results")
+  ),
+  json: Flag.boolean("json").pipe(
+    Flag.withDescription("print machine-readable selection output")
+  ),
+  root: Flag.string("root").pipe(
+    Flag.withDescription("select from one ticket tree"),
+    Flag.optional
+  ),
+  strategy: Flag.string("strategy").pipe(
+    Flag.withDescription("selection strategy: priority, bfs, or dfs"),
+    Flag.optional
+  ),
+};
+
+const normalizeTicketNextFlags = (
+  flags: Command.Command.Config.Infer<typeof ticketNextFlags>
+): TicketNextFlags => ({
+  claim: flags.claim,
+  includeParents: flags.includeParents,
+  json: flags.json,
+  root: Option.getOrUndefined(flags.root),
+  strategy: Option.getOrUndefined(flags.strategy),
+});
 
 const ticketJson = (ticket: BacklogTaskRecord) => ({
   acceptanceCriteria: ticket.acceptanceCriteria,
@@ -69,25 +99,16 @@ const printNextTicketEffect = (worktreePath: string, flags: TicketNextFlags) =>
     );
   });
 
-export const registerNextSubcommand = (
-  ticketCommand: Command,
-  options: TicketCommandOptions
-): void => {
-  ticketCommand
-    .command("next")
-    .description("Select the next ready Backlog ticket deterministically")
-    .option("--root <ticket-id>", "select from one ticket tree")
-    .option("--claim", "mark the selected ticket In Progress through Backlog")
-    .option("--include-parents", "allow parent tickets in selection results")
-    .option("--json", "print machine-readable selection output")
-    .option(
-      "--strategy <strategy>",
-      "selection strategy: priority, bfs, or dfs"
+export const createNextSubcommand = (options: TicketCommandOptions) =>
+  Command.make("next", ticketNextFlags, (rawFlags) =>
+    printNextTicketEffect(
+      currentWorktreePath(),
+      normalizeTicketNextFlags(rawFlags)
     )
-    .action(async (flags: TicketNextFlags) => {
-      await runTicketProgramWithBacklog(
-        printNextTicketEffect(currentWorktreePath(), flags),
-        options.backlogLayer ?? BacklogServiceLive
-      );
-    });
-};
+  ).pipe(
+    Command.provide(RepoIoServiceLive),
+    Command.provide(options.backlogLayer ?? BacklogServiceLive),
+    Command.withDescription(
+      "Select the next ready Backlog ticket deterministically"
+    )
+  );

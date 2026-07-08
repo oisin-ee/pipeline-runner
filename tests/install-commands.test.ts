@@ -671,7 +671,7 @@ describe("installCommands", () => {
     );
   });
 
-  it("validates host names through Commander parser hook", () => {
+  it("validates host names through the CLI parser hook", () => {
     expect(parseCommandHost("all")).toBe("all");
     expect(parseCommandHost("opencode")).toBe("opencode");
     expect(parseCommandHost("claude-code")).toBe("claude-code");

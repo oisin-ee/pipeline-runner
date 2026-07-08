@@ -1,37 +1,26 @@
-import type { Command } from "commander";
+import { Command } from "effect/unstable/cli";
 
-import { registerCompleteSubcommand } from "./ticket/complete";
-import { registerCreateSubcommand } from "./ticket/create";
-import { registerGraphCheckSubcommand } from "./ticket/graph-check";
-import { registerNextSubcommand } from "./ticket/next";
-import { registerSequenceSubcommand } from "./ticket/sequence";
+import { createCompleteSubcommand } from "./ticket/complete";
+import { createCreateSubcommand } from "./ticket/create";
+import { createGraphCheckSubcommand } from "./ticket/graph-check";
+import { createNextSubcommand } from "./ticket/next";
+import { createSequenceSubcommand } from "./ticket/sequence";
 import type { TicketCommandOptions } from "./ticket/shared";
-import { registerStartSubcommand } from "./ticket/start";
+import { createStartSubcommand } from "./ticket/start";
 
 export type { TicketCommandOptions } from "./ticket/shared";
 
-type SubcommandRegistrar = (
-  ticketCommand: Command,
-  options: TicketCommandOptions
-) => void;
-
-const SUBCOMMAND_REGISTRARS: readonly SubcommandRegistrar[] = [
-  registerGraphCheckSubcommand,
-  registerSequenceSubcommand,
-  registerNextSubcommand,
-  registerStartSubcommand,
-  registerCreateSubcommand,
-  registerCompleteSubcommand,
-];
-
-export const registerTicketCommand = (
-  program: Command,
-  options: TicketCommandOptions = {}
-): void => {
-  const ticketCommand = program
-    .command("ticket")
-    .description("Scope, inspect, and select Backlog tickets for moka runs");
-  for (const registrar of SUBCOMMAND_REGISTRARS) {
-    registrar(ticketCommand, options);
-  }
-};
+export const createTicketCommand = (options: TicketCommandOptions = {}) =>
+  Command.make("ticket").pipe(
+    Command.withDescription(
+      "Scope, inspect, and select Backlog tickets for moka runs"
+    ),
+    Command.withSubcommands([
+      createGraphCheckSubcommand(options),
+      createSequenceSubcommand(options),
+      createNextSubcommand(options),
+      createStartSubcommand(options),
+      createCreateSubcommand(options),
+      createCompleteSubcommand(options),
+    ])
+  );

@@ -11,6 +11,7 @@ import { join } from "node:path";
 import { Effect, Layer, Option } from "effect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { findSubcommand } from "../src/cli/cli-tree";
 import type { CliProgramOptions } from "../src/cli/program";
 import type { RunCommandCall } from "../src/cli/run-command";
 import type { TicketCommandOptions } from "../src/commands/ticket-command";
@@ -167,11 +168,11 @@ const parseTicketCommandWithOptions = async (
 ) => {
   process.env.PIPELINE_TARGET_PATH = root;
   const { runCommand, ...ticketCommand } = options;
-  const { createCliProgram } = await import("../src/cli/program");
-  await createCliProgram({ runCommand, ticketCommand }).parseAsync(
-    ["node", "/repo/node_modules/.bin/moka", "ticket", ...args],
-    { from: "node" }
-  );
+  const { runCli } = await import("../src/cli/program");
+  await runCli(["node", "/repo/node_modules/.bin/moka", "ticket", ...args], {
+    runCommand,
+    ticketCommand,
+  });
 };
 
 const parseTicketCommand = async (root: string, args: readonly string[]) => {
@@ -223,17 +224,18 @@ const loggedOutput = (): string =>
 describe("moka ticket read-only commands", () => {
   it("registers graph check, sequence, and next help", async () => {
     process.env.PIPELINE_TARGET_PATH = makeBacklogFixture().root;
-    const { createCliProgram } = await import("../src/cli/program");
-    const ticketCommand = createCliProgram().commands.find(
-      (command) => command.name() === "ticket"
-    );
+    const { createCliProgram, runCli } = await import("../src/cli/program");
+    const ticketCommand = findSubcommand(createCliProgram(), "ticket");
+    if (ticketCommand === undefined) {
+      throw new Error("ticket command is not registered");
+    }
 
-    expect(ticketCommand?.helpInformation()).toContain("graph");
-    expect(ticketCommand?.helpInformation()).toContain("sequence");
-    expect(ticketCommand?.helpInformation()).toContain("next");
-    expect(
-      ticketCommand?.commands.find((command) => command.name() === "graph")
-    ).toBeDefined();
+    await runCli(["node", "/repo/node_modules/.bin/moka", "ticket", "--help"]);
+
+    expect(loggedOutput()).toContain("graph");
+    expect(loggedOutput()).toContain("sequence");
+    expect(loggedOutput()).toContain("next");
+    expect(findSubcommand(ticketCommand, "graph")).toBeDefined();
   });
 
   it("checks graph validity without mutating task markdown", async () => {

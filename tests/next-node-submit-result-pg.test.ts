@@ -3,25 +3,19 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { Command } from "commander";
 import { Effect } from "effect";
 import postgres from "postgres";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
+import { runCli } from "../src/cli/program";
 import type { loadMokaDbUrl } from "../src/moka-global-config";
-import {
-  buildNextNodeEnvelope,
-  registerNextNodeSubcommand,
-} from "../src/run-control/next-node";
+import { buildNextNodeEnvelope } from "../src/run-control/next-node";
 import type { NodeEnvelopeMetadata } from "../src/run-control/next-node";
 import {
   migratePostgresRunControlStore,
   postgresRunControlStore,
 } from "../src/run-control/postgres/postgres-run-control-store";
-import {
-  recordSubmitResult,
-  registerSubmitResultSubcommand,
-} from "../src/run-control/submit-result";
+import { recordSubmitResult } from "../src/run-control/submit-result";
 import type { RuntimeNodeResult } from "../src/runtime/contracts";
 import { resolveDurableStore } from "../src/runtime/durable-store/acquisition";
 import type { DurableRunStore } from "../src/runtime/durable-store/durable-store";
@@ -139,19 +133,6 @@ const captureStdout = async <T>(run: () => Promise<T>): Promise<string> => {
   }
 };
 
-const nextNodeProgram = (): Command => {
-  const program = new Command("moka").exitOverride();
-  const nextCommand = program.command("next");
-  registerNextNodeSubcommand(nextCommand);
-  return program;
-};
-
-const submitResultProgram = (): Command => {
-  const program = new Command("moka").exitOverride();
-  registerSubmitResultSubcommand(program);
-  return program;
-};
-
 const runNextNodeCommand = async (
   runId: string,
   worktreePath: string
@@ -159,12 +140,15 @@ const runNextNodeCommand = async (
   const originalTargetPath = process.env.PIPELINE_TARGET_PATH;
   try {
     process.env.PIPELINE_TARGET_PATH = worktreePath;
-    return await captureStdout(
-      async () =>
-        await nextNodeProgram().parseAsync(["next", "node", runId], {
-          from: "user",
-        })
-    );
+    return await captureStdout(async () => {
+      await runCli([
+        "node",
+        "/repo/node_modules/.bin/moka",
+        "next",
+        "node",
+        runId,
+      ]);
+    });
   } finally {
     if (originalTargetPath === undefined) {
       delete process.env.PIPELINE_TARGET_PATH;
@@ -179,15 +163,17 @@ const runSubmitResultCommand = async (
   nodeId: string,
   result: RuntimeNodeResult
 ): Promise<void> => {
-  await captureStdout(
-    async () =>
-      await submitResultProgram().parseAsync(
-        ["submit-result", runId, nodeId, "--json", JSON.stringify(result)],
-        {
-          from: "user",
-        }
-      )
-  );
+  await captureStdout(async () => {
+    await runCli([
+      "node",
+      "/repo/node_modules/.bin/moka",
+      "submit-result",
+      runId,
+      nodeId,
+      "--json",
+      JSON.stringify(result),
+    ]);
+  });
 };
 
 describe("resolveDurableStore selection (no infra)", () => {

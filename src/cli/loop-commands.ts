@@ -1,5 +1,5 @@
-import { Option } from "commander";
-import type { Command } from "commander";
+import { Effect, Option } from "effect";
+import { Command, Flag } from "effect/unstable/cli";
 
 import { loadPipelineConfig } from "../config";
 import { parseLoopFlags, runLoopSubmit } from "../loop/loop-command";
@@ -14,6 +14,52 @@ interface LoopControllerEntrypointFlags {
   root?: string;
   strategy?: string;
 }
+
+const loopFlags = {
+  maxRemediationAttempts: Flag.string("max-remediation-attempts").pipe(
+    Flag.withDescription(
+      "bounded fix-up submits before a PR is declared blocked"
+    ),
+    Flag.optional
+  ),
+  mergeTimeout: Flag.string("merge-timeout").pipe(
+    Flag.withDescription(
+      "bounded merge polls before an indeterminate PR is declared blocked"
+    ),
+    Flag.optional
+  ),
+  root: Flag.string("root").pipe(
+    Flag.withDescription("restrict traversal to this epic subtree"),
+    Flag.optional
+  ),
+  strategy: Flag.choice("strategy", ["priority", "bfs", "dfs"]).pipe(
+    Flag.withDescription("ready-ticket selection strategy"),
+    Flag.withDefault("priority")
+  ),
+};
+
+const loopControllerFlags = {
+  ...loopFlags,
+  payloadFile: Flag.string("payload-file").pipe(
+    Flag.withDescription("Path to the runner payload JSON")
+  ),
+};
+
+const normalizeLoopFlags = (
+  flags: Command.Command.Config.Infer<typeof loopFlags>
+): LoopCommandOptions => ({
+  maxRemediationAttempts: Option.getOrUndefined(flags.maxRemediationAttempts),
+  mergeTimeout: Option.getOrUndefined(flags.mergeTimeout),
+  root: Option.getOrUndefined(flags.root),
+  strategy: flags.strategy,
+});
+
+const normalizeLoopControllerFlags = (
+  flags: Command.Command.Config.Infer<typeof loopControllerFlags>
+): LoopControllerEntrypointFlags => ({
+  ...normalizeLoopFlags(flags),
+  payloadFile: flags.payloadFile,
+});
 
 const buildLoopSubmitInput = (
   options: LoopCommandOptions
@@ -43,47 +89,37 @@ const buildLoopSubmitInput = (
   };
 };
 
-export const registerLoopCommand = (program: Command): void => {
-  program
-    .command("loop")
-    .description(
-      "Submit a long-running cloud controller that drains the backlog ticket-by-ticket"
-    )
-    .addOption(
-      new Option("--strategy <strategy>", "ready-ticket selection strategy")
-        .choices(["priority", "bfs", "dfs"])
-        .default("priority")
-    )
-    .option("--root <epic-id>", "restrict traversal to this epic subtree")
-    .option(
-      "--max-remediation-attempts <n>",
-      "bounded fix-up submits before a PR is declared blocked"
-    )
-    .option(
-      "--merge-timeout <n>",
-      "bounded merge polls before an indeterminate PR is declared blocked"
-    )
-    .action(async (options: LoopCommandOptions) => {
-      await runLoopSubmit(buildLoopSubmitInput(options));
-    });
+const loopCommand = Command.make("loop", loopFlags, (rawFlags) =>
+  Effect.tryPromise({
+    catch: (error) => error,
+    try: async () => {
+      await runLoopSubmit(buildLoopSubmitInput(normalizeLoopFlags(rawFlags)));
+    },
+  })
+).pipe(
+  Command.withDescription(
+    "Submit a long-running cloud controller that drains the backlog ticket-by-ticket"
+  )
+);
 
-  program
-    .command("loop-controller", { hidden: true })
-    .description("Internal in-cluster loop controller process")
-    .requiredOption("--payload-file <path>", "Path to the runner payload JSON")
-    .addOption(
-      new Option("--strategy <strategy>", "ready-ticket selection strategy")
-        .choices(["priority", "bfs", "dfs"])
-        .default("priority")
-    )
-    .option("--root <epic-id>", "restrict traversal to this epic subtree")
-    .option("--max-remediation-attempts <n>", "bounded fix-up submits")
-    .option("--merge-timeout <n>", "bounded merge polls")
-    .action(async (flags: LoopControllerEntrypointFlags) => {
-      await runLoopControllerEntrypoint({
-        flags: parseLoopFlags(flags),
-        payloadFile: flags.payloadFile,
-        worktreePath: process.env.PIPELINE_TARGET_PATH ?? process.cwd(),
-      });
-    });
-};
+const loopControllerCommand = Command.make(
+  "loop-controller",
+  loopControllerFlags,
+  (rawFlags) =>
+    Effect.tryPromise({
+      catch: (error) => error,
+      try: async () => {
+        const flags = normalizeLoopControllerFlags(rawFlags);
+        await runLoopControllerEntrypoint({
+          flags: parseLoopFlags(flags),
+          payloadFile: flags.payloadFile,
+          worktreePath: process.env.PIPELINE_TARGET_PATH ?? process.cwd(),
+        });
+      },
+    })
+).pipe(
+  Command.withDescription("Internal in-cluster loop controller process"),
+  Command.withHidden
+);
+
+export const createLoopCommands = () => [loopCommand, loopControllerCommand];

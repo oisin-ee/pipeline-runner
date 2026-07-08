@@ -97,10 +97,10 @@ const runComplete = async (
   backlogLayer: NonNullable<TicketCommandOptions["backlogLayer"]>
 ): Promise<void> => {
   process.env.PIPELINE_TARGET_PATH = root;
-  const { createCliProgram } = await import("../src/cli/program");
-  await createCliProgram({ ticketCommand: { backlogLayer } }).parseAsync(
+  const { runCli } = await import("../src/cli/program");
+  await runCli(
     ["node", "/repo/node_modules/.bin/moka", "ticket", "complete", ...args],
-    { from: "node" }
+    { ticketCommand: { backlogLayer } }
   );
 };
 

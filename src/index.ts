@@ -3,13 +3,12 @@
 import { existsSync, realpathSync } from "node:fs";
 import { resolve } from "node:path";
 
-import { CommanderError } from "commander";
-import { Cause, Effect, Exit, Option } from "effect";
+import { Cause, Effect, Exit, Option, Runtime } from "effect";
 
 import { runCliEffect } from "./cli/program";
 
 export { runDoctor } from "./cli/doctor";
-export { createCliProgram, runCli } from "./cli/program";
+export { createCliCommand, createCliProgram, runCli } from "./cli/program";
 export { execute, quick } from "./cli/run-service";
 
 const PATH_SEPARATOR_RE = /[\\/]/u;
@@ -39,15 +38,7 @@ export const isCliEntrypoint = (argv: string[]): boolean => {
   );
 };
 
-const hasExitCode = (err: unknown): err is Error & { exitCode: number } =>
-  err instanceof Error && "exitCode" in err && typeof err.exitCode === "number";
-
-const cliErrorCode = (err: unknown): number => {
-  if (err instanceof CommanderError || hasExitCode(err)) {
-    return err.exitCode;
-  }
-  return 1;
-};
+const cliErrorCode = (err: unknown): number => Runtime.getErrorExitCode(err);
 
 const handleCliFailure = (err: unknown): never => {
   process.exit(cliErrorCode(err));

@@ -49,7 +49,40 @@
     "effect/avoid-untagged-errors": {
       "count": 1
     },
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "effect/prefer-namespace-imports": {
+      "count": 1
+    },
     "effect/use-path-service": {
+      "count": 1
+    }
+  },
+  "src/cli/cli-args.ts": {
+    "effect/avoid-node-imports": {
+      "count": 1
+    },
+    "effect/no-length-comparison": {
+      "count": 1
+    },
+    "effect/prefer-arr-match": {
+      "count": 1
+    },
+    "effect/prefer-option-over-null": {
+      "count": 1
+    },
+    "typescript/no-unnecessary-condition": {
+      "count": 1
+    }
+  },
+  "src/cli/cli-runtime.ts": {
+    "effect/no-barrel-imports": {
+      "count": 1
+    }
+  },
+  "src/cli/cli-tree.ts": {
+    "effect/prefer-option-over-null": {
       "count": 1
     }
   },
@@ -95,6 +128,9 @@
     }
   },
   "src/cli/factory-commands.ts": {
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
     "effect/no-length-comparison": {
       "count": 1
     },
@@ -102,6 +138,9 @@
       "count": 1
     },
     "effect/prefer-effect-is": {
+      "count": 1
+    },
+    "effect/prefer-namespace-imports": {
       "count": 1
     }
   },
@@ -131,6 +170,12 @@
     },
     "effect/avoid-untagged-errors": {
       "count": 1
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "effect/prefer-namespace-imports": {
+      "count": 1
     }
   },
   "src/cli/mcp-gateway-commands.ts": {
@@ -138,7 +183,10 @@
       "count": 6
     },
     "effect/avoid-untagged-errors": {
-      "count": 4
+      "count": 2
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
     }
   },
   "src/cli/plan-commands.ts": {
@@ -157,11 +205,17 @@
     "effect/imperative-loops": {
       "count": 1
     },
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
     "effect/no-length-comparison": {
       "count": 6
     },
     "effect/prefer-arr-match": {
       "count": 6
+    },
+    "effect/prefer-namespace-imports": {
+      "count": 1
     },
     "effect/use-filesystem-service": {
       "count": 1
@@ -171,6 +225,9 @@
     "effect/avoid-direct-json": {
       "count": 1
     },
+    "effect/avoid-native-object-helpers": {
+      "count": 3
+    },
     "effect/avoid-process-env": {
       "count": 1
     },
@@ -178,6 +235,9 @@
       "count": 1
     },
     "effect/avoid-untagged-errors": {
+      "count": 1
+    },
+    "effect/effect-run-in-body": {
       "count": 1
     },
     "effect/no-barrel-imports": {
@@ -189,7 +249,24 @@
     "effect/use-filesystem-service": {
       "count": 1
     },
+    "typescript/no-unnecessary-condition": {
+      "count": 1
+    },
     "typescript/no-unsafe-assignment": {
+      "count": 1
+    }
+  },
+  "src/cli/run-commands.ts": {
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "effect/no-length-comparison": {
+      "count": 1
+    },
+    "effect/prefer-arr-match": {
+      "count": 1
+    },
+    "effect/prefer-namespace-imports": {
       "count": 1
     }
   },
@@ -235,10 +312,10 @@
       "count": 4
     },
     "effect/no-length-comparison": {
-      "count": 1
+      "count": 2
     },
     "effect/prefer-arr-match": {
-      "count": 1
+      "count": 2
     }
   },
   "src/cluster-doctor.ts": {
@@ -273,9 +350,6 @@
     "effect/avoid-sync-fs": {
       "count": 1
     },
-    "effect/effect-run-in-body": {
-      "count": 1
-    },
     "effect/no-barrel-imports": {
       "count": 1
     },
@@ -287,26 +361,18 @@
     "effect/avoid-native-object-helpers": {
       "count": 4
     },
-    "effect/effect-run-in-body": {
-      "count": 1
-    },
-    "effect/imperative-loops": {
-      "count": 1
-    },
     "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "effect/prefer-namespace-imports": {
       "count": 1
     }
   },
   "src/commands/runner-command-command.ts": {
-    "effect/effect-run-in-body": {
-      "count": 1
-    },
     "effect/no-barrel-imports": {
       "count": 1
-    }
-  },
-  "src/commands/ticket-command.ts": {
-    "effect/imperative-loops": {
+    },
+    "effect/prefer-namespace-imports": {
       "count": 1
     }
   },
@@ -335,9 +401,6 @@
   },
   "src/commands/ticket/create.ts": {
     "effect/avoid-native-object-helpers": {
-      "count": 1
-    },
-    "effect/effect-run-in-body": {
       "count": 1
     },
     "effect/no-barrel-imports": {
@@ -398,9 +461,6 @@
     },
     "effect/avoid-untagged-errors": {
       "count": 1
-    },
-    "effect/effect-run-in-body": {
-      "count": 2
     },
     "effect/no-barrel-imports": {
       "count": 1
@@ -782,9 +842,6 @@
     "effect/avoid-sync-fs": {
       "count": 1
     },
-    "effect/avoid-untagged-errors": {
-      "count": 1
-    },
     "effect/no-barrel-imports": {
       "count": 1
     },
@@ -792,9 +849,6 @@
       "count": 1
     },
     "effect/prefer-arr-match": {
-      "count": 1
-    },
-    "effect/prefer-effect-is": {
       "count": 1
     },
     "effect/prefer-namespace-imports": {
@@ -1101,6 +1155,17 @@
       "count": 1
     },
     "effect/prefer-namespace-imports": {
+      "count": 1
+    }
+  },
+  "src/loop/loop-command-registration.test.ts": {
+    "effect/avoid-try-catch": {
+      "count": 1
+    },
+    "import/no-duplicates": {
+      "count": 1
+    },
+    "no-duplicate-imports": {
       "count": 1
     }
   },
@@ -1630,10 +1695,10 @@
     "effect/avoid-untagged-errors": {
       "count": 1
     },
-    "effect/effect-run-in-body": {
-      "count": 5
-    },
     "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "effect/prefer-namespace-imports": {
       "count": 1
     }
   },
@@ -1699,10 +1764,7 @@
       "count": 1
     },
     "effect/avoid-untagged-errors": {
-      "count": 2
-    },
-    "effect/effect-run-in-body": {
-      "count": 1
+      "count": 3
     },
     "effect/no-barrel-imports": {
       "count": 1
@@ -1763,6 +1825,12 @@
     },
     "effect/avoid-untagged-errors": {
       "count": 2
+    },
+    "effect/no-barrel-imports": {
+      "count": 1
+    },
+    "effect/prefer-namespace-imports": {
+      "count": 1
     }
   },
   "src/run-control/run-artifacts-command.ts": {
@@ -2001,9 +2069,6 @@
   },
   "src/run-control/submit-result.ts": {
     "effect/avoid-direct-json": {
-      "count": 1
-    },
-    "effect/effect-run-in-body": {
       "count": 1
     }
   },
@@ -4661,7 +4726,7 @@
   },
   "tests/cli-refactor-boundaries.test.ts": {
     "effect/avoid-native-object-helpers": {
-      "count": 2
+      "count": 3
     },
     "effect/avoid-sync-fs": {
       "count": 2
@@ -4693,7 +4758,7 @@
       "count": 19
     },
     "effect/avoid-untagged-errors": {
-      "count": 7
+      "count": 6
     },
     "effect/imperative-loops": {
       "count": 15
@@ -5289,7 +5354,10 @@
       "count": 2
     },
     "effect/avoid-try-catch": {
-      "count": 2
+      "count": 3
+    },
+    "effect/avoid-untagged-errors": {
+      "count": 3
     },
     "effect/effect-run-in-body": {
       "count": 4
@@ -6554,7 +6622,7 @@
       "count": 3
     },
     "effect/avoid-untagged-errors": {
-      "count": 5
+      "count": 6
     },
     "effect/imperative-loops": {
       "count": 1

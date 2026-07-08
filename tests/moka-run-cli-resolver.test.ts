@@ -203,16 +203,14 @@ const withCliTarget = async (
   const dir = mkdtempSync(join(tmpdir(), "moka-run-resolver-cli-"));
   process.env.PIPELINE_TARGET_PATH = dir;
   try {
-    const { createCliProgram } = await import("../src/cli/program");
+    const { runCli } = await import("../src/cli/program");
     const parseMoka = async (
       args: string[],
       programOptions?: CliProgramOptions
     ) => {
-      await createCliProgram(programOptions).parseAsync(
+      await runCli(
         ["node", "/repo/node_modules/.bin/moka", ...args],
-        {
-          from: "node",
-        }
+        programOptions
       );
     };
     const parseRun = async (

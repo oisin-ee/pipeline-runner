@@ -5,6 +5,7 @@
     "oxfmt.config.ts"
   ],
   "ignoreDependencies": [
+    "@effect/platform-node-shared",
     "@mpsuesser/oxlint-plugin-effect",
     "tree-sitter-javascript",
     "tree-sitter-typescript",

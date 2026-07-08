@@ -1,17 +1,30 @@
-import type { Command } from "commander";
 import { Effect, Option } from "effect";
+import { Command, Flag } from "effect/unstable/cli";
 
+import { RepoIoServiceLive } from "../../runtime/services/repo-io-service";
 import type { TicketCommandOptions } from "./shared";
 import {
   currentWorktreePath,
   loadTicketGraphEffect,
-  runTicketProgram,
   writeLineEffect,
 } from "./shared";
 
 interface TicketRootFlags {
   root?: string;
 }
+
+const ticketRootFlags = {
+  root: Flag.string("root").pipe(
+    Flag.withDescription("limit validation summary to one ticket tree"),
+    Flag.optional
+  ),
+};
+
+const normalizeTicketRootFlags = (
+  flags: Command.Command.Config.Infer<typeof ticketRootFlags>
+): TicketRootFlags => ({
+  root: Option.getOrUndefined(flags.root),
+});
 
 const checkTicketGraphEffect = (worktreePath: string, flags: TicketRootFlags) =>
   Effect.gen(function* effectBody() {
@@ -32,21 +45,20 @@ const checkTicketGraphEffect = (worktreePath: string, flags: TicketRootFlags) =>
     }
   });
 
-export const registerGraphCheckSubcommand = (
-  ticketCommand: Command,
-  _options: TicketCommandOptions
-): void => {
-  const graphCommand = ticketCommand
-    .command("graph")
-    .description("Inspect the Backlog ticket dependency graph");
-
-  graphCommand
-    .command("check")
-    .description("Validate Backlog ticket dependency references and cycles")
-    .option("--root <ticket-id>", "limit validation summary to one ticket tree")
-    .action(async (flags: TicketRootFlags) => {
-      await runTicketProgram(
-        checkTicketGraphEffect(currentWorktreePath(), flags)
-      );
-    });
+export const createGraphCheckSubcommand = (_options: TicketCommandOptions) => {
+  const checkCommand = Command.make("check", ticketRootFlags, (rawFlags) =>
+    checkTicketGraphEffect(
+      currentWorktreePath(),
+      normalizeTicketRootFlags(rawFlags)
+    )
+  ).pipe(
+    Command.provide(RepoIoServiceLive),
+    Command.withDescription(
+      "Validate Backlog ticket dependency references and cycles"
+    )
+  );
+  return Command.make("graph").pipe(
+    Command.withDescription("Inspect the Backlog ticket dependency graph"),
+    Command.withSubcommands([checkCommand])
+  );
 };

@@ -1,5 +1,5 @@
-import type { Command } from "commander";
 import * as Effect from "effect/Effect";
+import { Argument, Command, Flag } from "effect/unstable/cli";
 
 import { loadMokaDbUrl } from "../moka-global-config";
 import { resolveDurableStore } from "../runtime/durable-store/acquisition";
@@ -78,17 +78,28 @@ const submitResultEffect = (
  * string; `(runId, nodeId)` are the positional routing keys — mirroring
  * `moka next node <run-id>` (PIPE-91.6).
  */
-export const registerSubmitResultSubcommand = (program: Command): void => {
-  program
-    .command("submit-result")
-    .description("Persist a node's terminal result into the durable run store")
-    .argument("<run-id>", "the run id to persist the result under")
-    .argument("<node-id>", "the node id whose result is being submitted")
-    .requiredOption(
-      "--json <payload>",
-      "the RuntimeNodeResult as a JSON string"
+export const createSubmitResultCommand = () =>
+  Command.make(
+    "submit-result",
+    // Effect CLI binds positional arguments in config-key order, which sort-keys
+    // forces alphabetical. The node argument is keyed targetNodeId (not nodeId)
+    // so the required run-id keeps the first position; keying it nodeId would
+    // put it first and silently swap the two required positionals.
+    {
+      json: Flag.string("json").pipe(
+        Flag.withDescription("the RuntimeNodeResult as a JSON string")
+      ),
+      runId: Argument.string("run-id").pipe(
+        Argument.withDescription("the run id to persist the result under")
+      ),
+      targetNodeId: Argument.string("node-id").pipe(
+        Argument.withDescription("the node id whose result is being submitted")
+      ),
+    },
+    ({ json, runId, targetNodeId }) =>
+      submitResultEffect(runId, targetNodeId, json)
+  ).pipe(
+    Command.withDescription(
+      "Persist a node's terminal result into the durable run store"
     )
-    .action(async (runId: string, nodeId: string, flags: { json: string }) => {
-      await Effect.runPromise(submitResultEffect(runId, nodeId, flags.json));
-    });
-};
+  );

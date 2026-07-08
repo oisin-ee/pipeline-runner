@@ -1,7 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { Command } from "commander";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -11,8 +10,8 @@ import {
   formatRuntimeResult,
 } from "../src/cli/format";
 import {
-  addMokaSubmitOptions,
   buildMokaSubmitInputFromCli,
+  mokaSubmitCliConfig,
   parseImagePullPolicy,
 } from "../src/cli/submit-options";
 import { loadPackagePipelineConfig } from "../src/config";
@@ -92,7 +91,7 @@ describe("PIPE-65 CLI refactor boundaries", () => {
   });
 
   it("exposes submit option helpers from src/cli/submit-options", () => {
-    expect(addMokaSubmitOptions).toEqual(expect.any(Function));
+    expect(mokaSubmitCliConfig).toEqual(expect.any(Object));
     expect(buildMokaSubmitInputFromCli).toEqual(expect.any(Function));
     expect(parseImagePullPolicy).toEqual(expect.any(Function));
   });
@@ -308,37 +307,36 @@ describe("PIPE-65 CLI formatting behavior", () => {
 });
 
 describe("PIPE-65 moka submit option normalization", () => {
-  it("keeps submit command options registered on the existing CLI surface", () => {
-    const command = addMokaSubmitOptions(new Command("submit"));
-    const optionNames = new Set(
-      command.options.map((option) => option.long).filter(Boolean)
-    );
+  it("keeps submit command options registered on the owned CLI config", () => {
+    const optionNames = new Set(Object.keys(mokaSubmitCliConfig));
 
     expect(optionNames).toEqual(
       new Set([
-        "--quick",
-        "--command",
-        "--schedule",
-        "--event-url",
-        "--open-pr",
-        "--task",
-        "--db-auth-secret-name",
-        "--db-auth-secret-key",
-        "--skip-db-auth",
-        "--mcp-gateway-auth-secret-name",
-        "--mcp-gateway-auth-secret-key",
-        "--skip-mcp-gateway-auth",
-        "--npm-registry-auth-secret-name",
-        "--skip-npm-registry-auth",
-        "--name",
-        "--generate-name",
-        "--namespace",
-        "--kubeconfig",
-        "--kube-context",
-        "--service-account",
-        "--image",
-        "--image-pull-policy",
-        "--image-pull-secret",
+        "command",
+        "dbAuthSecretKey",
+        "dbAuthSecretName",
+        "eventUrl",
+        "generateName",
+        "image",
+        "imagePullPolicy",
+        "imagePullSecret",
+        "input",
+        "kubeContext",
+        "kubeconfig",
+        "literalArgs",
+        "mcpGatewayAuthSecretKey",
+        "mcpGatewayAuthSecretName",
+        "name",
+        "namespace",
+        "npmRegistryAuthSecretName",
+        "openPr",
+        "quick",
+        "schedule",
+        "serviceAccount",
+        "skipDbAuth",
+        "skipMcpGatewayAuth",
+        "skipNpmRegistryAuth",
+        "task",
       ])
     );
   });

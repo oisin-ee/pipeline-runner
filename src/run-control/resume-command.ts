@@ -1,4 +1,5 @@
-import type { Command } from "commander";
+import { Effect, Option } from "effect";
+import { Argument, Command, Flag } from "effect/unstable/cli";
 
 import { buildMokaSubmitInputFromCli } from "../cli/submit-options";
 import { loadPipelineConfig } from "../config";
@@ -17,6 +18,45 @@ interface ResumeFlags {
   entrypoint?: string;
   workflow?: string;
 }
+
+// Effect CLI binds positional arguments in config-key order, and `sort-keys`
+// forces those keys alphabetical. The variadic task description is keyed
+// `taskDescription` (not `descriptionParts`) so it sorts AFTER the required
+// `runId`; keying it `descriptionParts` would sort it first and the variadic
+// would swallow the run-id token, matching the original `<run-id>
+// <description...>` order.
+const resumeFlags = {
+  entrypoint: Flag.string("entrypoint").pipe(
+    Flag.withDescription("entrypoint alias from package config"),
+    Flag.optional
+  ),
+  runId: Argument.string("run-id").pipe(
+    Argument.withDescription("the persisted run id to resume")
+  ),
+  taskDescription: Argument.string("description").pipe(
+    Argument.withDescription("task description for the remaining nodes"),
+    Argument.variadic({ min: 1 })
+  ),
+  workflow: Flag.string("workflow").pipe(
+    Flag.withDescription("workflow id from package config"),
+    Flag.optional
+  ),
+};
+
+const normalizeResumeFlags = (
+  flags: Command.Command.Config.Infer<typeof resumeFlags>
+): {
+  readonly flags: ResumeFlags;
+  readonly runId: string;
+  readonly task: string;
+} => ({
+  flags: {
+    entrypoint: Option.getOrUndefined(flags.entrypoint),
+    workflow: Option.getOrUndefined(flags.workflow),
+  },
+  runId: flags.runId,
+  task: [...flags.taskDescription].join(" "),
+});
 
 /**
  * PIPE-94.8: re-submit a remote-origin run through the PIPE-94.4 submit path.
@@ -111,19 +151,17 @@ const resumeRunFromCli = async (
   }
 };
 
-export const registerResumeSubcommand = (program: Command): void => {
-  program
-    .command("resume")
-    .description(
+export const createResumeCommand = () =>
+  Command.make("resume", resumeFlags, (rawFlags) =>
+    Effect.tryPromise({
+      catch: (error) => error,
+      try: async () => {
+        const { flags, runId, task } = normalizeResumeFlags(rawFlags);
+        await resumeRunFromCli(runId, task, flags);
+      },
+    })
+  ).pipe(
+    Command.withDescription(
       "Rehydrate a persisted run from the durable store and continue it"
     )
-    .argument("<run-id>", "the persisted run id to resume")
-    .argument("<description...>", "task description for the remaining nodes")
-    .option("--entrypoint <entrypoint>", "entrypoint alias from package config")
-    .option("--workflow <workflow>", "workflow id from package config")
-    .action(
-      async (runId: string, descriptionParts: string[], flags: ResumeFlags) => {
-        await resumeRunFromCli(runId, descriptionParts.join(" "), flags);
-      }
-    );
-};
+  );

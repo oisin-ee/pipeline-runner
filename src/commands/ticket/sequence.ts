@@ -1,12 +1,12 @@
-import type { Command } from "commander";
 import { Effect, Option } from "effect";
+import { Command, Flag } from "effect/unstable/cli";
 
+import { RepoIoServiceLive } from "../../runtime/services/repo-io-service";
 import { sequenceTicketBatchesEffect } from "../../tickets/ticket-graph";
 import type { TicketCommandOptions } from "./shared";
 import {
   currentWorktreePath,
   loadTicketGraphEffect,
-  runTicketProgram,
   writeLineEffect,
 } from "./shared";
 
@@ -14,6 +14,23 @@ interface TicketSequenceFlags {
   plain?: boolean;
   root?: string;
 }
+
+const ticketSequenceFlags = {
+  plain: Flag.boolean("plain").pipe(
+    Flag.withDescription("print plain text output")
+  ),
+  root: Flag.string("root").pipe(
+    Flag.withDescription("sequence one ticket tree"),
+    Flag.optional
+  ),
+};
+
+const normalizeTicketSequenceFlags = (
+  flags: Command.Command.Config.Infer<typeof ticketSequenceFlags>
+): TicketSequenceFlags => ({
+  plain: flags.plain,
+  root: Option.getOrUndefined(flags.root),
+});
 
 const formatSequence = (batches: readonly (readonly string[])[]): string =>
   batches
@@ -38,18 +55,15 @@ const printTicketSequenceEffect = (
     yield* writeLineEffect(formatSequence(batches));
   });
 
-export const registerSequenceSubcommand = (
-  ticketCommand: Command,
-  _options: TicketCommandOptions
-): void => {
-  ticketCommand
-    .command("sequence")
-    .description("Print dependency execution batches for Backlog tickets")
-    .option("--root <ticket-id>", "sequence one ticket tree")
-    .option("--plain", "print plain text output")
-    .action(async (flags: TicketSequenceFlags) => {
-      await runTicketProgram(
-        printTicketSequenceEffect(currentWorktreePath(), flags)
-      );
-    });
-};
+export const createSequenceSubcommand = (_options: TicketCommandOptions) =>
+  Command.make("sequence", ticketSequenceFlags, (rawFlags) =>
+    printTicketSequenceEffect(
+      currentWorktreePath(),
+      normalizeTicketSequenceFlags(rawFlags)
+    )
+  ).pipe(
+    Command.provide(RepoIoServiceLive),
+    Command.withDescription(
+      "Print dependency execution batches for Backlog tickets"
+    )
+  );

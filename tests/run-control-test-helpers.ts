@@ -51,7 +51,7 @@ export const runMokaCliInTarget = async (input: {
   originalPipelineTargetPath: string | undefined;
   workspaceRoot: string;
 }): Promise<CliCapture> => {
-  const { createCliProgram } = await import("../src/cli/program");
+  const { runCli } = await import("../src/cli/program");
   const log = vi.spyOn(console, "log").mockImplementation((...messages) => {
     input.buffers.stdout.push(`${messages.map(String).join(" ")}\n`);
   });
@@ -64,19 +64,7 @@ export const runMokaCliInTarget = async (input: {
 
   try {
     process.env.PIPELINE_TARGET_PATH = input.workspaceRoot;
-    const program = createCliProgram();
-    program.configureOutput({
-      writeErr: (value) => {
-        input.buffers.stderr.push(value);
-      },
-      writeOut: (value) => {
-        input.buffers.stdout.push(value);
-      },
-    });
-    await program.parseAsync(
-      ["node", "/repo/node_modules/.bin/moka", ...input.args],
-      { from: "node" }
-    );
+    await runCli(["node", "/repo/node_modules/.bin/moka", ...input.args]);
   } catch (error) {
     thrown = error;
   } finally {

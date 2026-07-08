@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 
-import type { Command } from "commander";
 import { Context, Effect, Layer } from "effect";
+import { Command, Flag } from "effect/unstable/cli";
 
 import {
   buildEvalReport,
@@ -42,19 +42,20 @@ const runBenchCommand = (options: { results: string }) =>
  * one EvalRunResult per task+variant; this command turns those records into the
  * comparison report.
  */
-export const registerBenchCommand = (program: Command): void => {
-  program
-    .command("bench")
-    .description(
+export const createBenchCommand = () =>
+  Command.make(
+    "bench",
+    {
+      results: Flag.string("results").pipe(
+        Flag.withDescription(
+          "JSON file: array of { task, variant, resolved, costTokens, wallMs }"
+        )
+      ),
+    },
+    (options) =>
+      Effect.provide(runBenchCommand(options), BenchCommandServiceLive)
+  ).pipe(
+    Command.withDescription(
       "Score a flat single-agent baseline vs the pipeline over recorded bench runs"
     )
-    .requiredOption(
-      "--results <path>",
-      "JSON file: array of { task, variant, resolved, costTokens, wallMs }"
-    )
-    .action(async (options: { results: string }) => {
-      await Effect.runPromise(
-        Effect.provide(runBenchCommand(options), BenchCommandServiceLive)
-      );
-    });
-};
+  );

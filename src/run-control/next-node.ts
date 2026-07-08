@@ -1,6 +1,6 @@
-import type { Command } from "commander";
 import { Effect, Option } from "effect";
 import type { Scope } from "effect";
+import { Argument, Command, Flag } from "effect/unstable/cli";
 
 import type { PipelineConfig } from "../config";
 import { loadPipelineConfig } from "../config/load";
@@ -196,17 +196,31 @@ const printNextNodeEnvelopeEffect = (
  * Register `moka next node <run-id>` under the `next` command group. The
  * schedule is read from the run-control manifest in the Moka DB by run id.
  */
-export const registerNextNodeSubcommand = (nextCommand: Command): void => {
-  nextCommand
-    .command("node")
-    .description(
+export const createNextNodeCommand = () =>
+  Command.make(
+    "node",
+    {
+      runId: Argument.string("run-id").pipe(
+        Argument.withDescription("the run id to query")
+      ),
+      scheduleFile: Flag.string("schedule-file").pipe(
+        Flag.withDescription("legacy schedule file path"),
+        Flag.withHidden,
+        Flag.optional
+      ),
+    },
+    ({ runId, scheduleFile }) => {
+      if (Option.getOrUndefined(scheduleFile) !== undefined) {
+        return Effect.fail(
+          new Error(
+            "remove --schedule-file: moka next node reads schedules from the Moka DB by run id."
+          )
+        );
+      }
+      return printNextNodeEnvelopeEffect(runId);
+    }
+  ).pipe(
+    Command.withDescription(
       "Emit the next ready node envelope from a persisted run without executing it"
     )
-    .argument("<run-id>", "the run id to query")
-    .showHelpAfterError(
-      "Remove --schedule-file; moka next node reads schedules from the Moka DB by run id."
-    )
-    .action(async (runId: string) => {
-      await Effect.runPromise(printNextNodeEnvelopeEffect(runId));
-    });
-};
+  );

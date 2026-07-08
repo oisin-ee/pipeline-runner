@@ -8,7 +8,6 @@ import type {
   RunnerLaunchPlan,
 } from "../../runner";
 import { BacklogService } from "../../runtime/services/backlog-service";
-import { RepoIoServiceLive } from "../../runtime/services/repo-io-service";
 import type { RepoIoService } from "../../runtime/services/repo-io-service";
 import { loadBacklogTaskStoreEffect } from "../../tickets/backlog-task-store";
 import type {
@@ -179,15 +178,3 @@ export const loadTicketSelectionEffect = (
       },
     };
   });
-
-export const runTicketProgram = async <A, E>(
-  program: Effect.Effect<A, E, RepoIoService>
-) => await Effect.runPromise(Effect.provide(program, RepoIoServiceLive));
-
-export const runTicketProgramWithBacklog = async <A, E>(
-  program: Effect.Effect<A, E, RepoIoService | BacklogService>,
-  backlogLayer: Layer.Layer<BacklogService>
-) =>
-  await Effect.runPromise(
-    Effect.provide(Effect.provide(program, RepoIoServiceLive), backlogLayer)
-  );

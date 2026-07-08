@@ -34,7 +34,7 @@ export interface LoopFlags {
   readonly strategy: TicketSelectionStrategy;
 }
 
-/** Raw commander option bag for the `loop` command. */
+/** Raw CLI option bag for the `loop` command. */
 export interface LoopCommandOptions {
   readonly maxRemediationAttempts?: string;
   readonly mergeTimeout?: string;

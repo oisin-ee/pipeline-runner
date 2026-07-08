@@ -4,7 +4,7 @@ import { join } from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { createCliProgram } from "../src/cli/program";
+import { runCli } from "../src/cli/program";
 import type { submitMoka } from "../src/moka-submit";
 import { runnerCommandPayloadSchema } from "../src/runner-command-contract";
 import { parseResultWithSchema } from "../src/schema-boundary";
@@ -75,10 +75,7 @@ const withTempWorktree = async (run: () => Promise<void>): Promise<void> => {
 };
 
 const parseMoka = async (args: string[]): Promise<void> => {
-  await createCliProgram().parseAsync(
-    ["node", "/repo/node_modules/.bin/moka", ...args],
-    { from: "node" }
-  );
+  await runCli(["node", "/repo/node_modules/.bin/moka", ...args]);
 };
 
 const onlySubmitInput = (): CapturedMokaSubmitInput => {

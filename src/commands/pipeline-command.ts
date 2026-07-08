@@ -1,5 +1,5 @@
-import type { Command } from "commander";
-import { Context, Effect, Layer } from "effect";
+import { Effect, Option } from "effect";
+import { Argument, Command, Flag } from "effect/unstable/cli";
 
 import type { PipelineConfig } from "../config";
 
@@ -35,107 +35,113 @@ type EntrypointRunner = (
   opts: EntrypointCommandFlags
 ) => Promise<void>;
 
-class EntrypointCommandService extends Context.Service<
-  EntrypointCommandService,
-  {
-    readonly runEntrypoint: (
-      entrypoint: string,
-      task: string,
-      opts: EntrypointCommandFlags
-    ) => Effect.Effect<void, unknown>;
-  }
->()("EntrypointCommandService") {}
+const entrypointBaseConfig = {
+  descriptionParts: Argument.string("description").pipe(
+    Argument.withDescription("task description"),
+    Argument.variadic({ min: 1 })
+  ),
+};
 
-const createEntrypointCommandServiceLive = (runEntrypoint: EntrypointRunner) =>
-  Layer.succeed(EntrypointCommandService, {
-    runEntrypoint: (entrypoint, task, opts) =>
+const scheduledEntrypointConfig = {
+  ...entrypointBaseConfig,
+  eventUrl: Flag.string("event-url").pipe(
+    Flag.withDescription("runner event sink URL"),
+    Flag.optional
+  ),
+  image: Flag.string("image").pipe(
+    Flag.withDescription("runner image"),
+    Flag.optional
+  ),
+  imagePullPolicy: Flag.string("image-pull-policy").pipe(
+    Flag.withDescription("runner image pull policy"),
+    Flag.optional
+  ),
+  imagePullSecret: Flag.string("image-pull-secret").pipe(
+    Flag.withDescription("imagePullSecret name"),
+    Flag.optional
+  ),
+  kubeconfig: Flag.string("kubeconfig").pipe(
+    Flag.withDescription("kubeconfig path"),
+    Flag.optional
+  ),
+  namespace: Flag.string("namespace").pipe(
+    Flag.withDescription("Workflow namespace"),
+    Flag.optional
+  ),
+  schedule: Flag.string("schedule").pipe(
+    Flag.withDescription("approved schedule YAML to submit"),
+    Flag.optional
+  ),
+  serviceAccount: Flag.string("service-account").pipe(
+    Flag.withDescription("Workflow service account"),
+    Flag.optional
+  ),
+};
+
+const scheduledEntrypointFlags = (
+  flags: Command.Command.Config.Infer<typeof scheduledEntrypointConfig>
+): EntrypointCommandFlags => ({
+  eventUrl: Option.getOrUndefined(flags.eventUrl),
+  image: Option.getOrUndefined(flags.image),
+  imagePullPolicy: Option.getOrUndefined(flags.imagePullPolicy),
+  imagePullSecret: Option.getOrUndefined(flags.imagePullSecret),
+  kubeconfig: Option.getOrUndefined(flags.kubeconfig),
+  namespace: Option.getOrUndefined(flags.namespace),
+  schedule: Option.getOrUndefined(flags.schedule),
+  serviceAccount: Option.getOrUndefined(flags.serviceAccount),
+});
+
+const createEntrypointCommand = (
+  id: string,
+  entrypoint: PipelineConfig["entrypoints"][string],
+  runEntrypoint: EntrypointRunner
+) => {
+  if ("schedule" in entrypoint) {
+    return Command.make(id, scheduledEntrypointConfig, (flags) =>
       Effect.tryPromise({
         catch: (error) => error,
         try: async () => {
-          await runEntrypoint(entrypoint, task, opts);
+          await runEntrypoint(
+            id,
+            [...flags.descriptionParts].join(" "),
+            scheduledEntrypointFlags(flags)
+          );
         },
-      }),
-  });
-
-const runConfiguredEntrypointCommand = (
-  entrypoint: string,
-  descriptionParts: string[],
-  flags: EntrypointCommandFlags
-) =>
-  Effect.gen(function* effectBody() {
-    const service = yield* EntrypointCommandService;
-    yield* service.runEntrypoint(entrypoint, descriptionParts.join(" "), flags);
-  });
-
-const addScheduledEntrypointOptions = (command: Command): Command =>
-  command
-    .option("--namespace <namespace>", "Workflow namespace")
-    .option("--schedule <path>", "approved schedule YAML to submit")
-    .option("--kubeconfig <path>", "kubeconfig path")
-    .option("--service-account <name>", "Workflow service account")
-    .option("--image <image>", "runner image")
-    .option("--image-pull-policy <policy>", "runner image pull policy")
-    .option("--image-pull-secret <name>", "imagePullSecret name")
-    .option("--event-url <url>", "runner event sink URL");
-
-const configureEntrypointOptions = (
-  command: Command,
-  entrypoint: PipelineConfig["entrypoints"][string]
-): Command => {
-  if ("schedule" in entrypoint) {
-    return addScheduledEntrypointOptions(command);
+      })
+    ).pipe(
+      Command.withDescription(
+        entrypoint.description ?? `Run the ${id} workflow`
+      )
+    );
   }
-  return command;
-};
-
-const createEntrypointCommand = (
-  program: Command,
-  id: string,
-  entrypoint: PipelineConfig["entrypoints"][string]
-): Command => {
-  const command = program
-    .command(id)
-    .description(entrypoint.description ?? `Run the ${id} workflow`)
-    .argument("<description...>", "task description");
-  return configureEntrypointOptions(command, entrypoint);
-};
-
-const registerEntrypointAction = (
-  command: Command,
-  id: string,
-  serviceLive: ReturnType<typeof createEntrypointCommandServiceLive>
-): void => {
-  command.action(
-    async (descriptionParts: string[], flags: EntrypointCommandFlags) => {
-      await Effect.runPromise(
-        Effect.provide(
-          runConfiguredEntrypointCommand(id, descriptionParts, flags),
-          serviceLive
-        )
-      );
-    }
+  return Command.make(id, entrypointBaseConfig, (flags) =>
+    Effect.tryPromise({
+      catch: (error) => error,
+      try: async () => {
+        await runEntrypoint(id, [...flags.descriptionParts].join(" "), {});
+      },
+    })
+  ).pipe(
+    Command.withDescription(entrypoint.description ?? `Run the ${id} workflow`)
   );
 };
 
-export const registerConfiguredEntrypointCommands = (
-  program: Command,
+export const createConfiguredEntrypointCommands = (
   config: PipelineConfig,
-  runEntrypoint: EntrypointRunner
-): Set<string> => {
+  runEntrypoint: EntrypointRunner,
+  reservedCommandNames: ReadonlySet<string>
+) => {
   const registered = new Set<string>();
-  const serviceLive = createEntrypointCommandServiceLive(runEntrypoint);
-
-  const reservedCommands = new Set(
-    program.commands.map((command) => command.name())
-  );
-  for (const [id, entrypoint] of Object.entries(config.entrypoints)) {
-    if (reservedCommands.has(id)) {
-      continue;
+  const reservedCommands = new Set(reservedCommandNames);
+  const commands = Object.entries(config.entrypoints).flatMap(
+    ([id, entrypoint]) => {
+      if (reservedCommands.has(id)) {
+        return [];
+      }
+      reservedCommands.add(id);
+      registered.add(id);
+      return [createEntrypointCommand(id, entrypoint, runEntrypoint)];
     }
-    const command = createEntrypointCommand(program, id, entrypoint);
-    registerEntrypointAction(command, id, serviceLive);
-    registered.add(id);
-    reservedCommands.add(id);
-  }
-  return registered;
+  );
+  return { commands, names: registered };
 };

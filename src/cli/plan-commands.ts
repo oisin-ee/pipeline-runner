@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 
-import type { Command } from "commander";
+import { Effect, Option } from "effect";
+import { Command, Flag } from "effect/unstable/cli";
 
 import type { PipelineConfig } from "../config";
 import { loadPipelineConfig } from "../config";
@@ -25,6 +26,40 @@ interface ValidateFlags {
   strict?: boolean;
   workflow?: string;
 }
+
+const validateCliConfig = {
+  entrypoint: Flag.string("entrypoint").pipe(
+    Flag.withDescription("entrypoint id from package config"),
+    Flag.optional
+  ),
+  lint: Flag.boolean("lint").pipe(
+    Flag.withDescription("emit validation lint warnings"),
+    Flag.withDefault(true)
+  ),
+  schedule: Flag.string("schedule").pipe(
+    Flag.withDescription("approved schedule YAML"),
+    Flag.optional
+  ),
+  strict: Flag.boolean("strict").pipe(
+    Flag.withDescription("fail when validation lint warnings are emitted")
+  ),
+  workflow: Flag.string("workflow").pipe(
+    Flag.withDescription("workflow id from package config"),
+    Flag.optional
+  ),
+};
+
+type ParsedValidateFlags = Command.Command.Config.Infer<
+  typeof validateCliConfig
+>;
+
+const validateFlags = (flags: ParsedValidateFlags): ValidateFlags => ({
+  entrypoint: Option.getOrUndefined(flags.entrypoint),
+  lint: flags.lint,
+  schedule: Option.getOrUndefined(flags.schedule),
+  strict: flags.strict,
+  workflow: Option.getOrUndefined(flags.workflow),
+});
 
 type WorkflowPlan = ReturnType<typeof compileWorkflowPlan>;
 type ConfigLintWarning = ReturnType<typeof lintPipelineConfig>[number];
@@ -273,28 +308,41 @@ const runExplainPlanCommand = (flags: ValidateFlags): void => {
   );
 };
 
-export const registerPlanCommands = (program: Command): void => {
-  program
-    .command("validate")
-    .description(
+export const createPlanCommands = () => [
+  Command.make("validate", validateCliConfig, (flags) =>
+    Effect.try({
+      catch: (error) => error,
+      try: () => {
+        runValidateCommand(validateFlags(flags));
+      },
+    })
+  ).pipe(
+    Command.withDescription(
       "Validate package-owned @oisincoveney/pipeline config and compile the workflow plan"
     )
-    .option("--entrypoint <entrypoint>", "entrypoint id from package config")
-    .option("--schedule <schedule>", "approved schedule YAML to validate")
-    .option("--strict", "fail when validation lint warnings are emitted")
-    .option("--no-lint", "skip validation lint warnings")
-    .option("--workflow <workflow>", "workflow id from package config")
-    .action((flags: ValidateFlags) => {
-      runValidateCommand(flags);
-    });
-
-  program
-    .command("explain-plan")
-    .description("Explain nodes, runners, gates, hooks, and artifacts")
-    .option("--entrypoint <entrypoint>", "entrypoint id from package config")
-    .option("--schedule <schedule>", "approved schedule YAML to explain")
-    .option("--workflow <workflow>", "workflow id from package config")
-    .action((flags: ValidateFlags) => {
-      runExplainPlanCommand(flags);
-    });
-};
+  ),
+  Command.make(
+    "explain-plan",
+    {
+      entrypoint: validateCliConfig.entrypoint,
+      schedule: Flag.string("schedule").pipe(
+        Flag.withDescription("approved schedule YAML to explain"),
+        Flag.optional
+      ),
+      workflow: validateCliConfig.workflow,
+    },
+    (flags) =>
+      Effect.try({
+        catch: (error) => error,
+        try: () => {
+          runExplainPlanCommand(
+            validateFlags({ ...flags, lint: true, strict: false })
+          );
+        },
+      })
+  ).pipe(
+    Command.withDescription(
+      "Explain nodes, runners, gates, hooks, and artifacts"
+    )
+  ),
+];

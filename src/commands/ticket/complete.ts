@@ -1,10 +1,11 @@
-import type { Command } from "commander";
 import { Effect } from "effect";
+import { Argument, Command, Flag } from "effect/unstable/cli";
 
 import type { CompletionClaim, UnmetCriterion } from "../../runtime/contracts";
 import type { BacklogService } from "../../runtime/services/backlog-service";
 import { BacklogServiceLive } from "../../runtime/services/backlog-service";
 import type { RepoIoService } from "../../runtime/services/repo-io-service";
+import { RepoIoServiceLive } from "../../runtime/services/repo-io-service";
 import {
   backlogTicketCompletionStoreEffect,
   completeTicket,
@@ -14,7 +15,6 @@ import type { TicketCompletionOutcome } from "../../tickets/completion/complete-
 import type { TicketCommandOptions } from "./shared";
 import {
   currentWorktreePath,
-  runTicketProgramWithBacklog,
   TicketCommandError,
   writeLineEffect,
 } from "./shared";
@@ -24,15 +24,38 @@ interface TicketCompleteFlags {
   json?: boolean;
 }
 
+const ticketCompleteFlags = {
+  evidence: Flag.string("evidence").pipe(
+    Flag.withDescription(
+      "per-criterion completion evidence; repeat to add more"
+    ),
+    Flag.atLeast(0)
+  ),
+  json: Flag.boolean("json").pipe(
+    Flag.withDescription("print machine-readable completion outcome")
+  ),
+  ticketId: Argument.string("ticket-id").pipe(
+    Argument.withDescription("Backlog ticket id to complete")
+  ),
+};
+
 interface EvidenceEntry {
   readonly id: string;
   readonly text: string;
 }
 
-const collectEvidence = (value: string, previous: string[]): string[] => [
-  ...previous,
-  value,
-];
+const normalizeTicketCompleteFlags = (
+  flags: Command.Command.Config.Infer<typeof ticketCompleteFlags>
+): {
+  readonly flags: TicketCompleteFlags;
+  readonly ticketId: string;
+} => ({
+  flags: {
+    evidence: [...flags.evidence],
+    json: flags.json,
+  },
+  ticketId: flags.ticketId,
+});
 
 const parseEvidenceEntryEffect = (
   raw: string
@@ -116,27 +139,14 @@ const completeTicketCommandEffect = (
     }
   });
 
-export const registerCompleteSubcommand = (
-  ticketCommand: Command,
-  options: TicketCommandOptions
-): void => {
-  ticketCommand
-    .command("complete")
-    .description(
+export const createCompleteSubcommand = (options: TicketCommandOptions) =>
+  Command.make("complete", ticketCompleteFlags, (rawFlags) => {
+    const { flags, ticketId } = normalizeTicketCompleteFlags(rawFlags);
+    return completeTicketCommandEffect(currentWorktreePath(), ticketId, flags);
+  }).pipe(
+    Command.provide(RepoIoServiceLive),
+    Command.provide(options.backlogLayer ?? BacklogServiceLive),
+    Command.withDescription(
       "Adjudicate a completion claim and set a Backlog ticket to Done only if it passes"
     )
-    .argument("<ticket-id>", "Backlog ticket id to complete")
-    .option(
-      "--evidence <criterionId=text>",
-      "per-criterion completion evidence; repeat to add more",
-      collectEvidence,
-      []
-    )
-    .option("--json", "print machine-readable completion outcome")
-    .action(async (ticketId: string, flags: TicketCompleteFlags) => {
-      await runTicketProgramWithBacklog(
-        completeTicketCommandEffect(currentWorktreePath(), ticketId, flags),
-        options.backlogLayer ?? BacklogServiceLive
-      );
-    });
-};
+  );

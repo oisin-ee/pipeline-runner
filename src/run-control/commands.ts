@@ -1,9 +1,9 @@
-import type { Command } from "commander";
-import { Effect } from "effect";
+import { Effect, Option } from "effect";
+import { Argument, Command, Flag } from "effect/unstable/cli";
 
 import { logEffect, withRunControlStore } from "./command-context";
-import { registerNextNodeSubcommand } from "./next-node";
-import { registerResumeSubcommand } from "./resume-command";
+import { createNextNodeCommand } from "./next-node";
+import { createResumeCommand } from "./resume-command";
 import {
   exportSanitizedRunBundleEffect,
   printLogsEffect,
@@ -12,11 +12,82 @@ import type { LogsFlags } from "./run-artifacts-command";
 import { printRunsEffect, printStatusEffect } from "./run-query-command";
 import type { StatusFlags } from "./run-query-command";
 import { stopRunOrNodeEffect } from "./stop-command";
-import { registerSubmitResultSubcommand } from "./submit-result";
+import { createSubmitResultCommand } from "./submit-result";
 
 interface ExportFlags {
   sanitize?: boolean;
 }
+
+const statusFlags = {
+  json: Flag.boolean("json").pipe(
+    Flag.withDescription("print machine-readable run status")
+  ),
+  runId: Argument.string("run-id").pipe(
+    Argument.withDescription(
+      "run id to inspect; defaults to latest active run"
+    ),
+    Argument.optional
+  ),
+  watch: Flag.boolean("watch").pipe(
+    Flag.withDescription(
+      "poll status until the selected run is no longer active"
+    )
+  ),
+};
+
+// Effect CLI binds positional arguments in config-key order, and `sort-keys`
+// forces those keys alphabetical. The optional node argument is therefore keyed
+// `targetNodeId` (not `nodeId`) so it sorts AFTER the required `runId`, keeping
+// `<run-id> [node-id]` binding correct; keying it `nodeId` would sort it first
+// and steal the required run-id's positional.
+const logsFlags = {
+  follow: Flag.boolean("follow").pipe(
+    Flag.withDescription(
+      "continue printing appended artifact content while the run is active"
+    )
+  ),
+  runId: Argument.string("run-id").pipe(
+    Argument.withDescription("run id to inspect")
+  ),
+  targetNodeId: Argument.string("node-id").pipe(
+    Argument.withDescription("node id whose artifacts should be printed"),
+    Argument.optional
+  ),
+};
+
+const stopFlags = {
+  runId: Argument.string("run-id").pipe(
+    Argument.withDescription("run id to stop")
+  ),
+  targetNodeId: Argument.string("node-id").pipe(
+    Argument.withDescription("node id to stop without aborting sibling work"),
+    Argument.optional
+  ),
+};
+
+const exportFlags = {
+  runId: Argument.string("run-id").pipe(
+    Argument.withDescription("run id to export")
+  ),
+  sanitize: Flag.boolean("sanitize").pipe(
+    Flag.withDescription(
+      "omit prompt and session body text from exported artifacts"
+    )
+  ),
+};
+
+const statusCommandFlags = (
+  input: Command.Command.Config.Infer<typeof statusFlags>
+): StatusFlags => ({
+  json: input.json,
+  watch: input.watch,
+});
+
+const logsCommandFlags = (
+  input: Command.Command.Config.Infer<typeof logsFlags>
+): LogsFlags => ({
+  follow: input.follow,
+});
 
 const exportCommandEffect = (input: {
   flags: ExportFlags;
@@ -39,102 +110,60 @@ const exportCommandEffect = (input: {
   );
 };
 
-export const registerRunControlCommands = (program: Command): void => {
-  program
-    .command("runs")
-    .description("List known Moka runs, newest first")
-    .action(async () => {
-      await Effect.runPromise(
-        withRunControlStore((store, root) => printRunsEffect(store, root))
-      );
-    });
-
-  program
-    .command("status")
-    .description("Show run-control status for a Moka run")
-    .argument("[run-id]", "run id to inspect; defaults to latest active run")
-    .option("--watch", "poll status until the selected run is no longer active")
-    .option("--json", "print machine-readable run status")
-    .action(
-      async (
-        runId: Parameters<typeof printStatusEffect>[0]["runId"],
-        flags: StatusFlags
-      ) => {
-        await Effect.runPromise(
-          withRunControlStore((store, root) =>
-            printStatusEffect({ flags, runId, store, workspaceRoot: root })
-          )
-        );
-      }
-    );
-
-  program
-    .command("logs")
-    .description("Print whole-run or node-specific run-control artifacts")
-    .argument("<run-id>", "run id to inspect")
-    .argument("[node-id]", "node id whose artifacts should be printed")
-    .option(
-      "--follow",
-      "continue printing appended artifact content while the run is active"
+export const createRunControlCommands = () => [
+  Command.make("runs", {}, () =>
+    withRunControlStore((store, root) => printRunsEffect(store, root))
+  ).pipe(Command.withDescription("List known Moka runs, newest first")),
+  Command.make("status", statusFlags, (input) =>
+    withRunControlStore((store, root) =>
+      printStatusEffect({
+        flags: statusCommandFlags(input),
+        runId: Option.getOrUndefined(input.runId),
+        store,
+        workspaceRoot: root,
+      })
     )
-    .action(
-      async (
-        runId: string,
-        nodeId: Parameters<typeof printLogsEffect>[0]["nodeId"],
-        flags: LogsFlags
-      ) => {
-        await Effect.runPromise(
-          withRunControlStore((store, root) =>
-            printLogsEffect({
-              flags,
-              nodeId,
-              runId,
-              store,
-              workspaceRoot: root,
-            })
-          )
-        );
-      }
-    );
-
-  program
-    .command("stop")
-    .description("Mark a Moka run or node as aborted")
-    .argument("<run-id>", "run id to stop")
-    .argument("[node-id]", "node id to stop without aborting sibling work")
-    .action(async (runId: string, nodeId?: string) => {
-      await Effect.runPromise(
-        withRunControlStore((store) =>
-          stopRunOrNodeEffect({
-            nodeId,
-            runId,
-            store,
-          }).pipe(Effect.flatMap(logEffect))
-        )
-      );
-    });
-
-  program
-    .command("export")
-    .description("Print a sanitized portable run evidence bundle")
-    .argument("<run-id>", "run id to export")
-    .requiredOption(
-      "--sanitize",
-      "omit prompt and session body text from exported artifacts"
+  ).pipe(Command.withDescription("Show run-control status for a Moka run")),
+  Command.make("logs", logsFlags, (input) =>
+    withRunControlStore((store, root) =>
+      printLogsEffect({
+        flags: logsCommandFlags(input),
+        nodeId: Option.getOrUndefined(input.targetNodeId),
+        runId: input.runId,
+        store,
+        workspaceRoot: root,
+      })
     )
-    .action(async (runId: string, flags: ExportFlags) => {
-      await Effect.runPromise(
-        withRunControlStore((store, root) =>
-          exportCommandEffect({ flags, runId, store, workspaceRoot: root })
-        )
-      );
-    });
-
-  const nextCommand = program
-    .command("next")
-    .description("Advance a persisted durable run one step");
-  registerNextNodeSubcommand(nextCommand);
-
-  registerSubmitResultSubcommand(program);
-  registerResumeSubcommand(program);
-};
+  ).pipe(
+    Command.withDescription(
+      "Print whole-run or node-specific run-control artifacts"
+    )
+  ),
+  Command.make("stop", stopFlags, (input) =>
+    withRunControlStore((store) =>
+      stopRunOrNodeEffect({
+        nodeId: Option.getOrUndefined(input.targetNodeId),
+        runId: input.runId,
+        store,
+      }).pipe(Effect.flatMap(logEffect))
+    )
+  ).pipe(Command.withDescription("Mark a Moka run or node as aborted")),
+  Command.make("export", exportFlags, (input) =>
+    withRunControlStore((store, root) =>
+      exportCommandEffect({
+        flags: { sanitize: input.sanitize },
+        runId: input.runId,
+        store,
+        workspaceRoot: root,
+      })
+    )
+  ).pipe(
+    Command.withDescription("Print a sanitized portable run evidence bundle")
+  ),
+  Command.make("next").pipe(
+    Command.withDescription("Advance a persisted durable run one step"),
+    Command.withSubcommands([createNextNodeCommand()])
+  ),
+  createSubmitResultCommand(),
+  createResumeCommand(),
+];

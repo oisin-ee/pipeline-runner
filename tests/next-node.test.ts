@@ -3,14 +3,14 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { describe, expect, it } from "@effect/vitest";
-import { Command } from "commander";
 import { Effect } from "effect";
+import { vi } from "vitest";
 
+import { runCli } from "../src/cli/program";
 import { parsePipelineConfigParts } from "../src/config";
 import {
   buildNextNodeEnvelope,
   buildNextNodeEnvelopeFromRunStore,
-  registerNextNodeSubcommand,
 } from "../src/run-control/next-node";
 import { fileRunControlStore } from "../src/run-control/run-control-store";
 import type { AcceptanceCriterion } from "../src/runtime/contracts/contracts";
@@ -19,7 +19,6 @@ import type { WorkflowScheduleNode } from "../src/runtime/scheduler";
 import { computeReadyNodeIds } from "../src/runtime/scheduler";
 
 const MISSING_PERSISTED_SCHEDULE_RE = /persisted schedule.*moka next node/iu;
-const UNKNOWN_SCHEDULE_FILE_OPTION_RE = /unknown option '--schedule-file'/iu;
 const SCHEDULE_FILE_MIGRATION_RE = /remove --schedule-file.*Moka DB/iu;
 
 // ---------------------------------------------------------------------------
@@ -239,36 +238,59 @@ describe("buildNextNodeEnvelope", () => {
   });
 });
 
-describe("registerNextNodeSubcommand", () => {
+const captureConsole = async (run: () => Promise<void>) => {
+  const stderr: string[] = [];
+  const stdout: string[] = [];
+  let thrown: unknown;
+  const error = vi.spyOn(console, "error").mockImplementation((message) => {
+    stderr.push(String(message));
+  });
+  const log = vi.spyOn(console, "log").mockImplementation((message) => {
+    stdout.push(String(message));
+  });
+  try {
+    await run();
+  } catch (error_) {
+    thrown = error_;
+  } finally {
+    error.mockRestore();
+    log.mockRestore();
+  }
+  return { stderr: stderr.join("\n"), stdout: stdout.join("\n"), thrown };
+};
+
+describe("createNextNodeCommand", () => {
   it("hides and rejects the legacy --schedule-file flag with migration guidance", async () => {
-    const program = new Command("moka").exitOverride();
-    const stderr: string[] = [];
-    program.configureOutput({
-      writeErr: (chunk) => {
-        stderr.push(chunk);
-      },
+    const help = await captureConsole(async () => {
+      await runCli([
+        "node",
+        "/repo/node_modules/.bin/moka",
+        "next",
+        "node",
+        "--help",
+      ]);
     });
-    const next = program.command("next");
-    registerNextNodeSubcommand(next);
+    if (help.thrown !== undefined) {
+      throw new Error("next node help failed");
+    }
+    expect(help.stdout).not.toContain("--schedule-file");
 
-    const nodeCommand = next.commands.find(
-      (command) => command.name() === "node"
-    );
-    expect(nodeCommand?.helpInformation()).not.toContain("--schedule-file");
-
-    await expect(
-      program.parseAsync(
-        [
-          "next",
-          "node",
-          "run-with-schedule",
-          "--schedule-file",
-          "schedule.yaml",
-        ],
-        { from: "user" }
-      )
-    ).rejects.toThrow(UNKNOWN_SCHEDULE_FILE_OPTION_RE);
-    expect(stderr.join("")).toMatch(SCHEDULE_FILE_MIGRATION_RE);
+    const rejected = await captureConsole(async () => {
+      await runCli([
+        "node",
+        "/repo/node_modules/.bin/moka",
+        "next",
+        "node",
+        "run-with-schedule",
+        "--schedule-file",
+        "schedule.yaml",
+      ]);
+    });
+    if (!(rejected.thrown instanceof Error)) {
+      throw new Error("next node --schedule-file was not rejected");
+    }
+    expect(rejected.thrown.message).toMatch(SCHEDULE_FILE_MIGRATION_RE);
+    expect(rejected.stderr).toBe("");
   });
 });
 

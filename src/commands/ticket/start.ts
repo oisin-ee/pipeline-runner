@@ -1,7 +1,6 @@
-import { Option } from "commander";
-import type { Command } from "commander";
 import { Effect } from "effect";
-import { fromUndefinedOr, isNone, some } from "effect/Option";
+import { fromUndefinedOr, getOrUndefined, isNone, some } from "effect/Option";
+import { Command, Flag } from "effect/unstable/cli";
 
 import type { RunCommand } from "../../cli/run-command";
 import {
@@ -17,6 +16,7 @@ import type {
 import type { BacklogService } from "../../runtime/services/backlog-service";
 import { BacklogServiceLive } from "../../runtime/services/backlog-service";
 import type { RepoIoService } from "../../runtime/services/repo-io-service";
+import { RepoIoServiceLive } from "../../runtime/services/repo-io-service";
 import type { BacklogTaskRecord } from "../../tickets/backlog-task-store";
 import { selectNextTicket } from "../../tickets/ticket-selection";
 import type { TicketCommandOptions } from "./shared";
@@ -27,7 +27,6 @@ import {
   formatNextTicket,
   loadTicketSelectionEffect,
   readyTicketEffect,
-  runTicketProgramWithBacklog,
   TicketCommandError,
   writeLineEffect,
 } from "./shared";
@@ -41,6 +40,46 @@ interface TicketStartFlags {
   strategy?: string;
   target?: MokaRunTarget;
 }
+
+const ticketStartFlags = {
+  dryRun: Flag.boolean("dry-run").pipe(
+    Flag.withDescription("print the selected moka run command without claiming")
+  ),
+  effort: Flag.choice("effort", MOKA_RUN_EFFORTS).pipe(
+    Flag.withDescription("run effort"),
+    Flag.withDefault(MOKA_RUN_EFFORTS[0])
+  ),
+  includeParents: Flag.boolean("include-parents").pipe(
+    Flag.withDescription("allow parent tickets in selection results")
+  ),
+  readOnly: Flag.boolean("read-only").pipe(
+    Flag.withDescription("run the read-only inspect workflow")
+  ),
+  root: Flag.string("root").pipe(
+    Flag.withDescription("select from one ticket tree"),
+    Flag.optional
+  ),
+  strategy: Flag.string("strategy").pipe(
+    Flag.withDescription("selection strategy: priority, bfs, or dfs"),
+    Flag.optional
+  ),
+  target: Flag.choice("target", MOKA_RUN_TARGETS).pipe(
+    Flag.withDescription("execution target"),
+    Flag.withDefault(MOKA_RUN_TARGETS[0])
+  ),
+};
+
+const normalizeTicketStartFlags = (
+  flags: Command.Command.Config.Infer<typeof ticketStartFlags>
+): TicketStartFlags => ({
+  dryRun: flags.dryRun,
+  effort: flags.effort,
+  includeParents: flags.includeParents,
+  readOnly: flags.readOnly,
+  root: getOrUndefined(flags.root),
+  strategy: getOrUndefined(flags.strategy),
+  target: flags.target,
+});
 
 interface TicketRunDescriptor {
   readonly task: string;
@@ -175,39 +214,15 @@ const startTicketEffect = (
     }
   });
 
-export const registerStartSubcommand = (
-  ticketCommand: Command,
-  options: TicketCommandOptions
-): void => {
-  ticketCommand
-    .command("start")
-    .description("Claim the next ready Backlog ticket and run moka")
-    .option("--root <ticket-id>", "select from one ticket tree")
-    .option("--include-parents", "allow parent tickets in selection results")
-    .option(
-      "--strategy <strategy>",
-      "selection strategy: priority, bfs, or dfs"
+export const createStartSubcommand = (options: TicketCommandOptions) =>
+  Command.make("start", ticketStartFlags, (rawFlags) =>
+    startTicketEffect(
+      currentWorktreePath(),
+      normalizeTicketStartFlags(rawFlags),
+      fromUndefinedOr(options.runCommand)
     )
-    .option("--dry-run", "print the selected moka run command without claiming")
-    .addOption(
-      new Option("--effort <effort>", "run effort")
-        .choices([...MOKA_RUN_EFFORTS])
-        .default("normal")
-    )
-    .addOption(
-      new Option("--target <target>", "execution target")
-        .choices([...MOKA_RUN_TARGETS])
-        .default("local")
-    )
-    .option("--read-only", "run the read-only inspect workflow")
-    .action(async (flags: TicketStartFlags) => {
-      await runTicketProgramWithBacklog(
-        startTicketEffect(
-          currentWorktreePath(),
-          flags,
-          fromUndefinedOr(options.runCommand)
-        ),
-        options.backlogLayer ?? BacklogServiceLive
-      );
-    });
-};
+  ).pipe(
+    Command.provide(RepoIoServiceLive),
+    Command.provide(options.backlogLayer ?? BacklogServiceLive),
+    Command.withDescription("Claim the next ready Backlog ticket and run moka")
+  );
